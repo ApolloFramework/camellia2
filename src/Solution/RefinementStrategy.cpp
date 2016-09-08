@@ -235,10 +235,13 @@ void TRefinementStrategy<Scalar>::refine(bool printToConsole)
   // now, repartition and rebuild:
   mesh->repartitionAndRebuild();
   
-  if (printToConsole)
+  GlobalIndexType activeElementCount = mesh->numActiveElements();
+  GlobalIndexType globalDofCount = mesh->numGlobalDofs();
+  
+  if (printToConsole && (mesh->Comm()->MyPID() == 0))
   {
     cout << "Prior to refinement, total error: " << totalError << endl;
-    cout << "After refinement, mesh has " << mesh->numActiveElements() << " elements and " << mesh->numGlobalDofs() << " global dofs" << endl;
+    cout << "After refinement, mesh has " << activeElementCount << " elements and " << globalDofCount << " global dofs" << endl;
   }
 }
 
