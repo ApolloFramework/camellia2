@@ -108,7 +108,7 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, vector
 
   setBilinearForm(bilinearForm);
   _varFactory = bilinearForm->varFactory();
-  _boundary.setMesh(Teuchos::rcp(this,false));
+  _boundary.setMesh(thisPtr);
 
   _meshTopology->setGlobalDofAssignment(_gda.get());
 }
