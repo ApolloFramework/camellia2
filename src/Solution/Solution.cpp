@@ -1861,8 +1861,9 @@ void TSolution<Scalar>::imposeBCs()
   // we may have some duplicates (multiple ranks may have ideas about our BC's values)
   // count them:
   int numDuplicates = 0;
-  int numBCsWithDuplicates = bcsToImposeThisRank.size();
-  for (int i=0; i<numBCsWithDuplicates-1; i++)
+  int numBCsIncludingDuplicates = bcsToImposeThisRank.size();
+  bool foundDiscontinuousBC = false;
+  for (int i=0; i<numBCsIncludingDuplicates-1; i++)
   {
     if (bcsToImposeThisRank[i].first == bcsToImposeThisRank[i+1].first)
     {
@@ -1880,12 +1881,26 @@ void TSolution<Scalar>::imposeBCs()
         double relativeDiff = absDiff / max(abs(firstValue),abs(secondValue));
         if (relativeDiff > tol)
         {
-          cout << "WARNING: inconsistent values for BC: " << firstValue << " and ";
-          cout << secondValue << " prescribed for global dof index " << bcsToImposeThisRank[i].first;
-          cout << " on rank " << rank << endl;
-          print("initialH1Order for inconsistent BC mesh",this->mesh()->globalDofAssignment()->getInitialH1Order());
+          foundDiscontinuousBC = true;
+          if (_warnAboutDiscontinuousBCs >= 2)
+          {
+            cout << "WARNING: inconsistent values for BC: " << firstValue << " and ";
+            cout << secondValue << " prescribed for global dof index " << bcsToImposeThisRank[i].first;
+            cout << " on rank " << rank << endl;
+            print("initialH1Order for inconsistent BC mesh",this->mesh()->globalDofAssignment()->getInitialH1Order());
+          }
         }
       }
+    }
+  }
+  
+  if (_warnAboutDiscontinuousBCs == 1)
+  {
+    // print a simple warning on rank 0
+    foundDiscontinuousBC = MPIWrapper::globalOr(*this->mesh()->Comm(), foundDiscontinuousBC);
+    if (foundDiscontinuousBC && (rank == 0))
+    {
+      cout << "WARNING: discontinuous boundary conditions detected.  Call Solution::setWarnAboutDiscontinuousBCs() with outputLevel=0 to suppress this warning; with outputLevel=2 for full details about the differing values\n";
     }
   }
   
@@ -1909,14 +1924,23 @@ void TSolution<Scalar>::imposeBCs()
   int i_adjusted = 0; // adjusted to eliminate duplicates
   for (int i=0; i<bcsToImposeThisRank.size(); i++)
   {
-    if (i>0)
+    double value = bcsToImposeThisRank[i].second;
+    int thisBCduplicateCount = 1;
+    while ((i+1<numBCsIncludingDuplicates) && (bcsToImposeThisRank[i].first == bcsToImposeThisRank[i+1].first))
     {
-      // then check whether the current guy matches the previous one -- if so, skip
-      if (bcsToImposeThisRank[i].first == bcsToImposeThisRank[i-1].first)
-      {
-        continue;
-      }
+      thisBCduplicateCount++;
+      i++;
+      value += bcsToImposeThisRank[i].second;
     }
+    value /= thisBCduplicateCount; // average all values together
+//    if (i>0)
+//    {
+//      // then check whether the current guy matches the previous one -- if so, skip
+//      if (bcsToImposeThisRank[i].first == bcsToImposeThisRank[i-1].first)
+//      {
+//        continue;
+//      }
+//    }
     bcGlobalIndices[i_adjusted] = bcsToImposeThisRank[i].first;
     bcGlobalValues[i_adjusted] = bcsToImposeThisRank[i].second;
     i_adjusted++;
@@ -4303,6 +4327,23 @@ void TSolution<Scalar>::setUseCondensedSolve(bool value, set<GlobalIndexType> of
       _oldDofInterpreter = Teuchos::rcp((DofInterpreter*) NULL);
     }
   }
+}
+
+/*
+ 0: don't warn
+ 1: warn, but don't print values (default)
+ 2: print values
+ */
+template <typename Scalar>
+int TSolution<Scalar>::warnAboutDiscontinuousBCs() const
+{
+  return _warnAboutDiscontinuousBCs;
+}
+
+template <typename Scalar>
+void TSolution<Scalar>::setWarnAboutDiscontinuousBCs(int outputLevel)
+{
+  _warnAboutDiscontinuousBCs = outputLevel;
 }
 
 template <typename Scalar>

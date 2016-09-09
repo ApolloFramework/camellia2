@@ -279,10 +279,12 @@ namespace
     Boundary boundary = mesh->boundary();
     DofInterpreter* dofInterpreter = form.solution()->getDofInterpreter().get();
     std::map<GlobalIndexType, double> globalDofIndicesAndValues;
+    std::vector<pair<GlobalIndexType, double>> globalDofIndicesAndValuesVector;
     GlobalIndexType cellID = 0;
     if (mesh->getTopology()->isValidCellIndex(cellID))
     {
-      boundary.bcsToImpose<double>(globalDofIndicesAndValues, *bc, cellID, dofInterpreter);
+      boundary.bcsToImpose<double>(globalDofIndicesAndValuesVector, *bc, cellID, dofInterpreter);
+      globalDofIndicesAndValues.insert(globalDofIndicesAndValuesVector.begin(),globalDofIndicesAndValuesVector.end());
       
       // use our knowledge that we have a one-element mesh: every last dof for u_hat should be present, and have coefficient CONST_VALUE
       DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;

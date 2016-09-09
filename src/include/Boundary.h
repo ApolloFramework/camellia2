@@ -49,7 +49,7 @@ public:
    \param dofInterpreter - (In) the DofInterpreter
    */
   template <typename Scalar>
-  void singletonBCsToImpose(std::map<GlobalIndexType,Scalar> &globalDofIndicesAndValues, TBC<Scalar> &bc,
+  void singletonBCsToImpose(std::vector<std::pair<GlobalIndexType,Scalar>> &globalDofIndicesAndValues, TBC<Scalar> &bc,
                             DofInterpreter* dofInterpreter);
   
   //! Determine values to impose on a single cell.
@@ -61,7 +61,7 @@ public:
    \param dofInterpreter - (In) the DofInterpreter
    */
   template <typename Scalar>
-  void bcsToImpose(std::map<GlobalIndexType,Scalar> &globalDofIndicesAndValues, TBC<Scalar> &bc, GlobalIndexType cellID,
+  void bcsToImpose(std::vector<std::pair<GlobalIndexType,Scalar>> &globalDofIndicesAndValues, TBC<Scalar> &bc, GlobalIndexType cellID,
                    DofInterpreter* dofInterpreter);
   void buildLookupTables();
 };

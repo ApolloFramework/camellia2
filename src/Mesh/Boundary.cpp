@@ -58,7 +58,7 @@ void Boundary::bcsToImpose(FieldContainer<GlobalIndexType> &globalIndices,
                            DofInterpreter* dofInterpreter)
 {
   set< GlobalIndexType > rankLocalCells = _mesh->cellIDsInPartition();
-  map< GlobalIndexType, double> bcGlobalIndicesAndValues;
+  vector<pair<GlobalIndexType, double>> bcGlobalIndicesAndValues;
 
   for (GlobalIndexType cellID : rankLocalCells)
   {
@@ -157,19 +157,20 @@ void Boundary::bcsToImpose(FieldContainer<GlobalIndexType> &globalIndices,
   }
   
   // merge tag-based and legacy BC maps
-  double tol = 1e-15;
+//  double tol = 1e-15;
   for (auto tagEntry : bcTagGlobalIndicesAndValues)
   {
-    if (bcGlobalIndicesAndValues.find(tagEntry.first) != bcGlobalIndicesAndValues.end())
-    {
-      // then check that they match, within tolerance
-      double diff = abs(bcGlobalIndicesAndValues[tagEntry.first] - tagEntry.second);
-      TEUCHOS_TEST_FOR_EXCEPTION(diff > tol, std::invalid_argument, "Incompatible BC entries encountered");
-    }
-    else
-    {
-      bcGlobalIndicesAndValues[tagEntry.first] = tagEntry.second;
-    }
+    bcGlobalIndicesAndValues.push_back(tagEntry);
+//    if (bcGlobalIndicesAndValues.find(tagEntry.first) != bcGlobalIndicesAndValues.end())
+//    {
+//      // then check that they match, within tolerance
+//      double diff = abs(bcGlobalIndicesAndValues[tagEntry.first] - tagEntry.second);
+//      TEUCHOS_TEST_FOR_EXCEPTION(diff > tol, std::invalid_argument, "Incompatible BC entries encountered");
+//    }
+//    else
+//    {
+//      bcGlobalIndicesAndValues[tagEntry.first] = tagEntry.second;
+//    }
   }
   
   globalIndices.resize(bcGlobalIndicesAndValues.size());
@@ -186,7 +187,7 @@ void Boundary::bcsToImpose(FieldContainer<GlobalIndexType> &globalIndices,
 }
 
 template <typename Scalar>
-void Boundary::bcsToImpose( map<  GlobalIndexType, Scalar > &globalDofIndicesAndValues, TBC<Scalar> &bc,
+void Boundary::bcsToImpose( vector<pair<GlobalIndexType,Scalar>> &globalDofIndicesAndValues, TBC<Scalar> &bc,
                             GlobalIndexType cellID, DofInterpreter* dofInterpreter)
 {
   // this is where we actually compute the BCs; the other bcsToImpose variants call this one.
@@ -269,25 +270,26 @@ void Boundary::bcsToImpose( map<  GlobalIndexType, Scalar > &globalDofIndicesAnd
                 GlobalIndexType globalDofIndex = globalDofIndices(globalDofOrdinal);
                 Scalar value = globalData(globalDofOrdinal);
                 
-                // sanity check: if this has been previously set, do the two values roughly agree?
-                if (globalDofIndicesAndValues.find(globalDofIndex) != globalDofIndicesAndValues.end())
-                {
-                  double tol = 1e-10;
-                  Scalar prevValue = globalDofIndicesAndValues[globalDofIndex];
-                  double absDiff = abs(prevValue - value);
-                  if (absDiff > tol)
-                  {
-                    double relativeDiff = absDiff / max(abs(prevValue),abs(value));
-                    int rank = _mesh->Comm()->MyPID();
-                    if (relativeDiff > tol)
-                    {
-                      cout << "WARNING: in Boundary::bcsToImpose(), inconsistent values for BC: " << prevValue << " and ";
-                      cout << value << " prescribed for global dof index " << globalDofIndex;
-                      cout << " on rank " << rank << endl;
-                    }
-                  }
-                }
-                globalDofIndicesAndValues[globalDofIndex] = value;
+//                // sanity check: if this has been previously set, do the two values roughly agree?
+//                if (globalDofIndicesAndValues.find(globalDofIndex) != globalDofIndicesAndValues.end())
+//                {
+//                  double tol = 1e-10;
+//                  Scalar prevValue = globalDofIndicesAndValues[globalDofIndex];
+//                  double absDiff = abs(prevValue - value);
+//                  if (absDiff > tol)
+//                  {
+//                    double relativeDiff = absDiff / max(abs(prevValue),abs(value));
+//                    int rank = _mesh->Comm()->MyPID();
+//                    if (relativeDiff > tol)
+//                    {
+//                      cout << "WARNING: in Boundary::bcsToImpose(), inconsistent values for BC: " << prevValue << " and ";
+//                      cout << value << " prescribed for global dof index " << globalDofIndex;
+//                      cout << " on rank " << rank << endl;
+//                    }
+//                  }
+//                }
+//                globalDofIndicesAndValues[globalDofIndex] = value;
+                globalDofIndicesAndValues.push_back({globalDofIndex,value});
               }
             }
           }
@@ -298,7 +300,7 @@ void Boundary::bcsToImpose( map<  GlobalIndexType, Scalar > &globalDofIndicesAnd
 }
 
 template <typename Scalar>
-void Boundary::singletonBCsToImpose(std::map<GlobalIndexType,Scalar> &dofIndexToValue, TBC<Scalar> &bc,
+void Boundary::singletonBCsToImpose(vector<pair<GlobalIndexType,Scalar>> &dofIndexToValue, TBC<Scalar> &bc,
                                     DofInterpreter* dofInterpreter)
 {
   // first, let's check for any singletons (one-point BCs)
@@ -564,7 +566,8 @@ void Boundary::singletonBCsToImpose(std::map<GlobalIndexType,Scalar> &dofIndexTo
               bool isRankLocal = dofInterpreter->isLocallyOwnedGlobalDofIndex(globalDofIndices[fieldOrdinal]);
               if (isRankLocal)
               {
-                dofIndexToValue[globalDofIndices[fieldOrdinal]] = bc.valueForSinglePointBC(trialID) * globalCoefficients[fieldOrdinal];
+                dofIndexToValue.push_back({globalDofIndices[fieldOrdinal],
+                                           bc.valueForSinglePointBC(trialID) * globalCoefficients[fieldOrdinal]});
               }
               else
               {
@@ -584,9 +587,9 @@ namespace Camellia
   template void Boundary::bcsToImpose(Intrepid::FieldContainer<GlobalIndexType> &globalIndices,
                                       Intrepid::FieldContainer<double> &globalValues, TBC<double> &bc,
                                       DofInterpreter* dofInterpreter);
-  template void Boundary::bcsToImpose(map< GlobalIndexType, double > &globalDofIndicesAndValues,
+  template void Boundary::bcsToImpose(vector<pair<GlobalIndexType, double>> &globalDofIndicesAndValues,
                                       TBC<double> &bc, GlobalIndexType cellID,
                                       DofInterpreter* dofInterpreter);
-  template void Boundary::singletonBCsToImpose(std::map<GlobalIndexType,double> &dofIndexToValue, TBC<double> &bc,
+  template void Boundary::singletonBCsToImpose(vector<pair<GlobalIndexType,double>> &dofIndexToValue, TBC<double> &bc,
                                                DofInterpreter* dofInterpreter);
 }

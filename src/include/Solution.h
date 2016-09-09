@@ -75,6 +75,7 @@ private:
   bool _residualsComputed;
   bool _energyErrorComputed;
   bool _rankLocalEnergyErrorComputed;
+  int _warnAboutDiscontinuousBCs = 1;
   // the  values of this map have dimensions (numCells, numTrialDofs)
 
   void initialize();
@@ -326,6 +327,14 @@ public:
   void setZeroMeanConstraintRho(double value);
   double zeroMeanConstraintRho();
 
+  /*
+   0: don't warn
+   1: warn, but don't print values (default)
+   2: print values
+   */
+  int warnAboutDiscontinuousBCs() const;
+  void setWarnAboutDiscontinuousBCs(int outputLevel);
+  
   static TSolutionPtr<Scalar> solution(TBFPtr<Scalar> bf, MeshPtr mesh, TBCPtr<Scalar> bc = Teuchos::null,
                                        TRHSPtr<Scalar> rhs = Teuchos::null,
                                        TIPPtr<Scalar> ip = Teuchos::null);

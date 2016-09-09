@@ -773,8 +773,9 @@ map<GlobalIndexType, GlobalIndexType> CondensedDofInterpreter<Scalar>::interpret
    of an element.
    */
   
-  map<GlobalIndexType,Scalar> singletonBCsOnMesh;
-  _mesh->boundary().singletonBCsToImpose(singletonBCsOnMesh, *_bc, _mesh.get());
+  vector<pair<GlobalIndexType,Scalar>> singletonBCsOnMeshVector;
+  _mesh->boundary().singletonBCsToImpose(singletonBCsOnMeshVector, *_bc, _mesh.get());
+  map<GlobalIndexType,Scalar> singletonBCsOnMesh(singletonBCsOnMeshVector.begin(),singletonBCsOnMeshVector.end());
   
   for (GlobalIndexType cellID : *localCellIDs)
   {
