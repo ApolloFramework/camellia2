@@ -1117,15 +1117,17 @@ template <typename Scalar>
 Scalar TFunction<Scalar>::integralOfJump(Teuchos::RCP<Mesh> mesh, GlobalIndexType cellID, int sideIndex, int cubatureDegreeEnrichment)
 {
   // for boundaries, the jump is 0
-  if (mesh->getTopology()->getCell(cellID)->isBoundary(sideIndex))
+  MeshTopologyViewPtr meshTopo = mesh->getTopology();
+  if (meshTopo->getCell(cellID)->isBoundary(sideIndex))
   {
     return 0;
   }
-  int neighborCellID = mesh->getElement(cellID)->getNeighborCellID(sideIndex);
-  int neighborSideIndex = mesh->getElement(cellID)->getSideIndexInNeighbor(sideIndex);
+  pair<GlobalIndexType, unsigned> neighborInfo = meshTopo->getCell(cellID)->getNeighborInfo(sideIndex, meshTopo);
+  int neighborCellID = neighborInfo.first;
+  int neighborSideIndex = neighborInfo.second;
 
-  ElementTypePtr myType = mesh->getElement(cellID)->elementType();
-  ElementTypePtr neighborType = mesh->getElement(neighborCellID)->elementType();
+  ElementTypePtr myType = mesh->getElementType(cellID);
+  ElementTypePtr neighborType = mesh->getElementType(neighborCellID);
 
   // TODO: rewrite this to compute in distributed fashion
   vector<GlobalIndexType> myCellIDVector;
