@@ -102,6 +102,27 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
   }
   return mesh;
 }
+  TEUCHOS_UNIT_TEST( Mesh, ActiveCellOffset )
+  {
+    MPIWrapper::CommWorld()->Barrier();
+    int spaceDim = 2;
+    int H1Order = 2;
+    vector<int> elemCounts(spaceDim,2);
+    vector<double> dims(spaceDim,1.0);
+    
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+    
+    int expectedActiveCellOffset = 0;
+    int myCellCount = mesh->cellIDsInPartition().size();
+    mesh->Comm()->ScanSum(&myCellCount, &expectedActiveCellOffset, 1);
+    expectedActiveCellOffset -= myCellCount;
+    
+    int activeCellOffset = mesh->activeCellOffset();
+    TEST_EQUALITY(expectedActiveCellOffset, activeCellOffset);
+  }
 
   TEUCHOS_UNIT_TEST( Mesh, ConstructSingleCellMeshSerialComm )
   {
