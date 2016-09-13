@@ -830,7 +830,7 @@ void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partiti
   _partitions.clear();
   _partitionForCellID.clear();
 
-  _activeCellOffset = 0; // might be better to do scan sum?
+  _activeCellOffset = 0;
   for (PartitionIndexType i=0; i<partitionedMesh.dimension(0); i++)
   {
     set< GlobalIndexType > partition;
@@ -875,7 +875,6 @@ void GlobalDofAssignment::setPartitions(std::vector<std::set<GlobalIndexType> > 
   _activeCellOffset = 0;
   for (PartitionIndexType i=0; i< _partitions.size(); i++)
   {
-    set< GlobalIndexType > partition;
     for (set< GlobalIndexType >::iterator cellIDIt = partitions[i].begin(); cellIDIt != partitions[i].end(); cellIDIt++)
     {
       GlobalIndexType cellID = *cellIDIt;
@@ -883,7 +882,7 @@ void GlobalDofAssignment::setPartitions(std::vector<std::set<GlobalIndexType> > 
     }
     if (thisPartitionNumber > i)
     {
-      _activeCellOffset += partition.size();
+      _activeCellOffset += partitions[i].size();
     }
   }
   constructActiveCellMap();
