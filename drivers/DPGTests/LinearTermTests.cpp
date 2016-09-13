@@ -123,7 +123,7 @@ void LinearTermTests::setup()
 
   mesh = MeshFactory::buildQuadMesh(quadPoints, horizontalElements, verticalElements, bf, polyOrder+1, polyOrder+1+testToAdd);
 
-  ElementTypePtr elemType = mesh->getElement(0)->elementType();
+  ElementTypePtr elemType = mesh->getElementType(0);
   trialOrder = elemType->trialOrderPtr;
   testOrder = elemType->testOrderPtr;
 
@@ -835,7 +835,7 @@ bool LinearTermTests::testMixedTermConsistency()
   Teuchos::RCP<Mesh> myMesh = MeshFactory::buildQuadMesh(quadPoints, horizontalCells, verticalCells,
                               confusionBF, H1Order, H1Order+pToAdd);
 
-  ElementTypePtr elemType = myMesh->getElement(0)->elementType();
+  ElementTypePtr elemType = myMesh->getElementType(0);
   //  DofOrderingPtr testOrder = elemType->testOrderPtr;
   BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemType, myMesh, true));
 
@@ -1048,7 +1048,7 @@ bool LinearTermTests::testIntegrateMixedBasis()
 
   // create a pointer to a new mesh:
   Teuchos::RCP<Mesh> mesh = MeshUtilities::buildUnitQuadMesh(nCells,convectionBF, H1Order, H1Order+pToAdd);
-  ElementTypePtr elemType = mesh->getElement(0)->elementType();
+  ElementTypePtr elemType = mesh->getElementType(0);
   BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemType, mesh));
   
   set<GlobalIndexType> cellIDSet = mesh->getActiveCellIDsGlobal();
