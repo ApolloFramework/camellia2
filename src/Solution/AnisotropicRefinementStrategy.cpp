@@ -3,7 +3,7 @@
 //  AnisotropicRefinementStrategy.h
 //  Camellia
 //
-//  Created by Nate Roberts on 8/9/16.
+//  Created by Nate Roberts on 8/9/16, based on code from Jesse Chan.
 //
 //
 
@@ -216,22 +216,19 @@ bool AnisotropicRefinementStrategy<Scalar>::enforceAnisotropicOneIrregularity(ve
   
   // build children list - for use in "upgrading" refinements to prevent deadlocking
   vector<GlobalIndexType> xChildren,yChildren;
-  for (vector<GlobalIndexType>::iterator cellIt = xCells.begin(); cellIt!=xCells.end(); cellIt++)
+  MeshTopologyViewPtr meshTopo = mesh->getTopology();
+  for (GlobalIndexType xCellID : xCells)
   {
-    ElementPtr elem = mesh->getElement(*cellIt);
-    for (int i = 0; i<elem->numChildren(); i++)
-    {
-      xChildren.push_back(elem->getChild(i)->cellID());
-    }
+    CellPtr cell = meshTopo->getCell(xCellID);
+    vector<GlobalIndexType> cellChildren = cell->getChildIndices(meshTopo);
+    xChildren.insert(xChildren.end(),cellChildren.begin(),cellChildren.end());
   }
   // build children list
-  for (vector<GlobalIndexType>::iterator cellIt = yCells.begin(); cellIt!=yCells.end(); cellIt++)
+  for (GlobalIndexType yCellID : yCells)
   {
-    ElementPtr elem = mesh->getElement(*cellIt);
-    for (int i = 0; i<elem->numChildren(); i++)
-    {
-      yChildren.push_back(elem->getChild(i)->cellID());
-    }
+    CellPtr cell = meshTopo->getCell(yCellID);
+    vector<GlobalIndexType> cellChildren = cell->getChildIndices(meshTopo);
+    yChildren.insert(yChildren.end(),cellChildren.begin(),cellChildren.end());
   }
   
   bool meshIsNotRegular = true; // assume it's not regular and check elements
@@ -243,35 +240,39 @@ bool AnisotropicRefinementStrategy<Scalar>::enforceAnisotropicOneIrregularity(ve
     
     for (GlobalIndexType activeCellID : newActiveCellIDs)
     {
-      Teuchos::RCP< Element > current_element = mesh->getElement(activeCellID);
+      CellPtr cell = meshTopo->getCell(activeCellID);
       bool isIrregular = false;
-      for (int sideIndex=0; sideIndex < current_element->numSides(); sideIndex++)
+      for (int sideIndex=0; sideIndex < cell->getSideCount(); sideIndex++)
       {
-        int mySideIndexInNeighbor;
-        ElementPtr neighbor = current_element->getNeighbor(mySideIndexInNeighbor, sideIndex);
-        if (neighbor.get() != NULL)
+        pair<GlobalIndexType, unsigned> neighborInfo = cell->getNeighborInfo(sideIndex, meshTopo); // ->getNeighbor(mySideIndexInNeighbor, sideIndex);
+        GlobalIndexType neighborCellID = neighborInfo.first;
+        int mySideIndexInNeighbor = neighborInfo.second;
+        
+        if (neighborCellID != -1)
         {
-          int numNeighborsOnSide = neighbor->getDescendantsForSide(mySideIndexInNeighbor).size();
+          CellPtr neighborCell = meshTopo->getCell(neighborCellID);
+          int numNeighborsOnSide = neighborCell->getDescendantsForSide(mySideIndexInNeighbor, meshTopo).size();
           if (numNeighborsOnSide > 2) isIrregular=true;
         }
       }
       if (isIrregular)
       {
-        int cellID = current_element->cellID();
-        bool isXRefined = std::find(xChildren.begin(),xChildren.end(),cellID)!=xChildren.end();
-        bool isYRefined = std::find(yChildren.begin(),yChildren.end(),cellID)!=yChildren.end();
+        std::sort(xChildren.begin(), xChildren.end());
+        std::sort(yChildren.begin(), yChildren.end());
+        bool isXRefined = std::find(xChildren.begin(),xChildren.end(),activeCellID)!=xChildren.end();
+        bool isYRefined = std::find(yChildren.begin(),yChildren.end(),activeCellID)!=yChildren.end();
         bool isPreviouslyRefined = (isXRefined || isYRefined);
         if (!isPreviouslyRefined)   // if the cell to refine has already been refined anisotropically, don't refine it again,
         {
-          irregularQuadCells.push_back(cellID);
+          irregularQuadCells.push_back(activeCellID);
         }
         else if (isXRefined)
         {
-          yUpgrades.push_back(cellID);
+          yUpgrades.push_back(activeCellID);
         }
         else if (isYRefined)
         {
-          xUpgrades.push_back(cellID);
+          xUpgrades.push_back(activeCellID);
         }
       }
     }
