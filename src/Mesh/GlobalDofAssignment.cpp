@@ -293,6 +293,12 @@ vector<GlobalIndexType> GlobalDofAssignment::cellIDsOfElementType(PartitionIndex
     cout << "cellIDsOfElementType called with partitionNumber==-1.  Returning empty vector.\n";
     return vector<GlobalIndexType>();
   }
+  if (_meshTopology->isDistributed() && (partitionNumber != _meshTopology->Comm()->MyPID()))
+  {
+    cout << "For distributed MeshTopology, cellIDsOfElementType() only supports the current partition.\n";
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "For distributed MeshTopology, cellIDsOfElementType() only supports the current partition");
+  }
+  
   // first, let's find the key that corresponds to elemType
   pair<CellTopologyKey,int> key;
   for (auto entry : _elementTypesForCellTopology)
@@ -824,7 +830,7 @@ void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partiti
   _partitions.clear();
   _partitionForCellID.clear();
 
-  _activeCellOffset = 0;
+  _activeCellOffset = 0; // might be better to do scan sum?
   for (PartitionIndexType i=0; i<partitionedMesh.dimension(0); i++)
   {
     set< GlobalIndexType > partition;
