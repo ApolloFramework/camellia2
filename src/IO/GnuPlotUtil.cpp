@@ -81,12 +81,14 @@ void GnuPlotUtil::writeComputationalMeshSkeleton(const string &filePath, MeshPtr
   set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
   vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
 
-  for (int cellIndex=0; cellIndex<numActiveElements; cellIndex++)
+  for (GlobalIndexType cellID : cellIDs)
   {
-    ElementPtr cell = mesh->getElement(cellIDs[cellIndex]);
-    vector< ParametricCurvePtr > edgeLines = ParametricCurve::referenceCellEdges(cell->elementType()->cellTopoPtr->getKey());
+    CellPtr cell = mesh->getTopology()->getCell(cellID);
+    ElementTypePtr elemType = mesh->getElementType(cellID);
+    
+    vector< ParametricCurvePtr > edgeLines = ParametricCurve::referenceCellEdges(cell->topology()->getKey());
     int numEdges = edgeLines.size();
-    int numPointsPerEdge = max(10,cell->elementType()->testOrderPtr->maxBasisDegree() * 2); // 2 points for linear, 4 for quadratic, etc.
+    int numPointsPerEdge = max(10,elemType->testOrderPtr->maxBasisDegree() * 2); // 2 points for linear, 4 for quadratic, etc.
     // to start, compute edgePoints on the reference cell
     int numPointsTotal = numEdges*(numPointsPerEdge-1)+1; // -1 because edges share vertices, +1 because we repeat first vertex...
     FieldContainer<double> edgePoints(numPointsTotal,spaceDim);
@@ -110,7 +112,7 @@ void GnuPlotUtil::writeComputationalMeshSkeleton(const string &filePath, MeshPtr
       }
     }
     // make a one-cell BasisCache initialized with the edgePoints on the ref cell:
-    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cell->cellID());
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
     basisCache->setRefCellPoints(edgePoints);
 
     //      cout << "--- cellID " << cell->cellID() << " ---\n";
@@ -159,11 +161,16 @@ void GnuPlotUtil::writeComputationalMeshSkeleton(const string &filePath, MeshPtr
   fout << "# plot \"" << filePath << "\" using 1:2 title 'mesh' with lines lc rgb \"" << rgbColor << "\"\n";
   if (labelCells)
   {
+    bool tinyFont = true;
     for (int i=0; i<cellIDs.size(); i++)
     {
       int cellID = cellIDs[i];
       fout << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
-      fout << cellCentroids(i,1) << " center " << endl;
+      fout << cellCentroids(i,1) << " center ";
+      if (tinyFont) {
+        fout << "font \",1\"";
+      }
+      fout << endl;
     }
   }
   fout << "# set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
@@ -179,13 +186,19 @@ void GnuPlotUtil::writeComputationalMeshSkeleton(const string &filePath, MeshPtr
   scriptOut << "plot \"" << filePath << "\" using 1:2 title 'mesh' with lines lc rgb \"" << rgbColor << "\"\n";
   if (labelCells)
   {
+    bool tinyFont = true;
     for (int i=0; i<cellIDs.size(); i++)
     {
       int cellID = cellIDs[i];
       scriptOut << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
-      scriptOut << cellCentroids(i,1) << " center " << endl;
+      scriptOut << cellCentroids(i,1) << " center ";
+      if (tinyFont) {
+        scriptOut << "font \",1\"";
+      }
+      scriptOut << endl;
     }
   }
+  
   scriptOut << "set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
   scriptOut << "set out '" << filePath << ".eps'\n";
   //    scriptOut << "replot\n";
@@ -308,11 +321,9 @@ void GnuPlotUtil::writeExactMeshSkeleton(const string &filePath, MeshPtr mesh, i
   set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
   vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
 
-  for (int cellIndex=0; cellIndex<numActiveElements; cellIndex++)
+  for (GlobalIndexType cellID : cellIDs)
   {
-    ElementPtr cell = mesh->getElement(cellIDs[cellIndex]);
-    cellIDs.push_back(cell->cellID());
-    vector< ParametricCurvePtr > edgeCurves = mesh->parametricEdgesForCell(cell->cellID());
+    vector< ParametricCurvePtr > edgeCurves = mesh->parametricEdgesForCell(cellID);
     for (int edgeIndex=0; edgeIndex < edgeCurves.size(); edgeIndex++)
     {
       ParametricCurvePtr edge = edgeCurves[edgeIndex];
