@@ -207,6 +207,9 @@ public:
 
   Teuchos::RCP<LagrangeConstraints> lagrangeConstraints() const;
 
+  // ! provides the GID (in stiffness/load) corresponding to an element lagrange constraint
+  GlobalIndexType elementLagrangeIndex(GlobalIndexType cellID, int lagrangeOrdinal) const;
+  
   void processSideUpgrades( const std::map<GlobalIndexType, std::pair< ElementTypePtr, ElementTypePtr > > &cellSideUpgrades);
   void processSideUpgrades( const std::map<GlobalIndexType, std::pair< ElementTypePtr, ElementTypePtr > > &cellSideUpgrades, const std::set<GlobalIndexType> &cellIDsToSkip );
 

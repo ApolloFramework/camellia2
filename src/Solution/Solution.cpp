@@ -937,6 +937,33 @@ double TSolution<Scalar>::conditionNumberEstimate(int &errCode) const
   return conditionNumberEstimate(linearProblem, errCode);
 }
 
+// ! provides the GID corresponding to an element lagrange constraint
+template <typename Scalar>
+GlobalIndexType TSolution<Scalar>::elementLagrangeIndex(GlobalIndexType cellID, int lagrangeOrdinal) const
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(!_mesh->myCellsInclude(cellID), std::invalid_argument, "elementLagrangeIndices() requires that the cellID be rank-local");
+  GlobalIndexType cellOffset = _mesh->activeCellOffset() * _lagrangeConstraints->numElementConstraints();
+  GlobalIndexType numGlobalDofs = _mesh->numGlobalDofs();
+  GlobalIndexType globalIndex = cellOffset + numGlobalDofs;
+  int numElementConstraints = _lagrangeConstraints->numElementConstraints();
+  
+  auto myCellIDs = &_mesh->cellIDsInPartition();
+  int localCellOrdinal = 0;
+  for (GlobalIndexType myCellID : *myCellIDs)
+  {
+    if (cellID == myCellID) break;
+    ++localCellOrdinal;
+  }
+  return globalIndex + localCellOrdinal * numElementConstraints;
+}
+
+//// ! provides the GID and LID corresponding to a global lagrange constraint
+//template <typename Scalar>
+//GlobalIndexType TSolution<Scalar>::globalLagrangeIndex(int lagrangeOrdinal) const
+//{
+//  
+//}
+
 template <typename Scalar>
 int TSolution<Scalar>::solve()
 {
