@@ -942,6 +942,7 @@ template <typename Scalar>
 GlobalIndexType TSolution<Scalar>::elementLagrangeIndex(GlobalIndexType cellID, int lagrangeOrdinal) const
 {
   TEUCHOS_TEST_FOR_EXCEPTION(!_mesh->myCellsInclude(cellID), std::invalid_argument, "elementLagrangeIndices() requires that the cellID be rank-local");
+  
   GlobalIndexType cellOffset = _mesh->activeCellOffset() * _lagrangeConstraints->numElementConstraints();
   GlobalIndexType numGlobalDofs = _mesh->numGlobalDofs();
   GlobalIndexType globalIndex = cellOffset + numGlobalDofs;
@@ -1215,14 +1216,8 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
       BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemTypePtr,_mesh));
 
       // get cellIDs for basisCache
-      vector< ElementPtr > cells = _mesh->elementsOfType(rank,elemTypePtr);
-      int numCells = cells.size();
-      vector<GlobalIndexType> cellIDs;
-      for (int cellIndex=0; cellIndex<numCells; cellIndex++)
-      {
-        int cellID = cells[cellIndex]->cellID();
-        cellIDs.push_back(cellID);
-      }
+      vector<GlobalIndexType> cellIDs = _mesh->globalDofAssignment()->cellIDsOfElementType(rank, elemTypePtr);
+      int numCells = cellIDs.size();
       // set physical cell nodes:
       Intrepid::FieldContainer<double> physicalCellNodes = _mesh->physicalCellNodes(elemTypePtr);
       bool createSideCacheToo = true;
@@ -1248,7 +1243,10 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
 
       for (int cellIndex=0; cellIndex<numCells; cellIndex++)
       {
-        GlobalIndexTypeToCast globalRowIndex = partMap.GID(localRowIndex);
+        GlobalIndexType cellID = cellIDs[cellIndex];
+        GlobalIndexTypeToCast globalRowIndex = elementLagrangeIndex(cellID, elementConstraintIndex); //partMap.GID(localRowIndex);
+//        cout << "On rank " << rank << " globalRowIndex for cell " << cellID;
+//        cout << "'s lagrange constraint is " << globalRowIndex << endl;
         int nnz = 0;
         Intrepid::FieldContainer<Scalar> localLHS(localLHSDim,&lhs(cellIndex,0)); // shallow copy
         _dofInterpreter->interpretLocalData(cellIDs[cellIndex], dummyLocalStiffness, localLHS, dummyInterpretedStiffness,
@@ -1276,6 +1274,14 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
         // insert row:
         globalStiffness->InsertGlobalValues(1,&globalRowIndex,nnz+1,&globalDofIndices(0),
                                             &nonzeroValues(0));
+//        cout << "On rank " << rank << ", inserting row " << globalRowIndex << " (";
+//        for (int i=0; i<=nnz; i++)
+//        {
+//          cout << globalDofIndices(i) << " --> ";
+//          cout << nonzeroValues(i);
+//          if (i < nnz) cout << ", ";
+//        }
+//        cout << ")\n";
         // insert column:
         globalStiffness->InsertGlobalValues(nnz+1,&globalDofIndices(0),1,&globalRowIndex,
                                             &nonzeroValues(0));
