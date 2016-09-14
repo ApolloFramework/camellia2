@@ -150,6 +150,12 @@ namespace Camellia
     return true;
   }
   
+  template <typename Scalar>
+  TBFPtr<Scalar> TBF<Scalar>::copy() const
+  {
+    return Teuchos::rcp( new BF(*this) );
+  }
+  
   // BilinearForm implementation:
   template <typename Scalar>
   const string & TBF<Scalar>::testName(int testID)

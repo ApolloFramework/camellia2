@@ -84,6 +84,8 @@ public:
                                      BasisCachePtr basisCache);
   // default implementation calls BasisCache-less version
 
+  TBFPtr<Scalar> copy() const;
+  
   // BilinearForm implementation:
   virtual const string & testName(int testID);
   virtual const string & trialName(int trialID);
