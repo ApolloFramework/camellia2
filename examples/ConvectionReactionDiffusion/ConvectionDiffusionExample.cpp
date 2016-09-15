@@ -17,6 +17,8 @@
 #include "SerialDenseWrapper.h"
 #include "Solution.h"
 
+// EpetraExt includes
+#include "EpetraExt_MatrixMatrix.h"
 #include "EpetraExt_RowMatrixOut.h"
 
 using namespace Camellia;
@@ -395,6 +397,7 @@ int main(int argc, char *argv[])
   string formulationChoice = "Ultraweak";
   bool conditionNumberEstimate = false;
   bool computeLAPACKConditionNumber = false;
+  bool exportMatricesLastRefinement = false;
   bool exportVisualization = false;
   bool reportRefinedCells = false;
   bool reportSolutionTimings = true;
@@ -413,6 +416,7 @@ int main(int argc, char *argv[])
   bool useGMRESForDPG = false;
   bool usePointSymmetricGSForDPG = false;
   bool useCustomMeshRefinement = false;
+  double refErrThreshold = 0; // when error is below threshold, stop refinements
   string meshSavePrefix = "";
   string meshLoadPrefix = "";
   
@@ -443,6 +447,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("quadratureEnrichmentL2", &quadratureEnrichmentL2);
   cmdp.setOption("energyThreshold", &energyThreshold);
   cmdp.setOption("formulationChoice", &formulationChoice);
+  cmdp.setOption("refErrThreshold", &refErrThreshold, "will stop refinements when L^2 error of solution is below refErrThreshold, or numRefinements is reached.");
   cmdp.setOption("refineUniformly", "refineUsingErrorIndicator", &refineUniformly);
   cmdp.setOption("reportRefinedCells", "dontReportRefinedCells", &reportRefinedCells);
   cmdp.setOption("reportConditionNumber", "dontReportConditionNumber", &conditionNumberEstimate);
@@ -450,6 +455,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("reportSolutionTimings", "dontReportSolutionTimings", &reportSolutionTimings);
   cmdp.setOption("meshLoadPrefix", &meshLoadPrefix, "filename prefix (refinement number will be appended) to use for loading refinements; if non-empty, will use in place of the usual refinement indicator to drive mesh refinements");
   cmdp.setOption("meshSavePrefix", &meshSavePrefix, "filename prefix (refinement number will be appended) to use for saving refinements");
+  cmdp.setOption("exportMatricesLastRefinement","dontExportMatricesLastRefinement", &exportMatricesLastRefinement);
   cmdp.setOption("useDirect", "useIterative", &useDirectSolver);
   cmdp.setOption("useGMRESForDPG", "useCGForDPG", &useGMRESForDPG);
   cmdp.setOption("usePointSymmetricGSForDPG", "useSchwarzForDPG", &usePointSymmetricGSForDPG);
@@ -739,6 +745,8 @@ int main(int argc, char *argv[])
     {
       double totalTime = solution->totalTimeLocalStiffness() + solution->totalTimeSolve();
       cout << scientific << setprecision(1);
+      cout << "Assembly time: " << solution->totalTimeLocalStiffness() << " secs.\n";
+      cout << "Solve time: " << solution->totalTimeSolve() << " secs.\n";
       cout << "Total time (assembly + solve): " << totalTime << " secs.\n";
     }
   }
@@ -819,7 +827,9 @@ int main(int argc, char *argv[])
     solnExporter->exportSolution(solution, refinementNumber, numLinearPointsPlotting);
   }
   
-  while (refinementNumber < numRefinements)
+  errL2 = (u_soln - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
+
+  while ((refinementNumber < numRefinements) && (errL2 > refErrThreshold))
   {
     GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
     GlobalIndexType numActiveElements = mesh->numActiveElements();
@@ -1004,6 +1014,34 @@ int main(int argc, char *argv[])
   {
     cout << " L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
     cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
+  }
+  
+  if (exportMatricesLastRefinement)
+  {
+    if (rank == 0) cout << "Exporting matrices for final solve.\n";
+    
+    ostringstream stiffmatrixName;
+    stiffmatrixName << thisRunPrefix.str() << "finalStiffness.dat";
+    Teuchos::RCP<Epetra_CrsMatrix> stiffness = solution->getStiffnessMatrix();
+    EpetraExt::RowMatrixToMatrixMarketFile(stiffmatrixName.str().c_str(),*stiffness, NULL, NULL, false);
+    if (rank == 0) cout << "Wrote unpreconditioned matrix to " << stiffmatrixName.str() << endl;
+    
+    auto gmgSolver = getGMGSolver();
+    gmgSolver->gmgOperator()->setFineStiffnessMatrix(stiffness.get());
+    Teuchos::RCP<Epetra_CrsMatrix> op = gmgSolver->gmgOperator()->getMatrixRepresentation();
+    
+    int maxRowSize = 0; // _P->MaxNumEntries();
+    
+    // compute op * stiffness
+    Epetra_CrsMatrix preconditionedStiffness(::Copy, solution->getPartitionMap(), maxRowSize);
+    
+    int err = EpetraExt::MatrixMatrix::Multiply(*op, false, *stiffness, false, preconditionedStiffness);
+    if (err != 0) cout << "Error (code " << err << ") encountered during matrix-matrix multiply.\n";
+    
+    ostringstream preconditionedStiffmatrixName;
+    preconditionedStiffmatrixName << thisRunPrefix.str() << "finalStiffnessPreconditioned.dat";
+    EpetraExt::RowMatrixToMatrixMarketFile(preconditionedStiffmatrixName.str().c_str(),preconditionedStiffness, NULL, NULL, false);
+    if (rank == 0) cout << "Wrote preconditioned matrix to " << preconditionedStiffmatrixName.str() << endl;
   }
   
   // compute average timings across all MPI ranks.
