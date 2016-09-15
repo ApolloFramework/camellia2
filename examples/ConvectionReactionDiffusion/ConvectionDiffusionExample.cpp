@@ -264,6 +264,28 @@ double conditionNumberLAPACK(const Epetra_RowMatrix &stiffnessMatrix)
   return condest;
 }
 
+void writeEigenValues(const Epetra_RowMatrix &stiffnessMatrix, string filename)
+{
+  Intrepid::FieldContainer<double> A;
+  SerialDenseWrapper::extractFCFromEpetra_RowMatrix(stiffnessMatrix, A);
+  
+  int rank = stiffnessMatrix.Comm().MyPID();
+  if (rank == 0)
+  {
+    Intrepid::FieldContainer<double> lambda_real(A.dimension(0)), lambda_imag(A.dimension(0));
+    SerialDenseWrapper::eigenvalues(A, lambda_real, lambda_imag);
+    
+    ofstream fout(filename);
+    
+    for (int i=0; i<lambda_real.size(); i++)
+    {
+      double real_part = lambda_real(i), imag_part = lambda_imag(i);
+      fout << real_part << "\t" << imag_part << endl;
+    }
+    fout.close();
+  }
+}
+
 double h_mean(MeshPtr mesh)
 {
   FunctionPtr h = Function::h();
@@ -383,6 +405,7 @@ int main(int argc, char *argv[])
   bool useNodalBasis = true;
   bool exportMatrix = false;
   bool refineUniformly = false;
+  bool writeEigValues = false;
   int maxIterations = 2000;
   int iterativeOutputLevel = 100;
   double cgTol = 1e-6;
@@ -433,6 +456,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("useVisualization","noVisualization",&exportVisualization);
   cmdp.setOption("useCondensedSolve", "useStandardSolve", &useCondensedSolve);
   cmdp.setOption("useCustomMeshRefinement", "useFormulationMeshRefinement", &useCustomMeshRefinement);
+  cmdp.setOption("writeEigValues", "dontWriteEigValues", &writeEigValues);
   cmdp.setOption("iterativeOutputLevel", &iterativeOutputLevel, "How many iterations to take before reporting iterative solver progress (0 to suppress output)");
   cmdp.setOption("iterativeTol", &cgTol);
   cmdp.setOption("maxIterations", &maxIterations);
@@ -702,6 +726,13 @@ int main(int argc, char *argv[])
       }
     }
   }
+  if (writeEigValues)
+  {
+    ostringstream eigFileName;
+    eigFileName << thisRunPrefix.str() << "ref" << refinementNumber << "_eig.txt";
+    if (rank == 0) cout << "computing eigValues and writing to " << eigFileName.str() << endl;
+    writeEigenValues(*solution->getStiffnessMatrix(), eigFileName.str());
+  }
   if (reportSolutionTimings)
   {
     if (rank == 0)
@@ -927,6 +958,13 @@ int main(int argc, char *argv[])
           cout << "Condition Number estimate refinement " << refinementNumber << ": " << conditionNumber << endl;
         }
       }
+    }
+    if (writeEigValues)
+    {
+      ostringstream eigFileName;
+      eigFileName << thisRunPrefix.str() << "ref" << refinementNumber << "_eig.txt";
+      if (rank == 0) cout << "computing eigValues and writing to " << eigFileName.str() << endl;
+      writeEigenValues(*solution->getStiffnessMatrix(), eigFileName.str());
     }
     
     if (formulationIsDPG)
