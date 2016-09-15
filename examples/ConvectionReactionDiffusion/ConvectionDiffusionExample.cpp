@@ -834,8 +834,6 @@ int main(int argc, char *argv[])
     GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
     GlobalIndexType numActiveElements = mesh->numActiveElements();
     
-    errL2 = (u_soln - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
-    
     bestSolution->projectOntoMesh(exactSolutionMap);
     bestErrL2 = (u_best - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
     
@@ -930,6 +928,8 @@ int main(int argc, char *argv[])
     
     assemblyTimes.push_back(solution->totalTimeLocalStiffness());
     solveTimes.push_back(solution->totalTimeSolve());
+    
+    errL2 = (u_soln - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
     
     if (reportSolutionTimings)
     {
