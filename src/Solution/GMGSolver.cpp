@@ -138,6 +138,11 @@ double GMGSolver::condest()
   return _condest;
 }
 
+int GMGSolver::getGridLevelCount() const
+{
+  return _gmgOperator->getOperatorLevel() + 1;
+}
+
 vector<int> GMGSolver::getIterationCountLog()
 {
   return _iterationCountLog;
@@ -731,13 +736,41 @@ void GMGSolver::setReturnErrorIfMaxItersReached(bool value)
   _returnErrorIfMaxItersReached = value;
 }
 
-void GMGSolver::setSmootherType(GMGOperator::SmootherChoice smootherType)
+vector<Teuchos::RCP<GMGOperator>> GMGSolver::getOperatorStack(bool coarseToFine)
 {
   Teuchos::RCP<GMGOperator> op = _gmgOperator;
+  vector<Teuchos::RCP<GMGOperator>> opStack = {op};
   while (op != Teuchos::null)
   {
-    op->setSmootherType(smootherType);
+    if (coarseToFine)
+    {
+      opStack.insert(opStack.begin(), op);
+    }
+    else
+    {
+      opStack.push_back(op);
+    }
     op = op->getCoarseOperator();
+  }
+  return opStack;
+}
+
+// ! Sets the number of times the smoother will be applied when it is applied.  (For multigrid strategies other than TWO_LEVEL, it is applied this many times before and after each application of the coarse operator.)
+void GMGSolver::setSmootherApplicationCount(int count)
+{
+  auto opStack = getOperatorStack(false);
+  for (auto op : opStack)
+  {
+    op->setSmootherApplicationCount(count);
+  }
+}
+
+void GMGSolver::setSmootherType(GMGOperator::SmootherChoice smootherType)
+{
+  auto opStack = getOperatorStack(false);
+  for (auto op : opStack)
+  {
+    op->setSmootherType(smootherType);
   }
 }
 

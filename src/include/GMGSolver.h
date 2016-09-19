@@ -69,6 +69,11 @@ public:
 
   double condest();
 
+  vector<Teuchos::RCP<GMGOperator>> getOperatorStack(bool coarseToFine);
+  
+  // ! returns number of grid levels
+  int getGridLevelCount() const;
+  
   int iterationCount();
 
   void setPrintToConsole(bool printToConsole);
@@ -97,6 +102,9 @@ public:
   
   void setReturnErrorIfMaxItersReached(bool value);
 
+  // ! Sets the number of times the smoother will be applied when it is applied at each grid level.  (For multigrid strategies other than TWO_LEVEL, it is applied this many times before and after each application of the coarse operator.)
+  void setSmootherApplicationCount(int count);
+  
   void setSmootherType(GMGOperator::SmootherChoice smootherType);
   
   vector<int> getIterationCountLog();
