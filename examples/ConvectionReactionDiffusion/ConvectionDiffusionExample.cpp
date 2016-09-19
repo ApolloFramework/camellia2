@@ -412,6 +412,7 @@ int main(int argc, char *argv[])
   int maxIterations = 2000;
   int iterativeOutputLevel = 100;
   double cgTol = 1e-6;
+  int smootherApplicationCount = 1;
   double weightForL2TermsGraphNorm = -1;
   bool useGMRESForDPG = false;
   bool usePointSymmetricGSForDPG = false;
@@ -451,6 +452,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("refineUniformly", "refineUsingErrorIndicator", &refineUniformly);
   cmdp.setOption("reportRefinedCells", "dontReportRefinedCells", &reportRefinedCells);
   cmdp.setOption("reportConditionNumber", "dontReportConditionNumber", &conditionNumberEstimate);
+  cmdp.setOption("smootherApplicationCount", &smootherApplicationCount, "number of times to apply smoother at each multigrid level");
   cmdp.setOption("computeLAPACKConditionNumber", "dontComputeLAPACKConditionNumber", &computeLAPACKConditionNumber);
   cmdp.setOption("reportSolutionTimings", "dontReportSolutionTimings", &reportSolutionTimings);
   cmdp.setOption("meshLoadPrefix", &meshLoadPrefix, "filename prefix (refinement number will be appended) to use for loading refinements; if non-empty, will use in place of the usual refinement indicator to drive mesh refinements");
@@ -658,7 +660,7 @@ int main(int argc, char *argv[])
   }
   
   auto getGMGSolver = [&solution, &formulationIsDPG, &delta_k, &useCondensedSolve, &maxIterations, &cgTol, &iterativeOutputLevel,
-                       formulation, useGMRESForDPG, usePointSymmetricGSForDPG] () -> Teuchos::RCP<GMGSolver>
+                       &smootherApplicationCount, formulation, useGMRESForDPG, usePointSymmetricGSForDPG] () -> Teuchos::RCP<GMGSolver>
   {
     vector<MeshPtr> meshesCoarseToFine = GMGSolver::meshesForMultigrid(solution->mesh(), 1, delta_k);
 
@@ -691,6 +693,8 @@ int main(int argc, char *argv[])
     
     gmgSolver->setAztecOutput(iterativeOutputLevel);
 
+    gmgSolver->setSmootherApplicationCount(smootherApplicationCount);
+    
     return gmgSolver;
   };
   
