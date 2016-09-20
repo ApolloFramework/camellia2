@@ -188,21 +188,17 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
 
       if (spaceDim==1)
       {
-        _bf->addTerm( sigma - _epsilon * u->dx(), tau );
-        _bf->addTerm( -_epsilon * sigma + _epsilon * _epsilon * u->dx(), v->dx() );
-
-        _bf->addTerm( sigma->dx() - _beta * u->dx() - _alpha * u, tau->dx());
-        _bf->addTerm( -sigma->dx() + _beta * u->dx() + _alpha * u, _beta * v->dx());
-        _bf->addTerm( -_alpha * sigma->dx() + _alpha * _beta * u->dx() + _alpha * _alpha * u, v);
+        _bf->addTerm( sigma - _epsilon * u->dx(),
+                      tau   - _epsilon * v->dx() );
+        _bf->addTerm( -sigma->dx() + _beta * u->dx() + _alpha * u,
+                      -tau->dx()   + _beta * v->dx() + _alpha * v);
       }
       else
       {
-        _bf->addTerm( sigma - _epsilon * u->grad(), tau );
-        _bf->addTerm( -_epsilon * sigma + _epsilon * _epsilon * u->grad(), v->grad() );
-        
-        _bf->addTerm( sigma->div() - _beta * u->grad() - _alpha * u, tau->div());
-        _bf->addTerm( -sigma->div() + _beta * u->grad() + _alpha * u, _beta * v->grad());
-        _bf->addTerm( -_alpha * sigma->div() + _alpha * _beta * u->grad() + _alpha * _alpha * u, v);
+        _bf->addTerm( sigma - _epsilon * u->grad(),
+                      tau   - _epsilon * v->grad() );
+        _bf->addTerm( - sigma->div() + _beta * u->grad() + _alpha * u,
+                      - tau->div()   + _beta * v->grad() + _alpha * v);
       }
   }
 }
@@ -228,15 +224,11 @@ RHSPtr ConvectionDiffusionReactionFormulation::rhs(FunctionPtr f)
   {
     if (_spaceDim == 1)
     {
-      rhs->addTerm( -f * tau()->dx());
-      rhs->addTerm( f * _beta * v()->dx());
-      rhs->addTerm( f * _alpha * v());
+      rhs->addTerm( f * (-tau()->dx() + _beta * v()->dx() + _alpha * v()) );
     }
     else
     {
-      rhs->addTerm( -f * tau()->div());
-      rhs->addTerm( f * _beta * v()->grad());
-      rhs->addTerm( f * _alpha * v());
+      rhs->addTerm( f * (-tau()->div() + _beta * v()->grad() + _alpha * v()) );
     }
   }
   else
