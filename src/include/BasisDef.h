@@ -209,6 +209,7 @@ const std::vector<int> &Basis<Scalar,ArrayScalar>::dofOrdinalsForSubcell(int sub
 //    TEUCHOS_TEST_FOR_EXCEPTION(dofOrdinal < 0, std::invalid_argument, "invalid entry encountered in _tagToOrdinal");
 //  }
   
+  if (this->_functionSpace != Camellia::FUNCTION_SPACE_HDIV) // there appears to be a bug in Intrepid's HDIV basis for hexahedra, such that _ordinalToTag is not consistent with _tagToOrdinal.  _tagToOrdinal is OK, though, I think.
   { // DEBUGGING -- sanity checks:
     for (int dofOrdinal : _tagToOrdinal[subcellDim][subcellIndex])
     {
