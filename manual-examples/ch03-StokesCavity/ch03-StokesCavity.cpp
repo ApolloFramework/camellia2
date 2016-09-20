@@ -79,13 +79,11 @@ int main(int argc, char *argv[])
   stokesBF->addTerm(-u1_hat * n->x() - u2_hat * n->y(), q);
   
   // add terms for tau1:
-  stokesBF->addTerm(sigma1,tau1);
   stokesBF->addTerm(u->x(), tau1->div());
   stokesBF->addTerm((1.0/mu) * sigma1, tau1);
   stokesBF->addTerm(-u1_hat, tau1->dot_normal());
   
   // add terms for tau2:
-  stokesBF->addTerm(sigma2,tau2);
   stokesBF->addTerm(u->y(), tau2->div());
   stokesBF->addTerm((1.0/mu) * sigma2, tau2);
   stokesBF->addTerm(-u2_hat, tau2->dot_normal());
