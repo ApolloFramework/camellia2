@@ -99,11 +99,11 @@ namespace
   
   MeshPtr minimalPoissonHangingNodeMesh(int H1Order, int delta_k, int spaceDim, PoissonFormulation::PoissonFormulationChoice formChoice)
   {
-    // exact solution: for now, we just use a linear phi
+    // exact solution: for now, we just use a linear u
     FunctionPtr x = Function::xn(1);
     FunctionPtr y = Function::yn(1);
     
-    FunctionPtr phi_exact = -x + y;
+    FunctionPtr u_exact = -x + y;
     
     bool useConformingTraces = true; // doesn't matter for continuous Galerkin
     PoissonFormulation poissonForm(spaceDim, useConformingTraces, formChoice);
@@ -203,11 +203,11 @@ namespace
   void testSolvePoissonHangingNode(int spaceDim, PoissonFormulation::PoissonFormulationChoice formChoice,
                                    Teuchos::FancyOStream &out, bool &success)
   {
-    // exact solution: for now, we just use a linear phi
+    // exact solution: for now, we just use a linear u
     FunctionPtr x = Function::xn(1);
     FunctionPtr y = Function::yn(1);
     
-    FunctionPtr phi_exact = -x + y;
+    FunctionPtr u_exact = -x + y;
     
     int H1Order = 2;
     bool useConformingTraces = true; // doesn't matter for continuous Galerkin
@@ -218,10 +218,10 @@ namespace
     switch (formChoice) {
       case Camellia::PoissonFormulation::PRIMAL:
       {
-        VarPtr q = poissonForm.q();
+        VarPtr v = poissonForm.v();
         ip = IP::ip();
-        ip->addTerm(q->grad());
-        ip->addTerm(q);
+        ip->addTerm(v->grad());
+        ip->addTerm(v);
         delta_k = spaceDim;
       }
         break;
@@ -241,10 +241,10 @@ namespace
     
     MeshPtr mesh = minimalPoissonHangingNodeMesh(H1Order, delta_k, spaceDim, formChoice);
     
-    // rhs = f * v, where f = \Delta phi
+    // rhs = f * v, where f = \Delta u
     RHSPtr rhs = RHS::rhs();
-    FunctionPtr f = phi_exact->dx()->dx() + phi_exact->dy()->dy() + phi_exact->dz()->dz();
-    rhs->addTerm(f * poissonForm.q());
+    FunctionPtr f = u_exact->dx()->dx() + u_exact->dy()->dy() + u_exact->dz()->dz();
+    rhs->addTerm(f * poissonForm.v());
     
     double tolForConsistency = (spaceDim == 3) ? 1e-9 : 1e-10;
     if (! MeshTestUtility::checkLocalGlobalConsistency(mesh, tolForConsistency) )
@@ -262,35 +262,35 @@ namespace
 //      minRule->getDofMapper(cellWithHangingNode, cellConstraints)->printMappingReport();
 //    }
     
-    VarPtr phi = poissonForm.phi();
+    VarPtr u = poissonForm.u();
     BCPtr bc = BC::bc();
     SpatialFilterPtr boundary = SpatialFilter::allSpace();
-    bc->addDirichlet(phi, boundary, phi_exact);
+    bc->addDirichlet(u, boundary, u_exact);
     
     SolutionPtr soln = Solution::solution(poissonForm.bf(), mesh, bc, rhs, ip);
     
-    map<int, FunctionPtr> phi_exact_map;
-    phi_exact_map[phi->ID()] = phi_exact;
-    soln->projectOntoMesh(phi_exact_map);
+    map<int, FunctionPtr> u_exact_map;
+    u_exact_map[u->ID()] = u_exact;
+    soln->projectOntoMesh(u_exact_map);
     
-    FunctionPtr phi_soln = Function::solution(phi, soln);
-    FunctionPtr phi_err = phi_soln - phi_exact;
+    FunctionPtr u_soln = Function::solution(u, soln);
+    FunctionPtr u_err = u_soln - u_exact;
     
     double tol = 1e-12;
-    double phi_err_l2 = phi_err->l2norm(mesh);
+    double u_err_l2 = u_err->l2norm(mesh);
     
-    if (phi_err_l2 > tol)
+    if (u_err_l2 > tol)
     {
       success = false;
       cout << "GDAMinimumRuleTests failure: for 1-irregular ";
-      cout << spaceDim << "D mesh and exactly recoverable solution, phi error after projection is " << phi_err_l2 << endl;
+      cout << spaceDim << "D mesh and exactly recoverable solution, u error after projection is " << u_err_l2 << endl;
       
       string outputSuperDir = ".";
       string outputDir = "poisson2DHangingNodeProjection";
       HDF5Exporter exporter(mesh, outputDir, outputSuperDir);
-      cout << "Writing phi err to " << outputSuperDir << "/" << outputDir << endl;
+      cout << "Writing u err to " << outputSuperDir << "/" << outputDir << endl;
       
-      exporter.exportFunction(phi_err, "phi_err");
+      exporter.exportFunction(u_err, "u_err");
     }
     
     soln->clear();
@@ -321,19 +321,19 @@ namespace
 
 //    cout << "...solution continuities checked.\n";
     
-    phi_err_l2 = phi_err->l2norm(mesh);
-    if (phi_err_l2 > tol)
+    u_err_l2 = u_err->l2norm(mesh);
+    if (u_err_l2 > tol)
     {
       success = false;
       cout << "GDAMinimumRuleTests failure: for 1-irregular ";
-      cout << spaceDim << "D mesh and exactly recoverable solution, phi error is " << phi_err_l2 << endl;
+      cout << spaceDim << "D mesh and exactly recoverable solution, u error is " << u_err_l2 << endl;
       
       string outputSuperDir = ".";
       string outputDir = "poisson2DHangingNodeError";
       HDF5Exporter exporter(mesh, outputDir, outputSuperDir);
-      cout << "Writing phi err to " << outputSuperDir << "/" << outputDir << endl;
+      cout << "Writing u err to " << outputSuperDir << "/" << outputDir << endl;
       
-      exporter.exportFunction(phi_err, "phi_err");
+      exporter.exportFunction(u_err, "u_err");
       
       outputDir = "poisson2DHangingNodeSolution";
       cout << "Writing solution to " << outputSuperDir << "/" << outputDir << endl;
@@ -1189,7 +1189,7 @@ namespace
   };
   
   // ! copied from DPGTests GDAMinimumRuleTests
-  SolutionPtr poissonExactSolution3D(int horizontalCells, int verticalCells, int depthCells, int H1Order, FunctionPtr phi_exact, bool useH1Traces)
+  SolutionPtr poissonExactSolution3D(int horizontalCells, int verticalCells, int depthCells, int H1Order, FunctionPtr u_exact, bool useH1Traces)
   {
     bool usePenaltyBCs = false;
     
@@ -1197,13 +1197,13 @@ namespace
     PoissonFormulation poissonForm(spaceDim, useH1Traces);
     
     VarPtr tau = poissonForm.tau();
-    VarPtr q = poissonForm.q();
+    VarPtr v = poissonForm.v();
     
-    VarPtr phi_hat = poissonForm.phi_hat();
-    VarPtr psi_hat = poissonForm.psi_n_hat();
+    VarPtr u_hat = poissonForm.u_hat();
+    VarPtr sigma_hat = poissonForm.sigma_n_hat();
     
-    VarPtr phi = poissonForm.phi();
-    VarPtr psi = poissonForm.psi();
+    VarPtr u = poissonForm.u();
+    VarPtr sigma = poissonForm.sigma();
     
     BFPtr bf = poissonForm.bf();
     
@@ -1222,10 +1222,10 @@ namespace
     
     MeshPtr mesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order, testSpaceEnrichment);
     
-    // rhs = f * v, where f = \Delta phi
+    // rhs = f * v, where f = \Delta u
     RHSPtr rhs = RHS::rhs();
-    FunctionPtr f = phi_exact->dx()->dx() + phi_exact->dy()->dy() + phi_exact->dz()->dz();
-    rhs->addTerm(f * q);
+    FunctionPtr f = u_exact->dx()->dx() + u_exact->dy()->dy() + u_exact->dz()->dz();
+    rhs->addTerm(f * v);
     
     IPPtr graphNorm = bf->graphNorm();
     
@@ -1234,7 +1234,7 @@ namespace
     SolutionPtr solution;
     if (!usePenaltyBCs)
     {
-      bc->addDirichlet(phi_hat, boundary, phi_exact);
+      bc->addDirichlet(u_hat, boundary, u_exact);
       solution = Solution::solution(mesh, bc, rhs, graphNorm);
     }
     else
@@ -1243,7 +1243,7 @@ namespace
       SpatialFilterPtr entireBoundary = Teuchos::rcp( new GDAMinimumRuleTests_UnitHexahedronBoundary );
       
       Teuchos::RCP<PenaltyConstraints> pc = Teuchos::rcp(new PenaltyConstraints);
-      pc->addConstraint(phi_hat==phi_exact,entireBoundary);
+      pc->addConstraint(u_hat==u_exact,entireBoundary);
       
       solution->setFilter(pc);
     }
@@ -1252,7 +1252,7 @@ namespace
   }
   
   // ! copied from DPGTests GDAMinimumRuleTests
-  SolutionPtr poissonExactSolution3DHangingNodes(int irregularity, FunctionPtr phi_exact, int H1Order)
+  SolutionPtr poissonExactSolution3DHangingNodes(int irregularity, FunctionPtr u_exact, int H1Order)
   {
     // right now, we support 1-irregular and 2-irregular
     if ((irregularity > 2) || (irregularity < 0))
@@ -1263,7 +1263,7 @@ namespace
     
     bool useH1Traces = true; // "true" is the more thorough test
     
-    SolutionPtr soln = poissonExactSolution3D(horizontalCellsInitialMesh, verticalCellsInitialMesh, depthCellsInitialMesh, H1Order, phi_exact, useH1Traces);
+    SolutionPtr soln = poissonExactSolution3D(horizontalCellsInitialMesh, verticalCellsInitialMesh, depthCellsInitialMesh, H1Order, u_exact, useH1Traces);
     
     if (irregularity==0) return soln;
     
@@ -1673,7 +1673,7 @@ namespace
     mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternHexahedron());
     
     PoissonFormulation poissonForm(spaceDim, useConformingTraces);
-    testGlobalDofCoordinatesAgree(mesh, poissonForm.phi_hat(), out, success);
+    testGlobalDofCoordinatesAgree(mesh, poissonForm.u_hat(), out, success);
   }
   
   TEUCHOS_UNIT_TEST( GDAMinimumRule, BasisMapsAgreePoisson3DHangingNode1Irregular_Slow)
@@ -1862,15 +1862,15 @@ namespace
   
     /*
      Ultraweak conforming Poisson formulation has the following variables:
-     phi - scalar field
+     u - scalar field
      psi - vector field
-     phi_hat - H^1 conforming trace
+     u_hat - H^1 conforming trace
      psi_n_hat - L^2 conforming flux
      
      The global degree of freedom count we expect for a uniform triangular linear H^1 mesh is as follows:
-     phi - 1 dof/triangle (constant basis)
+     u - 1 dof/triangle (constant basis)
      psi - 2 dofs/triangle (constant basis)
-     phi_hat - 1 dof/vertex (linear basis)
+     u_hat - 1 dof/vertex (linear basis)
      psi_n_hat - 1 dof/edge (constant basis)
      
      */
@@ -1934,8 +1934,8 @@ namespace
     double prescribedValue = 1.0;
     SolutionPtr soln = Solution::solution(form.bf(), mesh);
     BCPtr bc = BC::bc();
-    VarPtr phi_hat = form.phi_hat();
-    bc->addDirichlet(phi_hat, SpatialFilter::allSpace(), Function::constant(prescribedValue));
+    VarPtr u_hat = form.u_hat();
+    bc->addDirichlet(u_hat, SpatialFilter::allSpace(), Function::constant(prescribedValue));
     soln->initializeLHSVector();
     
     Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndicesFC;
@@ -1994,7 +1994,7 @@ namespace
     refLinePoints(3,0) =  1.0;
     
     double tol = 1e-14;
-    FunctionPtr phi_soln = Function::solution(phi_hat, soln);
+    FunctionPtr u_soln = Function::solution(u_hat, soln);
     FieldContainer<double> phiValues(1,numPoints);
     for (GlobalIndexType cellID : myCellIDs)
     {
@@ -2008,7 +2008,7 @@ namespace
       {
         BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
         sideCache->setRefCellPoints(refLinePoints);
-        phi_soln->values(phiValues, sideCache);
+        u_soln->values(phiValues, sideCache);
         
         // are there some physical points that lie on the boundary?
         // we expect to match prescribedValue at these
@@ -2100,7 +2100,7 @@ namespace
     // the numbering of these things changes.
     GlobalIndexType cellID = 6; // cell 6 is the bottom-right guy in the refined cell
     unsigned cellVertex = 1;    // the problematic vertex pointed out above
-    VarPtr phi_hat = form.phi_hat(); // H^1-conforming variable
+    VarPtr u_hat = form.u_hat(); // H^1-conforming variable
     unsigned vertexDim = 0;
     unsigned cellSideOrdinal = 0; // side 0 is the one with the hanging node
     
@@ -2110,7 +2110,7 @@ namespace
     if (myCells.find(cellID) != myCells.end())
     {
       // we start by representing the global dof for the problematic vertex in terms of the local basis on the refined cell.
-      set<GlobalIndexType> globalIndices = minRule->globalDofIndicesForVarOnSubcell(phi_hat->ID(), cellID, vertexDim, cellVertex);
+      set<GlobalIndexType> globalIndices = minRule->globalDofIndicesForVarOnSubcell(u_hat->ID(), cellID, vertexDim, cellVertex);
       // there should be exactly one globalIndex for the vertex
       TEST_EQUALITY(globalIndices.size(), 1);
       int vertexGlobalDofIndex = *globalIndices.begin();
@@ -2124,18 +2124,18 @@ namespace
       minRule->interpretGlobalCoefficients(cellID, localCoefficients, *XLocal);
       
       DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
-      BasisPtr basis = trialOrder->getBasis(phi_hat->ID(), cellSideOrdinal);
+      BasisPtr basis = trialOrder->getBasis(u_hat->ID(), cellSideOrdinal);
       FieldContainer<double> localBasisCoefficients(basis->getCardinality());
       
       for (int basisOrdinal=0; basisOrdinal<basis->getCardinality(); basisOrdinal++)
       {
-        int localDofIndex = trialOrder->getDofIndex(phi_hat->ID(), basisOrdinal, cellSideOrdinal);
+        int localDofIndex = trialOrder->getDofIndex(u_hat->ID(), basisOrdinal, cellSideOrdinal);
         localBasisCoefficients[basisOrdinal] = localCoefficients[localDofIndex];
       }
       
       FieldContainer<double> globalCoefficients;
       FieldContainer<GlobalIndexType> globalDofIndices;
-      minRule->interpretLocalBasisCoefficients(cellID, phi_hat->ID(), cellSideOrdinal,
+      minRule->interpretLocalBasisCoefficients(cellID, u_hat->ID(), cellSideOrdinal,
                                                localBasisCoefficients, globalCoefficients, globalDofIndices);
       
       // expect 1.0 weight for vertexGlobalDofIndex, 0 for any others
@@ -2188,10 +2188,10 @@ namespace
     
     // important thing here is the irregularity is 2:
     int irregularity = 2;
-    FunctionPtr phi_exact = Function::zero();
+    FunctionPtr u_exact = Function::zero();
     int H1Order = 2;
     
-    SolutionPtr soln = poissonExactSolution3DHangingNodes(irregularity,phi_exact,H1Order);
+    SolutionPtr soln = poissonExactSolution3DHangingNodes(irregularity,u_exact,H1Order);
     MeshPtr mesh = soln->mesh();
     
     GlobalIndexType activeElementCount_initial = mesh->numActiveElements();
@@ -2290,12 +2290,12 @@ namespace
     SolutionPtr soln = Solution::solution(mesh);
     FunctionPtr phiExact = 2 * Function::xn(1) + Function::yn(1);
     map<int, FunctionPtr> projectionMap;
-    projectionMap[form.phi()->ID()] = phiExact;
+    projectionMap[form.u()->ID()] = phiExact;
     soln->projectOntoMesh(projectionMap);
     soln->initializeLHSVector();
     soln->importSolution();
     
-    FunctionPtr projectedFunction = Function::solution(form.phi(), soln);
+    FunctionPtr projectedFunction = Function::solution(form.u(), soln);
     double err = (projectedFunction - phiExact)->l2norm(mesh);
     TEST_COMPARE(err, <, 1e-13);
     
@@ -2316,7 +2316,7 @@ namespace
       string outputSuperDir = "/tmp";
       string outputDir = "PoissonSoln";
       HDF5Exporter exporter(mesh, outputDir, outputSuperDir);
-      cout << "Writing phi to " << outputSuperDir << "/" << outputDir << endl;
+      cout << "Writing u to " << outputSuperDir << "/" << outputDir << endl;
 
       exporter.exportSolution(soln);
     }
@@ -2357,22 +2357,22 @@ namespace
 
   TEUCHOS_UNIT_TEST( GDAMinimumRule, SolvePoisson3DHangingNode_Slow )
   {
-    // exact solution: for now, we just use a linear phi
+    // exact solution: for now, we just use a linear u
     FunctionPtr x = Function::xn(1);
     FunctionPtr y = Function::yn(1);
     FunctionPtr z = Function::zn(1);
-    //  FunctionPtr phi_exact = x + y;
-    FunctionPtr phi_exact = -x + y + z;
-    //  FunctionPtr phi_exact = Function::constant(3.14159);
+    //  FunctionPtr u_exact = x + y;
+    FunctionPtr u_exact = -x + y + z;
+    //  FunctionPtr u_exact = Function::constant(3.14159);
     
-    int H1Order = 2; // 1 higher than the order of phi_exact, to get an exactly recoverable solution with L^2 fields.
+    int H1Order = 2; // 1 higher than the order of u_exact, to get an exactly recoverable solution with L^2 fields.
     int spaceDim = 3;
     bool useConformingTraces = true;
     PoissonFormulation poissonForm(spaceDim, useConformingTraces);
 
     for (int irregularity = 1; irregularity<=1; irregularity++)
     {
-      SolutionPtr soln = poissonExactSolution3DHangingNodes(irregularity,phi_exact,H1Order);
+      SolutionPtr soln = poissonExactSolution3DHangingNodes(irregularity,u_exact,H1Order);
       
       MeshPtr mesh = soln->mesh();
       VarFactoryPtr vf = soln->mesh()->bilinearForm()->varFactory();
@@ -2384,20 +2384,20 @@ namespace
         //    return success;
       }
       
-      VarPtr phi = poissonForm.phi();
-      VarPtr phi_hat = poissonForm.phi_hat();
+      VarPtr u = poissonForm.u();
+      VarPtr u_hat = poissonForm.u_hat();
       
-      map<int, FunctionPtr> phi_exact_map;
-      phi_exact_map[phi->ID()] = phi_exact;
-      soln->projectOntoMesh(phi_exact_map);
+      map<int, FunctionPtr> u_exact_map;
+      u_exact_map[u->ID()] = u_exact;
+      soln->projectOntoMesh(u_exact_map);
       
-      FunctionPtr phi_soln = Function::solution(phi, soln);
-      FunctionPtr phi_err = phi_soln - phi_exact;
+      FunctionPtr u_soln = Function::solution(u, soln);
+      FunctionPtr u_err = u_soln - u_exact;
       
-      FunctionPtr phi_hat_soln = Function::solution(phi_hat, soln);
+      FunctionPtr phi_hat_soln = Function::solution(u_hat, soln);
       
       double tol = 1e-12;
-      double phi_err_l2 = phi_err->l2norm(mesh);
+      double u_err_l2 = u_err->l2norm(mesh);
       
       soln->clear();
       soln->solve();
@@ -2424,18 +2424,18 @@ namespace
       
       //    cout << "...solution continuities checked.\n";
       
-      phi_err_l2 = phi_err->l2norm(mesh);
-      if (phi_err_l2 > tol)
+      u_err_l2 = u_err->l2norm(mesh);
+      if (u_err_l2 > tol)
       {
         success = false;
-        cout << "GDAMinimumRuleTests failure: for " << irregularity << "-irregular 3D mesh and exactly recoverable solution, phi error is " << phi_err_l2 << endl;
+        cout << "GDAMinimumRuleTests failure: for " << irregularity << "-irregular 3D mesh and exactly recoverable solution, u error is " << u_err_l2 << endl;
         
         string outputSuperDir = ".";
         string outputDir = "poisson3DHangingNode";
         HDF5Exporter exporter(mesh, outputDir, outputSuperDir);
-        cout << "Writing phi err to " << outputSuperDir << "/" << outputDir << endl;
+        cout << "Writing u err to " << outputSuperDir << "/" << outputDir << endl;
         
-        exporter.exportFunction(phi_err, "phi_err");
+        exporter.exportFunction(u_err, "u_err");
       }
     }
   }

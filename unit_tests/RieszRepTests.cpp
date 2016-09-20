@@ -30,8 +30,8 @@ TEUCHOS_UNIT_TEST( RieszRep, L2Norm )
   IPPtr ip = bf->l2Norm();
 
   FunctionPtr weight = Function::xn(1);
-  LinearTermPtr lt = weight * form.q();
-  // Riesz rep should be simply (weight * q) (since the ip is (q,q) ).
+  LinearTermPtr lt = weight * form.v();
+  // Riesz rep should be simply (weight * v) (since the ip is (v,v) ).
 
   int H1Order = 1;
   // make a unit square mesh:
@@ -43,7 +43,7 @@ TEUCHOS_UNIT_TEST( RieszRep, L2Norm )
 
   rieszRep->computeRieszRep();
 
-  FunctionPtr repFxn = RieszRep::repFunction(form.q(), rieszRep);
+  FunctionPtr repFxn = RieszRep::repFunction(form.v(), rieszRep);
 
   FunctionPtr expectedRepFxn = weight;
 

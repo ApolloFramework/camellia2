@@ -59,7 +59,7 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMap)
 
   BFPtr poissonBF = formulation.bf();
 
-  VarPtr phi_hat = formulation.phi_hat();
+  VarPtr u_hat = formulation.u_hat();
 
   MeshPtr mesh;
 
@@ -241,7 +241,7 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
 
   BFPtr poissonBF = formulation.bf();
 
-  VarPtr phi_hat = formulation.phi_hat();
+  VarPtr u_hat = formulation.u_hat();
 
   MeshPtr mesh;
 
@@ -446,7 +446,7 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, FunctionValuesPiecewiseConstant)
 
   BFPtr poissonBF = formulation.bf();
 
-  VarPtr phi_hat = formulation.phi_hat();
+  VarPtr u_hat = formulation.u_hat();
 
   MeshPtr mesh;
 
@@ -595,7 +595,7 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, FunctionValuesWithoutHangingNodes)
 
   BFPtr poissonBF = formulation.bf();
 
-  VarPtr phi_hat = formulation.phi_hat();
+  VarPtr u_hat = formulation.u_hat();
 
   MeshPtr mesh;
 
@@ -739,7 +739,7 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, FunctionValuesWithHangingNodes)
 
   BFPtr poissonBF = formulation.bf();
 
-  VarPtr phi_hat = formulation.phi_hat();
+  VarPtr u_hat = formulation.u_hat();
 
   MeshPtr mesh;
 

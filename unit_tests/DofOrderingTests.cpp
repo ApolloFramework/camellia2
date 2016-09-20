@@ -93,15 +93,15 @@ TEUCHOS_UNIT_TEST( DofOrdering, SidesForVarID )
     {
       DofOrderingPtr trialOrdering = mesh->getElementType(cellID)->trialOrderPtr;
       
-      VarPtr phi_hat = form.phi_hat();
+      VarPtr u_hat = form.u_hat();
       
       FieldContainer<double> localCoefficients(trialOrdering->totalDofs());
-      for (int sideOrdinal : trialOrdering->getSidesForVarID(phi_hat->ID()))
+      for (int sideOrdinal : trialOrdering->getSidesForVarID(u_hat->ID()))
       {
-        int numBasisDofs = trialOrdering->getBasisCardinality(phi_hat->ID(), sideOrdinal);
+        int numBasisDofs = trialOrdering->getBasisCardinality(u_hat->ID(), sideOrdinal);
         for (int basisDofOrdinal = 0; basisDofOrdinal < numBasisDofs; basisDofOrdinal++)
         {
-          int localDofIndex = trialOrdering->getDofIndex(phi_hat->ID(), basisDofOrdinal, sideOrdinal);
+          int localDofIndex = trialOrdering->getDofIndex(u_hat->ID(), basisDofOrdinal, sideOrdinal);
           localCoefficients(localDofIndex) = 1.0;
         }
       }
@@ -109,13 +109,13 @@ TEUCHOS_UNIT_TEST( DofOrdering, SidesForVarID )
       double tol = 1e-15;
       vector<pair<int,vector<int>>> entries = trialOrdering->variablesWithNonZeroEntries(localCoefficients, tol);
       
-      TEUCHOS_ASSERT_EQUALITY(entries.size(), 1); // just phi_hat
+      TEUCHOS_ASSERT_EQUALITY(entries.size(), 1); // just u_hat
       
       pair<int,vector<int>> entry = entries[0];
       
-      TEUCHOS_ASSERT_EQUALITY(entry.first, phi_hat->ID());
+      TEUCHOS_ASSERT_EQUALITY(entry.first, u_hat->ID());
       
-      TEUCHOS_ASSERT_EQUALITY(entry.second.size(), trialOrdering->getSidesForVarID(phi_hat->ID()).size());
+      TEUCHOS_ASSERT_EQUALITY(entry.second.size(), trialOrdering->getSidesForVarID(u_hat->ID()).size());
     }
   }
 //  TEUCHOS_UNIT_TEST( Int, Assignment )

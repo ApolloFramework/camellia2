@@ -267,7 +267,7 @@ NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyViewPtr meshT
       FunctionPtr u_prev_3 = TFunction<double>::solution(u_3, backgroundFlowWeakReference);
 
       _navierStokesBF->addTerm(u_prev_1*u_1, v_1->dx());
-      _navierStokesBF->addTerm(u_prev_1*u_1, v_1->dx());
+      _navierStokesBF->addTerm(u_prev_1*u_1, v_1->dx()); // DUPLICATE LINE: a bug??
       _navierStokesBF->addTerm(u_prev_2*u_1, v_1->dy());
       _navierStokesBF->addTerm(u_prev_1*u_2, v_1->dy());
       _navierStokesBF->addTerm(u_prev_3*u_1, v_1->dz());
@@ -276,7 +276,7 @@ NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyViewPtr meshT
       _navierStokesBF->addTerm(u_prev_1*u_2, v_2->dx());
       _navierStokesBF->addTerm(u_prev_2*u_1, v_2->dx());
       _navierStokesBF->addTerm(u_prev_2*u_2, v_2->dy());
-      _navierStokesBF->addTerm(u_prev_2*u_2, v_2->dy());
+      _navierStokesBF->addTerm(u_prev_2*u_2, v_2->dy()); // DUPLICATE LINE: a bug??
       _navierStokesBF->addTerm(u_prev_3*u_2, v_2->dz());
       _navierStokesBF->addTerm(u_prev_2*u_3, v_2->dz());
 
@@ -285,7 +285,7 @@ NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyViewPtr meshT
       _navierStokesBF->addTerm(u_prev_2*u_3, v_3->dy());
       _navierStokesBF->addTerm(u_prev_3*u_2, v_3->dy());
       _navierStokesBF->addTerm(u_prev_3*u_3, v_3->dz());
-      _navierStokesBF->addTerm(u_prev_3*u_3, v_3->dz());
+      _navierStokesBF->addTerm(u_prev_3*u_3, v_3->dz()); // DUPLICATE LINE: a bug??
     }
   }
 
@@ -492,8 +492,8 @@ NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyViewPtr meshT
 
     TFunctionPtr<double> vorticity = Teuchos::rcp( new PreviousSolutionFunction<double>(_backgroundFlow, u2_dx - u1_dy) );
     RHSPtr streamRHS = RHS::rhs();
-    VarPtr q_stream = _streamFormulation->q();
-    streamRHS->addTerm( -vorticity * q_stream );
+    VarPtr v_stream = _streamFormulation->v();
+    streamRHS->addTerm( -vorticity * v_stream );
     bool dontWarnAboutOverriding = true;
     ((PreviousSolutionFunction<double>*) vorticity.get())->setOverrideMeshCheck(true,dontWarnAboutOverriding);
 
@@ -511,10 +511,10 @@ NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyViewPtr meshT
     TFunctionPtr<double> n = TFunction<double>::normal();
 
     BCPtr streamBC = BC::bc();
-    VarPtr phi = _streamFormulation->phi();
+    VarPtr phi = _streamFormulation->u();
     streamBC->addZeroMeanConstraint(phi);
 
-    VarPtr psi_n = _streamFormulation->psi_n_hat();
+    VarPtr psi_n = _streamFormulation->sigma_n_hat();
     streamBC->addDirichlet(psi_n, SpatialFilter::allSpace(), u1_soln * n->y() - u2_soln * n->x());
 
     IPPtr streamIP = _streamFormulation->bf()->graphNorm();
@@ -1270,7 +1270,7 @@ VarPtr NavierStokesVGPFormulation::streamPhi()
       cout << "ERROR: streamPhi() called before initializeSolution called.  Returning null.\n";
       return Teuchos::null;
     }
-    return _streamFormulation->phi();
+    return _streamFormulation->u();
   }
   else
   {

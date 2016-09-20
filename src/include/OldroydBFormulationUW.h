@@ -201,7 +201,7 @@ public:
   void setLambda(double lambda);
 
   // ! refine according to energy error in the solution
-  void refine();
+  void refine(bool printToConsole=false);
 
   // ! h-refine according to energy error in the solution
   void hRefine();

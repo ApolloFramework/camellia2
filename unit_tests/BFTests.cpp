@@ -83,7 +83,7 @@ namespace
     int H1Order = 1;
     MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0,1.0}, {1,1}, H1Order);
     RHSPtr rhsPtr = RHS::rhs();
-    rhsPtr->addTerm(1.0 * form.q());
+    rhsPtr->addTerm(1.0 * form.v());
     GlobalIndexType cellZero = 0;
     if (mesh->myCellsInclude(cellZero))
     {

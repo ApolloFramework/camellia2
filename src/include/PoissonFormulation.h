@@ -35,13 +35,13 @@ private:
   BFPtr _poissonBF;
   int _spaceDim;
 
-  static const string S_PHI;
-  static const string S_PSI;
+  static const string S_U;
+  static const string S_SIGMA;
 
-  static const string S_PHI_HAT;
-  static const string S_PSI_N_HAT;
+  static const string S_U_HAT;
+  static const string S_SIGMA_N_HAT;
 
-  static const string S_Q;
+  static const string S_V;
   static const string S_TAU;
 public:
   PoissonFormulation(int spaceDim, bool useConformingTraces, PoissonFormulationChoice formulationChoice=ULTRAWEAK);
@@ -49,15 +49,15 @@ public:
   BFPtr bf();
 
   // field variables:
-  VarPtr phi();
-  VarPtr psi();
+  VarPtr u();
+  VarPtr sigma();
 
   // traces:
-  VarPtr psi_n_hat();
-  VarPtr phi_hat();
+  VarPtr sigma_n_hat();
+  VarPtr u_hat();
 
   // test variables:
-  VarPtr q();
+  VarPtr v();
   VarPtr tau();
 };
 }

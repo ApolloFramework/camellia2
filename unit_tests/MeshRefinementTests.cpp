@@ -34,18 +34,18 @@ TEUCHOS_UNIT_TEST( MeshRefinement, TraceTermProjection )
   FunctionPtr x = Function::xn(1);
   FunctionPtr y = Function::yn(1);
   FunctionPtr z = Function::zn(1);
-  FunctionPtr phi_exact; // want an exactly representable solution with non-trivial psi_n (i.e. grad phi dot n should be non-trivial)
+  FunctionPtr u_exact; // want an exactly representable solution with non-trivial sigma_n (i.e. grad u dot n should be non-trivial)
   // for now, we just go very simple.  Linear in x,y,z.
   switch (spaceDim)
   {
   case 1:
-    phi_exact = x;
+    u_exact = x;
     break;
   case 2:
-    phi_exact = x + y;
+    u_exact = x + y;
     break;
   case 3:
-    phi_exact = x + y + z;
+    u_exact = x + y + z;
     break;
   default:
     cout << "MeshRefinementTests::testTraceTermProjection(): unhandled space dimension.\n";
@@ -61,16 +61,16 @@ TEUCHOS_UNIT_TEST( MeshRefinement, TraceTermProjection )
   BFPtr bf = pf.bf();
 
   // fields
-  VarPtr phi = pf.phi();
-  VarPtr psi = pf.psi();
+  VarPtr u = pf.u();
+  VarPtr sigma = pf.sigma();
 
   // traces
-  VarPtr phi_hat = pf.phi_hat();
-  VarPtr psi_n = pf.psi_n_hat();
+  VarPtr u_hat = pf.u_hat();
+  VarPtr sigma_n = pf.sigma_n_hat();
 
   // tests
   VarPtr tau = pf.tau();
-  VarPtr q = pf.q();
+  VarPtr v = pf.v();
 
   int testSpaceEnrichment = 1; //
   //  double width = 1.0, height = 1.0, depth = 1.0;
@@ -88,25 +88,25 @@ TEUCHOS_UNIT_TEST( MeshRefinement, TraceTermProjection )
 
   MeshPtr mesh = MeshFactory::rectilinearMesh(bf, dimensions, numCells, H1Order, testSpaceEnrichment);
 
-  // rhs = f * q, where f = \Delta phi
+  // rhs = f * v, where f = \Delta u
   RHSPtr rhs = RHS::rhs();
   FunctionPtr f;
   switch (spaceDim)
   {
   case 1:
-    f = phi_exact->dx()->dx();
+    f = u_exact->dx()->dx();
     break;
   case 2:
-    f = phi_exact->dx()->dx() + phi_exact->dy()->dy();
+    f = u_exact->dx()->dx() + u_exact->dy()->dy();
     break;
   case 3:
-    f = phi_exact->dx()->dx() + phi_exact->dy()->dy() + phi_exact->dz()->dz();
+    f = u_exact->dx()->dx() + u_exact->dy()->dy() + u_exact->dz()->dz();
     break;
   default:
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unhandled spaceDim");
     break;
   }
-  rhs->addTerm(f * q);
+  rhs->addTerm(f * v);
 
   IPPtr graphNorm = bf->graphNorm();
 
@@ -114,75 +114,75 @@ TEUCHOS_UNIT_TEST( MeshRefinement, TraceTermProjection )
   SpatialFilterPtr boundary = SpatialFilter::allSpace();
   SolutionPtr solution;
 
-  bc->addDirichlet(phi_hat, boundary, phi_exact);
+  bc->addDirichlet(u_hat, boundary, u_exact);
   solution = Solution::solution(mesh, bc, rhs, graphNorm);
 
   solution->solve();
 
-  FunctionPtr psi_exact = (spaceDim > 1) ? phi_exact->grad() : phi_exact->dx();
+  FunctionPtr sigma_exact = (spaceDim > 1) ? u_exact->grad() : u_exact->dx();
 
-  map<int, FunctionPtr> psiMap;
-  psiMap[psi->ID()] = psi_exact;
+  map<int, FunctionPtr> sigmaMap;
+  sigmaMap[sigma->ID()] = sigma_exact;
 
-  FunctionPtr psi_n_exact = psi_n->termTraced()->evaluate(psiMap);
+  FunctionPtr sigma_n_exact = sigma_n->termTraced()->evaluate(sigmaMap);
 
-  FunctionPtr psi_soln = Function::solution(psi, solution);
-  FunctionPtr psi_n_soln = Function::solution(psi_n, solution, false); // false: don't weight fluxes by parity
-  FunctionPtr phi_hat_soln = Function::solution(phi_hat, solution);
+  FunctionPtr sigma_soln = Function::solution(sigma, solution);
+  FunctionPtr sigma_n_soln = Function::solution(sigma_n, solution, false); // false: don't weight fluxes by parity
+  FunctionPtr u_hat_soln = Function::solution(u_hat, solution);
 
-  FunctionPtr psi_err = psi_exact - psi_soln;
-  FunctionPtr psi_n_err = psi_n_exact - psi_n_soln;
-  FunctionPtr phi_hat_err = phi_exact - phi_hat_soln;
+  FunctionPtr sigma_err = sigma_exact - sigma_soln;
+  FunctionPtr sigma_n_err = sigma_n_exact - sigma_n_soln;
+  FunctionPtr u_hat_err = u_exact - u_hat_soln;
 
-  double err_L2 = psi_err->l2norm(mesh);
+  double err_L2 = sigma_err->l2norm(mesh);
 
   double tol = 1e-12;
 
   // SANITY CHECKS ON INITIAL SOLUTION
-  // psi error first
+  // sigma error first
   if (err_L2 > tol)
   {
-    cout << "testTraceTermProjection error: psi in initial solution (prior to projection) differs from exact solution by " << err_L2 << " in L^2 norm.\n";
+    cout << "testTraceTermProjection error: sigma in initial solution (prior to projection) differs from exact solution by " << err_L2 << " in L^2 norm.\n";
     success = false;
 
-    double soln_l2 = psi_soln->l2norm(mesh);
-    double exact_l2 = psi_exact->l2norm(mesh);
+    double soln_l2 = sigma_soln->l2norm(mesh);
+    double exact_l2 = sigma_exact->l2norm(mesh);
 
     cout << "L^2 norm of exact solution: " << exact_l2 << ", versus " << soln_l2 << " for initial solution\n";
   }
 
-  // psi_n error:
-  err_L2 = psi_n_err->l2norm(mesh);
+  // sigma_n error:
+  err_L2 = sigma_n_err->l2norm(mesh);
   if (err_L2 > tol)
   {
-    cout << "testTraceTermProjection error: psi_n in initial solution (prior to projection) differs from exact solution by " << err_L2 << " in L^2 norm.\n";
+    cout << "testTraceTermProjection error: sigma_n in initial solution (prior to projection) differs from exact solution by " << err_L2 << " in L^2 norm.\n";
     success = false;
   }
 
-  // phi_hat error:
-  err_L2 = phi_hat_err->l2norm(mesh);
+  // u_hat error:
+  err_L2 = u_hat_err->l2norm(mesh);
   if (err_L2 > tol)
   {
-    cout << "testTraceTermProjection error: phi_hat in initial solution (prior to projection) differs from exact solution by " << err_L2 << " in L^2 norm.\n";
+    cout << "testTraceTermProjection error: u_hat in initial solution (prior to projection) differs from exact solution by " << err_L2 << " in L^2 norm.\n";
     success = false;
   }
 
-  // do a uniform refinement, then check that psi_n_soln and phi_hat_soln match the exact
+  // do a uniform refinement, then check that sigma_n_soln and u_hat_soln match the exact
   mesh->registerSolution(solution); // this way, solution will get the memo to project
   mesh->hRefine(mesh->getActiveCellIDsGlobal());
 
-  err_L2 = phi_hat_err->l2norm(mesh);
+  err_L2 = u_hat_err->l2norm(mesh);
   if (err_L2 > tol)
   {
-    cout << "testTraceTermProjection failure: projected phi_hat differs from exact by " << err_L2 << " in L^2 norm.\n";
+    cout << "testTraceTermProjection failure: projected u_hat differs from exact by " << err_L2 << " in L^2 norm.\n";
     success = false;
   }
 
-  err_L2 = psi_n_err->l2norm(mesh);
+  err_L2 = sigma_n_err->l2norm(mesh);
 
   if (err_L2 > tol)
   {
-    cout << "testTraceTermProjection failure: projected psi_n differs from exact by " << err_L2 << " in L^2 norm.\n";
+    cout << "testTraceTermProjection failure: projected sigma_n differs from exact by " << err_L2 << " in L^2 norm.\n";
     success = false;
   }
 
@@ -197,31 +197,31 @@ TEUCHOS_UNIT_TEST( MeshRefinement, TraceTermProjection )
     vector<string> fxnNames;
     vector< FunctionPtr > fxns;
     // fields:
-    fxnNames.push_back("psi_exact");
-    fxns.push_back(psi_exact);
-    fxnNames.push_back("psi_soln");
-    fxns.push_back(psi_soln);
+    fxnNames.push_back("sigma_exact");
+    fxns.push_back(sigma_exact);
+    fxnNames.push_back("sigma_soln");
+    fxns.push_back(sigma_soln);
 
-    fxnNames.push_back("psi_exact_x");
-    fxns.push_back(psi_exact->x());
-    fxnNames.push_back("psi_soln_x");
-    fxns.push_back(psi_soln->x());
+    fxnNames.push_back("sigma_exact_x");
+    fxns.push_back(sigma_exact->x());
+    fxnNames.push_back("sigma_soln_x");
+    fxns.push_back(sigma_soln->x());
 
-    fxnNames.push_back("psi_exact_y");
-    fxns.push_back(psi_exact->y());
-    fxnNames.push_back("psi_soln_y");
-    fxns.push_back(psi_soln->y());
+    fxnNames.push_back("sigma_exact_y");
+    fxns.push_back(sigma_exact->y());
+    fxnNames.push_back("sigma_soln_y");
+    fxns.push_back(sigma_soln->y());
     fxnExporter.exportFunction(fxns, fxnNames, 0, 10);
 
     // traces:
     fxnNames.clear();
     fxns.clear();
-    fxnNames.push_back("psi_n_exact");
-    fxns.push_back(psi_n_exact);
-    fxnNames.push_back("psi_n_soln");
-    fxns.push_back(psi_n_soln);
-    fxnNames.push_back("psi_n_err");
-    fxns.push_back(psi_n_err);
+    fxnNames.push_back("sigma_n_exact");
+    fxns.push_back(sigma_n_exact);
+    fxnNames.push_back("sigma_n_soln");
+    fxns.push_back(sigma_n_soln);
+    fxnNames.push_back("sigma_n_err");
+    fxns.push_back(sigma_n_err);
     fxnExporter.exportFunction(fxns, fxnNames, 0, 10);
 #endif
   }

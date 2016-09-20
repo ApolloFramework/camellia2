@@ -446,7 +446,7 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     int irregularity = mesh->irregularity();
     TEST_EQUALITY(irregularity, 1);
     
-    VarPtr traceVar = poissonForm.phi_hat(); // important that it be H^1-conforming
+    VarPtr traceVar = poissonForm.u_hat(); // important that it be H^1-conforming
     
     MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
     int edgeDim = 1;
@@ -676,12 +676,12 @@ void testSaveAndLoad2D(BFPtr bf, Teuchos::FancyOStream &out, bool &success)
     
     map<int, FunctionPtr> solutionMap;
     FunctionPtr exactFxn = Function::constant(1.0);
-    VarPtr phi = form.phi();
-    solutionMap[phi->ID()] = exactFxn;
+    VarPtr u = form.u();
+    solutionMap[u->ID()] = exactFxn;
     
     solution->projectOntoMesh(solutionMap);
     
-    FunctionPtr solnFxn = Function::solution(phi, solution, false);
+    FunctionPtr solnFxn = Function::solution(u, solution, false);
     double err = (solnFxn - exactFxn)->l2norm(mesh);
     TEUCHOS_TEST_COMPARE(err, <, tol, out, success);
   }
@@ -703,12 +703,12 @@ void testSaveAndLoad2D(BFPtr bf, Teuchos::FancyOStream &out, bool &success)
     
     map<int, FunctionPtr> solutionMap;
     FunctionPtr x = Function::xn();
-    solutionMap[form.phi()->ID()] = x;
-    solutionMap[form.psi()->ID()] = Function::constant({1.0,0.0});
-    solutionMap[form.phi_hat()->ID()] = x;
+    solutionMap[form.u()->ID()] = x;
+    solutionMap[form.sigma()->ID()] = Function::constant({1.0,0.0});
+    solutionMap[form.u_hat()->ID()] = x;
     FunctionPtr n = Function::normal();
     FunctionPtr n_parity = Function::normal() * Function::sideParity();
-    solutionMap[form.psi_n_hat()->ID()] = Function::constant({1.0,0.0}) * n_parity;
+    solutionMap[form.sigma_n_hat()->ID()] = Function::constant({1.0,0.0}) * n_parity;
     
     solution->projectOntoMesh(solutionMap);
     

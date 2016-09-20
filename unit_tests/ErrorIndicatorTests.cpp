@@ -45,7 +45,7 @@ namespace
     bool useConformingTraces = true; // inconsequential here
     PoissonFormulation form(spaceDim, useConformingTraces);
     BFPtr bf = form.bf();
-    var = form.phi(); // just picking a field
+    var = form.u(); // just picking a field
     int H1Order = 1; // gives constant fields
     MeshPtr mesh = MeshFactory::rectilinearMesh(bf, {(double)meshWidth, (double)meshHeight}, {meshWidth,meshHeight}, H1Order);
     soln = Solution::solution(bf, mesh);
@@ -87,7 +87,7 @@ namespace
     bool useConformingTraces = true; // inconsequential here
     PoissonFormulation form(spaceDim, useConformingTraces);
     BFPtr bf = form.bf();
-    var = form.phi(); // just picking a field
+    var = form.u(); // just picking a field
     int H1Order = 3;
     MeshPtr mesh = MeshFactory::rectilinearMesh(bf, {(double)1.0, (double)1.0}, {meshWidth,meshHeight}, H1Order);
     soln = Solution::solution(bf, mesh);

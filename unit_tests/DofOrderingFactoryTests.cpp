@@ -42,28 +42,28 @@ TEUCHOS_UNIT_TEST( DofOrderingFactory, SpaceTimeTestsUseHGRADInTime )
   int tensorialDegree = 1;
   CellTopoPtr spaceTimeTopo = CellTopology::cellTopology(hexTopo, tensorialDegree);
 
-  VarPtr q = form.q();
+  VarPtr v = form.v();
   VarPtr tau = form.tau();
 
   DofOrderingPtr testOrdering = factory.testOrdering(polyOrder, spaceTimeTopo);
 
-  BasisPtr qBasis = testOrdering->getBasis(q->ID());
+  BasisPtr vBasis = testOrdering->getBasis(v->ID());
   BasisPtr tauBasis = testOrdering->getBasis(tau->ID());
 
-  TensorBasis<double>* qTensorBasis = dynamic_cast< TensorBasis<double>* >(qBasis.get());
+  TensorBasis<double>* vTensorBasis = dynamic_cast< TensorBasis<double>* >(vBasis.get());
   TensorBasis<double>* tauTensorBasis = dynamic_cast< TensorBasis<double>* >(tauBasis.get());
 
-  TEUCHOS_TEST_FOR_EXCEPTION(qTensorBasis == NULL, std::invalid_argument, "qBasis is not a TensorBasis instance");
+  TEUCHOS_TEST_FOR_EXCEPTION(vTensorBasis == NULL, std::invalid_argument, "vBasis is not a TensorBasis instance");
   TEUCHOS_TEST_FOR_EXCEPTION(tauTensorBasis == NULL, std::invalid_argument, "tauBasis is not a TensorBasis instance");
 
-  BasisPtr qSpatialBasis = qTensorBasis->getSpatialBasis();
-  TEST_EQUALITY(qSpatialBasis->functionSpace(), efsForSpace(q->space()));
+  BasisPtr vSpatialBasis = vTensorBasis->getSpatialBasis();
+  TEST_EQUALITY(vSpatialBasis->functionSpace(), efsForSpace(v->space()));
 
   BasisPtr tauSpatialBasis = tauTensorBasis->getSpatialBasis();
   TEST_EQUALITY(tauSpatialBasis->functionSpace(), efsForSpace(tau->space()));
 
-  BasisPtr qTemporalBasis = qTensorBasis->getTemporalBasis();
-  TEST_EQUALITY(qTemporalBasis->functionSpace(), efsForSpace(HGRAD));
+  BasisPtr vTemporalBasis = vTensorBasis->getTemporalBasis();
+  TEST_EQUALITY(vTemporalBasis->functionSpace(), efsForSpace(HGRAD));
 
   BasisPtr tauTemporalBasis = tauTensorBasis->getTemporalBasis();
   TEST_EQUALITY(tauTemporalBasis->functionSpace(), efsForSpace(HGRAD));

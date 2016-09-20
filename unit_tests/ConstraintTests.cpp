@@ -145,8 +145,8 @@ namespace
     SolutionPtr soln = Solution::solution(mesh,bc,rhs,form.bf()->graphNorm());
     
     // add a constraint that the trace "integral" on each element is 1.0
-    VarPtr phi_hat = form.phi_hat();
-    soln->lagrangeConstraints()->addConstraint(phi_hat == Function::constant(1.0));
+    VarPtr u_hat = form.u_hat();
+    soln->lagrangeConstraints()->addConstraint(u_hat == Function::constant(1.0));
     
     int lagrangeOrdinal = 0;
     

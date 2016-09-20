@@ -190,11 +190,11 @@ TEUCHOS_UNIT_TEST( StokesVGPFormulation, StreamFormulationConsistency )
 
   map<int, FunctionPtr> exactMap;
   // fields:
-  exactMap[form.streamFormulation().phi()->ID()] = phi_exact;
-  exactMap[form.streamFormulation().psi()->ID()] = psi_exact;
+  exactMap[form.streamFormulation().u()->ID()] = phi_exact;
+  exactMap[form.streamFormulation().sigma()->ID()] = psi_exact;
 
-  VarPtr phi_hat = form.streamFormulation().phi_hat();
-  VarPtr psi_n_hat = form.streamFormulation().psi_n_hat();
+  VarPtr phi_hat = form.streamFormulation().u_hat();
+  VarPtr psi_n_hat = form.streamFormulation().sigma_n_hat();
 
   // traces and fluxes:
   // use the exact field variable solution together with the termTraced to determine the flux traced

@@ -85,7 +85,7 @@ void testSpaceTimeTraceBCFunction(int spaceDim, Teuchos::FancyOStream &out, bool
     bool conformingTraces = true;
     PoissonFormulation form(spaceDim,conformingTraces);
     
-    VarPtr var = useFieldBCs ? form.phi() : form.phi_hat();
+    VarPtr var = useFieldBCs ? form.u() : form.u_hat();
 
     int H1Order = 3, delta_k = 1;
     MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology(vector<double>(spaceDim,1.0), vector<int>(spaceDim,1));

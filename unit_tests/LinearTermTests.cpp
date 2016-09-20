@@ -576,15 +576,15 @@ TEUCHOS_UNIT_TEST( LinearTerm, FauxSpaceTimeIntegrationByPartsInTime_2D )
     // one-element unit quad domain, 2nd order
     MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0,1.0}, {1,1}, 2);
     FunctionPtr x = Function::xn(1), y = Function::yn(1);
-    FunctionPtr phi_exact = x + 2 * y;
+    FunctionPtr u_exact = x + 2 * y;
     FunctionPtr weight = Function::constant(4.0);
-    FunctionPtr expectedFunction = weight * phi_exact;
+    FunctionPtr expectedFunction = weight * u_exact;
     
-    VarPtr phi = form.phi();
-    LinearTermPtr lt = weight * phi;
+    VarPtr u = form.u();
+    LinearTermPtr lt = weight * u;
     
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
-    solution->projectOntoMesh({{phi->ID(), phi_exact}});
+    solution->projectOntoMesh({{u->ID(), u_exact}});
     
     GlobalIndexType cellID = 0;
     // do comparison on the MPI rank that owns cellID
@@ -614,15 +614,15 @@ TEUCHOS_UNIT_TEST( LinearTerm, FauxSpaceTimeIntegrationByPartsInTime_2D )
     // one-element unit quad domain, 2nd order
     MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0,1.0}, {1,1}, 2);
     FunctionPtr x = Function::xn(1), y = Function::yn(1);
-    FunctionPtr phi_exact = x + 2 * y;
+    FunctionPtr u_exact = x + 2 * y;
     FunctionPtr weight = Function::constant(4.0);
-    FunctionPtr expectedFunction = weight * phi_exact->grad();
+    FunctionPtr expectedFunction = weight * u_exact->grad();
     
-    VarPtr phi = form.phi();
-    LinearTermPtr lt = weight * phi->grad();
+    VarPtr u = form.u();
+    LinearTermPtr lt = weight * u->grad();
     
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
-    solution->projectOntoMesh({{phi->ID(), phi_exact}});
+    solution->projectOntoMesh({{u->ID(), u_exact}});
     
     GlobalIndexType cellID = 0;
     // do comparison on the MPI rank that owns cellID
@@ -653,15 +653,15 @@ TEUCHOS_UNIT_TEST( LinearTerm, FauxSpaceTimeIntegrationByPartsInTime_2D )
     // one-element unit quad domain, 2nd order
     MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0,1.0}, {1,1}, 2);
     FunctionPtr x = Function::xn(1), y = Function::yn(1);
-    FunctionPtr phi_exact = x + 2 * y;
+    FunctionPtr u_exact = x + 2 * y;
     FunctionPtr weight = Function::constant({4.0,-3.0});
-    FunctionPtr expectedFunction = weight * phi_exact;
+    FunctionPtr expectedFunction = weight * u_exact;
     
-    VarPtr phi = form.phi();
-    LinearTermPtr lt = weight * phi;
+    VarPtr u = form.u();
+    LinearTermPtr lt = weight * u;
     
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
-    solution->projectOntoMesh({{phi->ID(), phi_exact}});
+    solution->projectOntoMesh({{u->ID(), u_exact}});
     
     GlobalIndexType cellID = 0;
     // do comparison on the MPI rank that owns cellID
@@ -691,15 +691,15 @@ TEUCHOS_UNIT_TEST( LinearTerm, FauxSpaceTimeIntegrationByPartsInTime_2D )
     // one-element unit quad domain, 2nd order
     MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0,1.0}, {1,1}, 2);
     FunctionPtr x = Function::xn(1), y = Function::yn(1);
-    FunctionPtr phi_exact = x + 2 * y;
+    FunctionPtr u_exact = x + 2 * y;
     FunctionPtr weight = Function::constant({4.0,-3.0});
-    FunctionPtr expectedFunction = weight * phi_exact->grad();
+    FunctionPtr expectedFunction = weight * u_exact->grad();
     
-    VarPtr phi = form.phi();
-    LinearTermPtr lt = weight * phi->grad();
+    VarPtr u = form.u();
+    LinearTermPtr lt = weight * u->grad();
     
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
-    solution->projectOntoMesh({{phi->ID(), phi_exact}});
+    solution->projectOntoMesh({{u->ID(), u_exact}});
     
     GlobalIndexType cellID = 0;
     // do comparison on the MPI rank that owns cellID

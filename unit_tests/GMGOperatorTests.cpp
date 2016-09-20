@@ -263,8 +263,8 @@ namespace
     }
     
     int fieldPolyOrder = 1;
-    double epsilon = 1.0;
-    SpaceTimeHeatDivFormulation form(spaceDim, epsilon);
+    double esigmalon = 1.0;
+    SpaceTimeHeatDivFormulation form(spaceDim, esigmalon);
     form.initializeSolution(meshTopo, fieldPolyOrder);
     
     MeshPtr formMesh = form.solution()->mesh();
@@ -332,7 +332,7 @@ namespace
 //    
 //    int polyOrder = 1, delta_k = 1;
 //    int spaceDim = 2;
-//    double epsilon = 1e-2;
+//    double esigmalon = 1e-2;
 //    double beta_1 = 2.0, beta_2 = 1.0;
 //    bool useTriangles = true; // otherwise, quads
 //    
@@ -342,7 +342,7 @@ namespace
 //    ConvectionDiffusionReactionFormulation::FormulationChoice formulation;
 //    formulation = ConvectionDiffusionReactionFormulation::ULTRAWEAK;
 //    
-//    ConvectionDiffusionReactionFormulation form(formulation, spaceDim, beta, epsilon, alpha);
+//    ConvectionDiffusionReactionFormulation form(formulation, spaceDim, beta, esigmalon, alpha);
 //    
 //    // bilinear form
 //    BFPtr bf = form.bf();
@@ -408,13 +408,13 @@ namespace
     int H1Order = 2, delta_k = spaceDim;
     PoissonFormulation form(spaceDim, useConformingTraces);
     BFPtr bf = form.bf();
-    VarPtr phi = form.phi(), psi = form.psi(), phi_hat = form.phi_hat(), psi_n_hat = form.psi_n_hat();
-    FunctionPtr phi_exact;
+    VarPtr u = form.u(), sigma = form.sigma(), u_hat = form.u_hat(), sigma_n_hat = form.sigma_n_hat();
+    FunctionPtr u_exact;
     if (H1Order >= 3)
-      phi_exact = Function::xn(2); // x^2 exact solution
+      u_exact = Function::xn(2); // x^2 exact solution
     else
-      phi_exact = Function::constant(2); // constant exact solution
-    FunctionPtr psi_exact = phi_exact->dx();
+      u_exact = Function::constant(2); // constant exact solution
+    FunctionPtr sigma_exact = u_exact->dx();
     
     double xLeft = 0.0, xRight = 1.0;
     int coarseElementCount = 1;
@@ -429,10 +429,10 @@ namespace
     SolutionPtr coarseSoln = Solution::solution(mesh);
     
     BCPtr bc = BC::bc();
-    bc->addDirichlet(phi_hat, SpatialFilter::allSpace(), phi_exact);
-    VarPtr q = form.q();
+    bc->addDirichlet(u_hat, SpatialFilter::allSpace(), u_exact);
+    VarPtr v = form.v();
     RHSPtr rhs = RHS::rhs();
-    rhs->addTerm(phi_exact->dx()->dx() * q);
+    rhs->addTerm(u_exact->dx()->dx() * v);
     coarseSoln->setRHS(rhs);
     coarseSoln->setBC(bc);
     coarseSoln->setUseCondensedSolve(useStaticCondensation);
@@ -444,10 +444,10 @@ namespace
     FunctionPtr parity = Function::sideParity();
     
     map<int, FunctionPtr> exactSolnMap;
-    exactSolnMap[phi->ID()] = phi_exact;
-    exactSolnMap[psi->ID()] = psi_exact;
-    exactSolnMap[phi_hat->ID()] = phi_exact * n * parity;
-    exactSolnMap[psi_n_hat->ID()] = psi_exact * n * parity;
+    exactSolnMap[u->ID()] = u_exact;
+    exactSolnMap[sigma->ID()] = sigma_exact;
+    exactSolnMap[u_hat->ID()] = u_exact * n * parity;
+    exactSolnMap[sigma_n_hat->ID()] = sigma_exact * n * parity;
     
     coarseSoln->projectOntoMesh(exactSolnMap);
     
@@ -550,30 +550,30 @@ namespace
     int spaceDim = 2;
     PoissonFormulation form(spaceDim, useConformingTraces);
     BFPtr bf = form.bf();
-    VarPtr phi = form.phi(), psi = form.psi(), phi_hat = form.phi_hat(), psi_n_hat = form.psi_n_hat();
+    VarPtr u = form.u(), sigma = form.sigma(), u_hat = form.u_hat(), sigma_n_hat = form.sigma_n_hat();
     
     int H1Order, delta_k = 1;
     
     map<int,int> trialOrderEnhancements;
     
-    FunctionPtr phi_exact, psi_exact;
+    FunctionPtr u_exact, sigma_exact;
     if (simple)
     {
       H1Order = 1;
-      phi_exact = Function::constant(3.14159);
+      u_exact = Function::constant(3.14159);
       FunctionPtr zero = Function::zero();
-      psi_exact = Function::vectorize(zero, zero);
+      sigma_exact = Function::vectorize(zero, zero);
     }
     else
     {
       H1Order = 3;
-      phi_exact = Function::xn(2) + Function::yn(1);
-      psi_exact = phi_exact->grad();
+      u_exact = Function::xn(2) + Function::yn(1);
+      sigma_exact = u_exact->grad();
     }
     
 //    if (useConformingTraces)
 //    {
-//      trialOrderEnhancements[phi->ID()] = 1;
+//      trialOrderEnhancements[u->ID()] = 1;
 //    }
     
     int coarseElementCount = testHMultigrid ? 1 : 2;
@@ -632,24 +632,24 @@ namespace
     coarseSoln->setBC(bc);
     coarseSoln->setUseCondensedSolve(useStaticCondensation);
     
-    VarPtr q = form.q();
+    VarPtr v = form.v();
     RHSPtr rhs = RHS::rhs();
-    FunctionPtr f = phi_exact->dx()->dx() + phi_exact->dy()->dy();
-    rhs->addTerm(f * q);
+    FunctionPtr f = u_exact->dx()->dx() + u_exact->dy()->dy();
+    rhs->addTerm(f * v);
     coarseSoln->setRHS(rhs);
     IPPtr ip = bf->graphNorm();
     coarseSoln->setIP(ip);
     coarseSoln->setUseCondensedSolve(useStaticCondensation);
     
     map<int, FunctionPtr> exactSolnMap;
-    exactSolnMap[phi->ID()] = phi_exact;
-    exactSolnMap[psi->ID()] = psi_exact;
+    exactSolnMap[u->ID()] = u_exact;
+    exactSolnMap[sigma->ID()] = sigma_exact;
     
-    FunctionPtr phi_hat_exact   =   phi_hat->termTraced()->evaluate(exactSolnMap);
-    FunctionPtr psi_n_hat_exact = psi_n_hat->termTraced()->evaluate(exactSolnMap);
+    FunctionPtr u_hat_exact   =   u_hat->termTraced()->evaluate(exactSolnMap);
+    FunctionPtr sigma_n_hat_exact = sigma_n_hat->termTraced()->evaluate(exactSolnMap);
     
-    exactSolnMap[phi_hat->ID()]   = phi_hat_exact;
-    exactSolnMap[psi_n_hat->ID()] = psi_n_hat_exact;
+    exactSolnMap[u_hat->ID()]   = u_hat_exact;
+    exactSolnMap[sigma_n_hat->ID()] = sigma_n_hat_exact;
     
     coarseSoln->projectOntoMesh(exactSolnMap);
     
@@ -741,23 +741,23 @@ namespace
 //    PoissonFormulation formNonconforming(spaceDim, false);
 //    BFPtr bfConforming = formConforming.bf();
 //    BFPtr bfNonconforming = formNonconforming.bf();
-//    VarPtr phi = formConforming.phi(), psi = formConforming.psi(), phi_hat = formConforming.phi_hat(), psi_n_hat = formConforming.psi_n_hat();
+//    VarPtr u = formConforming.u(), sigma = formConforming.sigma(), u_hat = formConforming.u_hat(), sigma_n_hat = formConforming.sigma_n_hat();
 //    
 //    int H1Order, delta_k = 1;
 //    
-//    FunctionPtr phi_exact, psi_exact;
+//    FunctionPtr u_exact, sigma_exact;
 //    if (simple)
 //    {
 //      H1Order = 1;
-//      phi_exact = Function::constant(3.14159);
+//      u_exact = Function::constant(3.14159);
 //      FunctionPtr zero = Function::zero();
-//      psi_exact = Function::vectorize(zero, zero);
+//      sigma_exact = Function::vectorize(zero, zero);
 //    }
 //    else
 //    {
 //      H1Order = 3;
-//      phi_exact = Function::xn(2) + Function::yn(1);
-//      psi_exact = phi_exact->grad();
+//      u_exact = Function::xn(2) + Function::yn(1);
+//      sigma_exact = u_exact->grad();
 //    }
 //    
 //    int coarseElementCount = 1;
@@ -765,7 +765,7 @@ namespace
 //    vector<int> elementCounts(2,coarseElementCount);
 //    MeshPtr meshConforming = MeshFactory::rectilinearMesh(bfConforming, dimensions, elementCounts, H1Order, delta_k);
 //    map<int,int> trialEnhancements;
-//    trialEnhancements[phi_hat->ID()] = 1;
+//    trialEnhancements[u_hat->ID()] = 1;
 //    MeshPtr meshNonconforming = Teuchos::rcp( new Mesh(meshConforming->getTopology(), bfNonconforming, H1Order, delta_k, trialEnhancements) );
 //    
 //    SolutionPtr coarseSoln = Solution::solution(meshNonconforming);
@@ -773,24 +773,24 @@ namespace
 //    coarseSoln->setBC(bc);
 //    coarseSoln->setUseCondensedSolve(useStaticCondensation);
 //    
-//    VarPtr q = formConforming.q();
+//    VarPtr v = formConforming.v();
 //    RHSPtr rhs = RHS::rhs();
-//    FunctionPtr f = phi_exact->dx()->dx() + phi_exact->dy()->dy();
-//    rhs->addTerm(f * q);
+//    FunctionPtr f = u_exact->dx()->dx() + u_exact->dy()->dy();
+//    rhs->addTerm(f * v);
 //    coarseSoln->setRHS(rhs);
 //    IPPtr ip = bfConforming->graphNorm();
 //    coarseSoln->setIP(ip);
 //    coarseSoln->setUseCondensedSolve(useStaticCondensation);
 //    
 //    map<int, FunctionPtr> exactSolnMap;
-//    exactSolnMap[phi->ID()] = phi_exact;
-//    exactSolnMap[psi->ID()] = psi_exact;
+//    exactSolnMap[u->ID()] = u_exact;
+//    exactSolnMap[sigma->ID()] = sigma_exact;
 //    
-//    FunctionPtr phi_hat_exact   =   phi_hat->termTraced()->evaluate(exactSolnMap);
-//    FunctionPtr psi_n_hat_exact = psi_n_hat->termTraced()->evaluate(exactSolnMap);
+//    FunctionPtr u_hat_exact   =   u_hat->termTraced()->evaluate(exactSolnMap);
+//    FunctionPtr sigma_n_hat_exact = sigma_n_hat->termTraced()->evaluate(exactSolnMap);
 //    
-//    exactSolnMap[phi_hat->ID()]   = phi_hat_exact;
-//    exactSolnMap[psi_n_hat->ID()] = psi_n_hat_exact;
+//    exactSolnMap[u_hat->ID()]   = u_hat_exact;
+//    exactSolnMap[sigma_n_hat->ID()] = sigma_n_hat_exact;
 //    
 //    coarseSoln->projectOntoMesh(exactSolnMap);
 //    

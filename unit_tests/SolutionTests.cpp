@@ -303,25 +303,25 @@ namespace
       MeshPtr poissonMesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
       PoissonFormulation poissonForm(spaceDim, useConformingTraces);
       
-      VarPtr phi_hat = poissonForm.phi_hat();
+      VarPtr u_hat = poissonForm.u_hat();
       FunctionPtr value = Function::constant(1.0);
       SolutionPtr solution = Solution::solution(poissonMesh);
-      solution->projectOntoMesh({{phi_hat->ID(), value}});
+      solution->projectOntoMesh({{u_hat->ID(), value}});
       
       SolutionPtr solutionAdded = Solution::solution(poissonMesh);
       solutionAdded->addSolution(solution, 1.0);
       
-      FunctionPtr phiHatSoln = Function::solution(phi_hat, solution, false);
-      FunctionPtr phiHatSolnAdded = Function::solution(phi_hat, solutionAdded, false);
+      FunctionPtr uHatSoln = Function::solution(u_hat, solution, false);
+      FunctionPtr uHatSolnAdded = Function::solution(u_hat, solutionAdded, false);
       
-      double l2norm = phiHatSoln->l2norm(poissonMesh);
+      double l2norm = uHatSoln->l2norm(poissonMesh);
       TEST_COMPARE(l2norm, >, 0);
       
-      double err = (phiHatSoln - phiHatSolnAdded)->l2norm(poissonMesh);
+      double err = (uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
       TEST_COMPARE(err, <, tol);
       
       solutionAdded->addSolution(solution, 1.0);
-      err = (2 * phiHatSoln - phiHatSolnAdded)->l2norm(poissonMesh);
+      err = (2 * uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
       TEST_COMPARE(err, <, tol);
     }
   }
@@ -338,25 +338,25 @@ namespace
       MeshPtr poissonMesh = poissonIrregularMesh(spaceDim, irregularity, H1Order);
       PoissonFormulation poissonForm(spaceDim, useConformingTraces);
       
-      VarPtr phi_hat = poissonForm.phi_hat();
+      VarPtr u_hat = poissonForm.u_hat();
       FunctionPtr value = Function::constant(1.0);
       SolutionPtr solution = Solution::solution(poissonMesh);
-      solution->projectOntoMesh({{phi_hat->ID(), value}});
+      solution->projectOntoMesh({{u_hat->ID(), value}});
       
       SolutionPtr solutionAdded = Solution::solution(poissonMesh);
       solutionAdded->addSolution(solution, 1.0);
       
-      FunctionPtr phiHatSoln = Function::solution(phi_hat, solution, false);
-      FunctionPtr phiHatSolnAdded = Function::solution(phi_hat, solutionAdded, false);
+      FunctionPtr uHatSoln = Function::solution(u_hat, solution, false);
+      FunctionPtr uHatSolnAdded = Function::solution(u_hat, solutionAdded, false);
       
-      double l2norm = phiHatSoln->l2norm(poissonMesh);
+      double l2norm = uHatSoln->l2norm(poissonMesh);
       TEST_COMPARE(l2norm, >, 0);
 
-      double err = (phiHatSoln - phiHatSolnAdded)->l2norm(poissonMesh);
+      double err = (uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
       TEST_COMPARE(err, <, tol);
       
       solutionAdded->addSolution(solution, 1.0);
-      err = (2 * phiHatSoln - phiHatSolnAdded)->l2norm(poissonMesh);
+      err = (2 * uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
       TEST_COMPARE(err, <, tol);
     }
   }
@@ -425,11 +425,11 @@ namespace
   //    quadPoints(3,0) = 0.0;
   //    quadPoints(3,1) = 1.0;
   //
-  //    double epsilon = 1e-2;
+  //    double esigmalon = 1e-2;
   //    double beta_x = 1.0, beta_y = 1.0;
   //    ConvectionDiffusionFormulation form;
   //
-  //    _confusionExactSolution = Teuchos::rcp( new ConfusionManufacturedSolution(epsilon,beta_x,beta_y) );
+  //    _confusionExactSolution = Teuchos::rcp( new ConfusionManufacturedSolution(esigmalon,beta_x,beta_y) );
   //
   //    bool useConformingTraces = true;
   //    int polyOrder = 2; // 2 is minimum for projecting QuadraticFunction exactly
@@ -749,7 +749,7 @@ namespace
     rhs->addTerm(1.0 * form.tau());
     
     BCPtr bc = BC::bc();
-    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), Function::zero());
+    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), Function::zero());
     
     SolutionPtr soln = Solution::solution(mesh,bc,rhs,form.bf()->graphNorm());
     SolutionPtr solnCondensed = Solution::solution(mesh,bc,rhs,form.bf()->graphNorm());
@@ -758,10 +758,10 @@ namespace
     soln->solve();
     solnCondensed->solve();
     
-    FunctionPtr phi = Function::solution(form.phi(), soln);
-    FunctionPtr phiCondensed = Function::solution(form.phi(), solnCondensed);
+    FunctionPtr u = Function::solution(form.u(), soln);
+    FunctionPtr uCondensed = Function::solution(form.u(), solnCondensed);
     
-    double diff_l2 = (phi - phiCondensed)->l2norm(mesh);
+    double diff_l2 = (u - uCondensed)->l2norm(mesh);
     double tol = 1e-14;
     TEST_COMPARE(diff_l2, <, tol);
   }
@@ -1111,8 +1111,8 @@ namespace
     
     double prescribedValue = 1.0;
     BCPtr bc = BC::bc();
-    VarPtr phi_hat = form.phi_hat();
-    bc->addDirichlet(phi_hat, SpatialFilter::allSpace(), Function::constant(prescribedValue));
+    VarPtr u_hat = form.u_hat();
+    bc->addDirichlet(u_hat, SpatialFilter::allSpace(), Function::constant(prescribedValue));
     SolutionPtr soln = Solution::solution(form.bf(), mesh, bc, RHS::rhs(), form.bf()->graphNorm());
     soln->initializeLHSVector();
     soln->initializeStiffnessAndLoad();
@@ -1134,8 +1134,8 @@ namespace
     refLinePoints(3,0) =  1.0;
     
     double tol = 1e-14;
-    FunctionPtr phi_soln = Function::solution(phi_hat, soln);
-    FieldContainer<double> phiValues(1,numPoints);
+    FunctionPtr u_soln = Function::solution(u_hat, soln);
+    FieldContainer<double> uValues(1,numPoints);
     for (GlobalIndexType cellID : myCellIDs)
     {
       DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
@@ -1148,7 +1148,7 @@ namespace
       {
         BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
         sideCache->setRefCellPoints(refLinePoints);
-        phi_soln->values(phiValues, sideCache);
+        u_soln->values(uValues, sideCache);
         
         // are there some physical points that lie on the boundary?
         // we expect to match prescribedValue at these
@@ -1159,7 +1159,7 @@ namespace
           double y = (*physicalPoints)(0,pointOrdinal,1);
           if ((abs(x-0) < tol) || (abs(x-1) < tol) || (abs(y-0) < tol) || (abs(y-1) < tol))
           {
-            double actualValue = phiValues(0,pointOrdinal);
+            double actualValue = uValues(0,pointOrdinal);
             out << "\n\ntesting value for (" << x << "," << y << ") on cell " << cellID << ", side " << sideOrdinal << endl;
             TEST_FLOATING_EQUALITY(actualValue, prescribedValue, tol);
           }
@@ -1280,13 +1280,13 @@ namespace
     FunctionPtr n = Function::normal();
     FunctionPtr n_parity = Function::normal() * Function::sideParity();
     FunctionPtr exactFxn = n_parity->x();
-    VarPtr psi_n_hat = form.psi_n_hat();
-    solutionMap[psi_n_hat->ID()] = exactFxn;
+    VarPtr sigma_n_hat = form.sigma_n_hat();
+    solutionMap[sigma_n_hat->ID()] = exactFxn;
     
     solution->projectOntoMesh(solutionMap);
     
     double tol = 1e-14;
-    FunctionPtr solnFxn = Function::solution(psi_n_hat, solution, false);
+    FunctionPtr solnFxn = Function::solution(sigma_n_hat, solution, false);
     
     double err = (solnFxn - exactFxn)->l2norm(mesh);
     TEUCHOS_TEST_COMPARE(err, <, tol, out, success);
@@ -1298,7 +1298,7 @@ namespace
       {
         FieldContainer<double> coefficients;
         int sideOrdinal = 3;
-        solution->solnCoeffsForCellID(coefficients, cellID, psi_n_hat->ID(), sideOrdinal);
+        solution->solnCoeffsForCellID(coefficients, cellID, sigma_n_hat->ID(), sideOrdinal);
         out << "coefficients for side ordinal 3: \n" << coefficients;
       }
     }
@@ -1318,16 +1318,16 @@ namespace
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
     
     map<int, FunctionPtr> solutionMap;
-    VarPtr psi = form.psi();
-    solutionMap[psi->ID()] = Function::constant({1.0,1.0});
+    VarPtr sigma = form.sigma();
+    solutionMap[sigma->ID()] = Function::constant({1.0,1.0});
     
-    VarPtr psi_n_hat = form.psi_n_hat();
-    FunctionPtr exactFxn = psi_n_hat->termTraced()->evaluate(solutionMap);
+    VarPtr sigma_n_hat = form.sigma_n_hat();
+    FunctionPtr exactFxn = sigma_n_hat->termTraced()->evaluate(solutionMap);
     
-    solutionMap[psi_n_hat->ID()] = exactFxn;
+    solutionMap[sigma_n_hat->ID()] = exactFxn;
     
     solution->projectOntoMesh(solutionMap);
-    FunctionPtr solnFxn = Function::solution(psi_n_hat, solution, false);
+    FunctionPtr solnFxn = Function::solution(sigma_n_hat, solution, false);
     
     // as sanity check, confirm that (solnFxn == exactFxn) before refinement
     double tol = 1e-14;
@@ -1395,16 +1395,16 @@ namespace
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
     
     map<int, FunctionPtr> solutionMap;
-    VarPtr psi = form.psi();
-    solutionMap[psi->ID()] = Function::constant({1.0,1.0});
+    VarPtr sigma = form.sigma();
+    solutionMap[sigma->ID()] = Function::constant({1.0,1.0});
     
-    VarPtr psi_n_hat = form.psi_n_hat();
-    FunctionPtr exactFxn = psi_n_hat->termTraced()->evaluate(solutionMap);
+    VarPtr sigma_n_hat = form.sigma_n_hat();
+    FunctionPtr exactFxn = sigma_n_hat->termTraced()->evaluate(solutionMap);
     
-    solutionMap[psi_n_hat->ID()] = exactFxn;
+    solutionMap[sigma_n_hat->ID()] = exactFxn;
     
     solution->projectOntoMesh(solutionMap);
-    FunctionPtr solnFxn = Function::solution(psi_n_hat, solution, false);
+    FunctionPtr solnFxn = Function::solution(sigma_n_hat, solution, false);
     
     // as sanity check, confirm that (solnFxn == exactFxn) before refinement
     double tol = 1e-14;
@@ -1512,16 +1512,16 @@ namespace
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
     
     map<int, FunctionPtr> solutionMap;
-    VarPtr psi = form.psi();
-    solutionMap[psi->ID()] = Function::constant({1.0,1.0});
+    VarPtr sigma = form.sigma();
+    solutionMap[sigma->ID()] = Function::constant({1.0,1.0});
 
-    VarPtr psi_n_hat = form.psi_n_hat();
-    FunctionPtr exactFxn = psi_n_hat->termTraced()->evaluate(solutionMap);
+    VarPtr sigma_n_hat = form.sigma_n_hat();
+    FunctionPtr exactFxn = sigma_n_hat->termTraced()->evaluate(solutionMap);
     
-    solutionMap[psi_n_hat->ID()] = exactFxn;
+    solutionMap[sigma_n_hat->ID()] = exactFxn;
     
     solution->projectOntoMesh(solutionMap);
-    FunctionPtr solnFxn = Function::solution(psi_n_hat, solution, false);
+    FunctionPtr solnFxn = Function::solution(sigma_n_hat, solution, false);
 
     // as sanity check, confirm that (solnFxn == exactFxn) before refinement
     double tol = 1e-14;

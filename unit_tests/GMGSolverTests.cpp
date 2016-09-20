@@ -94,15 +94,15 @@ namespace
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unhandled spaceDim");
   }
 
-  SolutionPtr poissonExactSolution(vector<int> cellCounts, int H1Order, FunctionPtr phiExact, bool useH1Traces)
+  SolutionPtr poissonExactSolution(vector<int> cellCounts, int H1Order, FunctionPtr uExact, bool useH1Traces)
   {
     int spaceDim = cellCounts.size();
     bool useConformingTraces = false;
     PoissonFormulation form(spaceDim, useConformingTraces);
     BFPtr bf = form.bf();
-    VarPtr phi = form.phi(), psi = form.psi(), phi_hat = form.phi_hat(), psi_n_hat = form.psi_n_hat();
-    //    FunctionPtr phi_exact = Function::xn(2) * Function::yn(1); // x^2 y exact solution
-    FunctionPtr psiExact = (spaceDim > 1) ? phiExact->grad() : phiExact->dx();
+    VarPtr u = form.u(), sigma = form.sigma(), u_hat = form.u_hat(), sigma_n_hat = form.sigma_n_hat();
+    //    FunctionPtr u_exact = Function::xn(2) * Function::yn(1); // x^2 y exact solution
+    FunctionPtr psiExact = (spaceDim > 1) ? uExact->grad() : uExact->dx();
 
     int delta_k = spaceDim;
     vector<double> dimensions(spaceDim,1.0);
@@ -111,41 +111,41 @@ namespace
     SolutionPtr coarseSoln = Solution::solution(mesh);
 
     map<int, FunctionPtr> exactSolnMap;
-    exactSolnMap[phi->ID()] = phiExact;
-    exactSolnMap[psi->ID()] = psiExact;
+    exactSolnMap[u->ID()] = uExact;
+    exactSolnMap[sigma->ID()] = psiExact;
 
-    FunctionPtr phi_hat_exact   =   phi_hat->termTraced()->evaluate(exactSolnMap);
-    FunctionPtr psi_n_hat_exact = psi_n_hat->termTraced()->evaluate(exactSolnMap);
+    FunctionPtr u_hat_exact   =   u_hat->termTraced()->evaluate(exactSolnMap);
+    FunctionPtr sigma_n_hat_exact = sigma_n_hat->termTraced()->evaluate(exactSolnMap);
 
-    exactSolnMap[phi_hat->ID()]   = phi_hat_exact;
-    exactSolnMap[psi_n_hat->ID()] = psi_n_hat_exact;
+    exactSolnMap[u_hat->ID()]   = u_hat_exact;
+    exactSolnMap[sigma_n_hat->ID()] = sigma_n_hat_exact;
 
     coarseSoln->projectOntoMesh(exactSolnMap);
 
     MeshPtr fineMesh = mesh->deepCopy();
     fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal());
 
-    // rhs = f * q, where f = \Delta phi
+    // rhs = f * v, where f = \Delta u
     RHSPtr rhs = RHS::rhs();
     FunctionPtr f;
     switch (spaceDim)
     {
       case 1:
-        f = phiExact->dx()->dx();
+        f = uExact->dx()->dx();
         break;
       case 2:
-        f = phiExact->dx()->dx() + phiExact->dy()->dy();
+        f = uExact->dx()->dx() + uExact->dy()->dy();
         break;
       case 3:
-        f = phiExact->dx()->dx() + phiExact->dy()->dy() + phiExact->dz()->dz();
+        f = uExact->dx()->dx() + uExact->dy()->dy() + uExact->dz()->dz();
         break;
       default:
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unhandled spaceDim");
         break;
     }
-//    cout << "rhs: " << f->displayString() << " * q\n";
+//    cout << "rhs: " << f->displayString() << " * v\n";
 
-    rhs->addTerm(f * form.q());
+    rhs->addTerm(f * form.v());
 
     IPPtr graphNorm = bf->graphNorm();
 
@@ -153,7 +153,7 @@ namespace
     SpatialFilterPtr boundary = SpatialFilter::allSpace();
     SolutionPtr solution;
 
-    bc->addDirichlet(phi_hat, boundary, phiExact);
+    bc->addDirichlet(u_hat, boundary, uExact);
     solution = Solution::solution(mesh, bc, rhs, graphNorm);
 
     solution->projectOntoMesh(exactSolnMap);
@@ -161,12 +161,12 @@ namespace
     return solution;
   }
 
-  SolutionPtr poissonExactSolutionRefined_2D(int H1Order, FunctionPtr phi_exact, bool useH1Traces, int refinementSetOrdinal)
+  SolutionPtr poissonExactSolutionRefined_2D(int H1Order, FunctionPtr u_exact, bool useH1Traces, int refinementSetOrdinal)
   {
     vector<int> numCells;
     numCells.push_back(2);
     numCells.push_back(2);
-    SolutionPtr soln = poissonExactSolution(numCells, H1Order, phi_exact, useH1Traces);
+    SolutionPtr soln = poissonExactSolution(numCells, H1Order, u_exact, useH1Traces);
 
     MeshPtr mesh = soln->mesh();
 
@@ -229,17 +229,17 @@ namespace
 
     int H1Order = 1;
     bool useH1Traces = false;
-    FunctionPtr phiExact = getPhiExact(spaceDim);
+    FunctionPtr uExact = getPhiExact(spaceDim);
     SolutionPtr exactPoissonSolution, actualPoissonSolution;
     if (!useRefinedMeshes)
     {
-      exactPoissonSolution = poissonExactSolution(cellCount, H1Order, phiExact, useH1Traces);
-      actualPoissonSolution = poissonExactSolution(cellCount, H1Order, phiExact, useH1Traces);
+      exactPoissonSolution = poissonExactSolution(cellCount, H1Order, uExact, useH1Traces);
+      actualPoissonSolution = poissonExactSolution(cellCount, H1Order, uExact, useH1Traces);
     }
     else if (spaceDim == 2)
     {
-      exactPoissonSolution = poissonExactSolutionRefined_2D(H1Order, phiExact, useH1Traces, refinementNumber);
-      actualPoissonSolution = poissonExactSolutionRefined_2D(H1Order, phiExact, useH1Traces, refinementNumber);
+      exactPoissonSolution = poissonExactSolutionRefined_2D(H1Order, uExact, useH1Traces, refinementNumber);
+      actualPoissonSolution = poissonExactSolutionRefined_2D(H1Order, uExact, useH1Traces, refinementNumber);
     }
 
     exactPoissonSolution->setUseCondensedSolve(useStaticCondensation);
@@ -363,7 +363,7 @@ namespace
 //      writeOperatorsToDisk(gmgSolver->gmgOperator());
 //    }
 
-    // do "multi" grid between mesh and itself.  Solution should match phiExact.
+    // do "multi" grid between mesh and itself.  Solution should match uExact.
     maxIters = (smootherApplicationType == GMGOperator::MULTIPLICATIVE) ? 1 : 100; // if smoother applied multiplicatively, then GMG should recover exactly the direct solution, in 1 iteration
 
     if (useStaticCondensation)
@@ -388,10 +388,10 @@ namespace
     actualPoissonSolution->solve(fineSolver);
     exactPoissonSolution->solve(coarseSolver);
 
-    VarPtr phi = form.phi();
+    VarPtr u = form.u();
 
-    FunctionPtr exactPhiSoln = Function::solution(phi, exactPoissonSolution);
-    FunctionPtr actualPhiSoln = Function::solution(phi, actualPoissonSolution);
+    FunctionPtr exactPhiSoln = Function::solution(u, exactPoissonSolution);
+    FunctionPtr actualPhiSoln = Function::solution(u, actualPoissonSolution);
 
     double l2_diff = (exactPhiSoln-actualPhiSoln)->l2norm(mesh);
 
@@ -709,7 +709,7 @@ namespace
   }
 
   void setupPoissonGMGSolver_TwoGrid_h(Teuchos::RCP<GMGSolver> &gmgSolver, SolutionPtr &fineSolution,
-                                       int spaceDim, FunctionPtr phi_exact)
+                                       int spaceDim, FunctionPtr u_exact)
   {
     bool useConformingTraces = false;
     PoissonFormulation form(spaceDim, useConformingTraces);
@@ -735,13 +735,13 @@ namespace
 
     RHSPtr rhs = RHS::rhs();
     if (spaceDim==1)
-      rhs->addTerm(phi_exact->dx()->dx() * form.q());
+      rhs->addTerm(u_exact->dx()->dx() * form.v());
     else if (spaceDim==2)
-      rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
+      rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy()) * form.v());
     else if (spaceDim==3)
-      rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy() + phi_exact->dz()->dz())  * form.q());
+      rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy() + u_exact->dz()->dz())  * form.v());
     BCPtr bc = BC::bc();
-    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
     fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
     int maxIters = 1000;
     double tol = 1e-6;
@@ -750,7 +750,7 @@ namespace
   }
 
   void setupPoissonGMGSolver_TwoGrid_p(Teuchos::RCP<GMGSolver> &gmgSolver, SolutionPtr &fineSolution,
-                                       int spaceDim, FunctionPtr phi_exact)
+                                       int spaceDim, FunctionPtr u_exact)
   {
     bool useConformingTraces = false;
     PoissonFormulation form(spaceDim, useConformingTraces);
@@ -770,13 +770,13 @@ namespace
     
     RHSPtr rhs = RHS::rhs();
     if (spaceDim==1)
-      rhs->addTerm(phi_exact->dx()->dx() * form.q());
+      rhs->addTerm(u_exact->dx()->dx() * form.v());
     else if (spaceDim==2)
-      rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
+      rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy()) * form.v());
     else if (spaceDim==3)
-      rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy() + phi_exact->dz()->dz())  * form.q());
+      rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy() + u_exact->dz()->dz())  * form.v());
     BCPtr bc = BC::bc();
-    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
     fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
     int maxIters = 1000;
     double tol = 1e-6;
@@ -784,7 +784,7 @@ namespace
     turnOffSuperLUDistOutput(gmgSolver);
   }
   
-  void setupPoissonGMGSolver_TwoGridTriangles_h(Teuchos::RCP<GMGSolver> &gmgSolver, SolutionPtr &fineSolution, FunctionPtr phi_exact)
+  void setupPoissonGMGSolver_TwoGridTriangles_h(Teuchos::RCP<GMGSolver> &gmgSolver, SolutionPtr &fineSolution, FunctionPtr u_exact)
   {
     bool useConformingTraces = true;
     int spaceDim = 2;
@@ -816,9 +816,9 @@ namespace
     MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k, map<int,int>(), map<int,int>(), partitionPolicy) );
     
     RHSPtr rhs = RHS::rhs();
-    rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
+    rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy()) * form.v());
     BCPtr bc = BC::bc();
-    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
     fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
     int maxIters = 1000;
     double tol = 1e-6;
@@ -830,7 +830,7 @@ namespace
   }
   
   void setupPoissonGMGSolver_TwoGridTriangles_p(Teuchos::RCP<GMGSolver> &gmgSolver, SolutionPtr &fineSolution,
-                                                FunctionPtr phi_exact)
+                                                FunctionPtr u_exact)
   {
     bool useConformingTraces = true;
     int spaceDim = 2;
@@ -852,9 +852,9 @@ namespace
     MeshPtr coarseMesh = Teuchos::rcp( new Mesh(meshTopology, bf, H1Order_coarse, delta_k, map<int,int>(), map<int,int>(), partitionPolicy) );
     
     RHSPtr rhs = RHS::rhs();
-      rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
+      rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy()) * form.v());
     BCPtr bc = BC::bc();
-    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
     fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
     int maxIters = 1000;
     double tol = 1e-6;
@@ -863,7 +863,7 @@ namespace
   }
 
   void setupPoissonGMGSolver_ThreeGrid(Teuchos::RCP<GMGSolver> &gmgSolver, SolutionPtr &fineSolution,
-                                       int spaceDim, FunctionPtr phi_exact, int coarseElementCount)
+                                       int spaceDim, FunctionPtr u_exact, int coarseElementCount)
   {
     bool useConformingTraces = false;
     PoissonFormulation form(spaceDim, useConformingTraces);
@@ -894,13 +894,13 @@ namespace
 
     RHSPtr rhs = RHS::rhs();
     if (spaceDim==1)
-      rhs->addTerm(phi_exact->dx()->dx() * form.q());
+      rhs->addTerm(u_exact->dx()->dx() * form.v());
     else if (spaceDim==2)
-      rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
+      rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy()) * form.v());
     else if (spaceDim==3)
-      rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy() + phi_exact->dz()->dz())  * form.q());
+      rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy() + u_exact->dz()->dz())  * form.v());
     BCPtr bc = BC::bc();
-    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
     fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
     int maxIters = 1000;
     double tol = 1e-6;
@@ -919,46 +919,46 @@ namespace
 
 void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApplicationType smootherApplicationType, Teuchos::FancyOStream &out, bool &success)
   {
-    FunctionPtr phiExact;
+    FunctionPtr uExact;
     if (spaceDim == 1)
     {
       FunctionPtr x = Function::xn(1);
-      phiExact = x * x;
+      uExact = x * x;
     }
     else if (spaceDim == 2)
     {
       FunctionPtr x = Function::xn(1);
       FunctionPtr y = Function::yn(1);
-      phiExact = x * x + x * y;
+      uExact = x * x + x * y;
     }
     else if (spaceDim == 3)
     {
       FunctionPtr x = Function::xn(1);
       FunctionPtr y = Function::yn(1);
       FunctionPtr z = Function::zn(1);
-      phiExact = x * x + x * y;
+      uExact = x * x + x * y;
     }
     SolutionPtr fineSolution;
     Teuchos::RCP<GMGSolver> solver;
 
     switch (gridType) {
       case TwoGrid_h:
-        setupPoissonGMGSolver_TwoGrid_h(solver, fineSolution, spaceDim, phiExact);
+        setupPoissonGMGSolver_TwoGrid_h(solver, fineSolution, spaceDim, uExact);
         break;
       case TwoGrid_p:
-        setupPoissonGMGSolver_TwoGrid_p(solver, fineSolution, spaceDim, phiExact);
+        setupPoissonGMGSolver_TwoGrid_p(solver, fineSolution, spaceDim, uExact);
         break;
       case TwoGridTriangles_h:
-        setupPoissonGMGSolver_TwoGridTriangles_h(solver, fineSolution, phiExact);
+        setupPoissonGMGSolver_TwoGridTriangles_h(solver, fineSolution, uExact);
         break;
       case TwoGridTriangles_p:
-        setupPoissonGMGSolver_TwoGridTriangles_p(solver, fineSolution, phiExact);
+        setupPoissonGMGSolver_TwoGridTriangles_p(solver, fineSolution, uExact);
         break;
       case ThreeGrid:
-        setupPoissonGMGSolver_ThreeGrid(solver, fineSolution, spaceDim, phiExact, 1);
+        setupPoissonGMGSolver_ThreeGrid(solver, fineSolution, spaceDim, uExact, 1);
         break;
       case ThreeGrid_Width_2:
-        setupPoissonGMGSolver_ThreeGrid(solver, fineSolution, spaceDim, phiExact, 2);
+        setupPoissonGMGSolver_ThreeGrid(solver, fineSolution, spaceDim, uExact, 2);
         break;
     }
 
@@ -1157,17 +1157,17 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
 //
 //    fineMesh->hRefine(set<GlobalIndexType>({0}));
 //
-//    FunctionPtr phi_exact = getPhiExact(spaceDim);
+//    FunctionPtr u_exact = getPhiExact(spaceDim);
 //
 //    RHSPtr rhs = RHS::rhs();
 //    if (spaceDim==1)
-//      rhs->addTerm(phi_exact->dx()->dx() * form.q());
+//      rhs->addTerm(u_exact->dx()->dx() * form.v());
 //    else if (spaceDim==3)
-//      rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
+//      rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy()) * form.v());
 //    else if (spaceDim==3)
-//      rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy() + phi_exact->dz()->dz())  * form.q());
+//      rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy() + u_exact->dz()->dz())  * form.v());
 //    BCPtr bc = BC::bc();
-//    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+//    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
 //    SolutionPtr fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
 //    int maxIters = 1000;
 //    double tol = 1e-6;
@@ -1255,11 +1255,11 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
 //    fineMesh->hRefine(set<GlobalIndexType>({0}));
 //
 //    FunctionPtr x = Function::xn(1);
-//    FunctionPtr phi_exact = x * x;
+//    FunctionPtr u_exact = x * x;
 //    RHSPtr rhs = RHS::rhs();
-//    rhs->addTerm(phi_exact->dx()->dx() * form.q());
+//    rhs->addTerm(u_exact->dx()->dx() * form.v());
 //    BCPtr bc = BC::bc();
-//    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+//    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
 //    SolutionPtr fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
 //    int maxIters = 1000;
 //    double tol = 1e-6;
@@ -1287,11 +1287,11 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
 //    MeshPtr fineMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_fine, delta_k);
 //
 //    FunctionPtr x = Function::xn(1);
-//    FunctionPtr phi_exact = x * x;
+//    FunctionPtr u_exact = x * x;
 //    RHSPtr rhs = RHS::rhs();
-//    rhs->addTerm(phi_exact->dx()->dx() * form.q());
+//    rhs->addTerm(u_exact->dx()->dx() * form.v());
 //    BCPtr bc = BC::bc();
-//    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+//    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
 //    SolutionPtr fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
 //    int maxIters = 1000;
 //    double tol = 1e-6;
@@ -1323,11 +1323,11 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
 //    fineMesh->hRefine(vector<GlobalIndexType>({0}));
 //
 //    FunctionPtr x = Function::xn(1);
-//    FunctionPtr phi_exact = x * x;
+//    FunctionPtr u_exact = x * x;
 //    RHSPtr rhs = RHS::rhs();
-//    rhs->addTerm(phi_exact->dx()->dx() * form.q());
+//    rhs->addTerm(u_exact->dx()->dx() * form.v());
 //    BCPtr bc = BC::bc();
-//    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+//    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
 //    SolutionPtr fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
 //    int maxIters = 1000;
 //    double tol = 1e-6;
@@ -1360,11 +1360,11 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
 //
 //    FunctionPtr x = Function::xn(1);
 //    FunctionPtr y = Function::yn(1);
-//    FunctionPtr phi_exact = x * x + x * y;
+//    FunctionPtr u_exact = x * x + x * y;
 //    RHSPtr rhs = RHS::rhs();
-//    rhs->addTerm(phi_exact->dx()->dx() * form.q());
+//    rhs->addTerm(u_exact->dx()->dx() * form.v());
 //    BCPtr bc = BC::bc();
-//    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+//    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
 //    SolutionPtr fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
 //    int maxIters = 1000;
 //    double tol = 1e-6;
@@ -1403,11 +1403,11 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
 //
 //    FunctionPtr x = Function::xn(1);
 //    FunctionPtr y = Function::yn(1);
-//    FunctionPtr phi_exact = x * x + x * y;
+//    FunctionPtr u_exact = x * x + x * y;
 //    RHSPtr rhs = RHS::rhs();
-//    rhs->addTerm(phi_exact->dx()->dx() * form.q());
+//    rhs->addTerm(u_exact->dx()->dx() * form.v());
 //    BCPtr bc = BC::bc();
-//    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+//    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
 //    SolutionPtr fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
 //    int maxIters = 1000;
 //    double tol = 1e-6;
@@ -1440,11 +1440,11 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
 //
 //    FunctionPtr x = Function::xn(1);
 //    FunctionPtr y = Function::yn(1);
-//    FunctionPtr phi_exact = x * x + x * y;
+//    FunctionPtr u_exact = x * x + x * y;
 //    RHSPtr rhs = RHS::rhs();
-//    rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy() + phi_exact->dz()->dz()) * form.q());
+//    rhs->addTerm((u_exact->dx()->dx() + u_exact->dy()->dy() + u_exact->dz()->dz()) * form.v());
 //    BCPtr bc = BC::bc();
-//    bc->addDirichlet(form.phi_hat(), SpatialFilter::allSpace(), phi_exact);
+//    bc->addDirichlet(form.u_hat(), SpatialFilter::allSpace(), u_exact);
 //    SolutionPtr fineSolution = Solution::solution(fineMesh, bc, rhs, bf->graphNorm());
 //    int maxIters = 1000;
 //    double tol = 1e-6;

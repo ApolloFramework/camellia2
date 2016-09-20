@@ -893,7 +893,7 @@ void StokesVGPFormulation::initializeSolution(MeshTopologyPtr meshTopo, int fiel
 
     TFunctionPtr<double> vorticity = Teuchos::rcp( new PreviousSolutionFunction<double>(_solution, u2_dx - u1_dy) );
     RHSPtr streamRHS = RHS::rhs();
-    VarPtr q_stream = _streamFormulation->q();
+    VarPtr q_stream = _streamFormulation->v();
     streamRHS->addTerm( -vorticity * q_stream );
     bool dontWarnAboutOverriding = true;
     ((PreviousSolutionFunction<double>*) vorticity.get())->setOverrideMeshCheck(true,dontWarnAboutOverriding);
@@ -912,10 +912,10 @@ void StokesVGPFormulation::initializeSolution(MeshTopologyPtr meshTopo, int fiel
     TFunctionPtr<double> n = TFunction<double>::normal();
 
     BCPtr streamBC = BC::bc();
-    VarPtr phi = _streamFormulation->phi();
+    VarPtr phi = _streamFormulation->u();
     streamBC->addZeroMeanConstraint(phi);
 
-    VarPtr psi_n = _streamFormulation->psi_n_hat();
+    VarPtr psi_n = _streamFormulation->sigma_n_hat();
     streamBC->addDirichlet(psi_n, SpatialFilter::allSpace(), u1_soln * n->y() - u2_soln * n->x());
 
     IPPtr streamIP = _streamFormulation->bf()->graphNorm();
@@ -1272,7 +1272,7 @@ VarPtr StokesVGPFormulation::streamPhi()
       cout << "ERROR: streamPhi() called before initializeSolution called.  Returning null.\n";
       return Teuchos::null;
     }
-    return _streamFormulation->phi();
+    return _streamFormulation->u();
   }
   else
   {

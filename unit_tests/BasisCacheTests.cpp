@@ -694,10 +694,10 @@ TEUCHOS_UNIT_TEST( BasisCache, SetRefCellPointsSpaceTimeSide )
       
       SolutionPtr soln = Solution::solution(mesh);
       map<int, FunctionPtr> functionMap;
-      functionMap[form.phi()->ID()] = f;
+      functionMap[form.u()->ID()] = f;
       soln->projectOntoMesh(functionMap);
       // confirm that the projection worked:
-      FunctionPtr f_soln = Function::solution(form.phi(), soln);
+      FunctionPtr f_soln = Function::solution(form.u(), soln);
       err = (f - f_soln)->l2norm(mesh);
       TEST_COMPARE(err, <, tol);
       
@@ -710,10 +710,10 @@ TEUCHOS_UNIT_TEST( BasisCache, SetRefCellPointsSpaceTimeSide )
       if (myCells->find(cellID) != myCells->end())
       {
         DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
-        BasisPtr basis = trialOrder->getBasis(form.phi()->ID());
+        BasisPtr basis = trialOrder->getBasis(form.u()->ID());
         FieldContainer<double> cellCoefficients = soln->allCoefficientsForCellID(cellID);
         FieldContainer<double> basisCoefficients(basis->getCardinality());
-        const vector<int>* dofIndices = &trialOrder->getDofIndices(form.phi()->ID());
+        const vector<int>* dofIndices = &trialOrder->getDofIndices(form.u()->ID());
         for (int basisOrdinal=0; basisOrdinal<basis->getCardinality(); basisOrdinal++)
         {
           basisCoefficients[basisOrdinal] = cellCoefficients[(*dofIndices)[basisOrdinal]];
@@ -729,7 +729,7 @@ TEUCHOS_UNIT_TEST( BasisCache, SetRefCellPointsSpaceTimeSide )
       TEST_COMPARE(err, <, tol);
       
       // we should also be able to do the same test more simply using Var with op, without requiring BasisSumFunction explicitly:
-      VarPtr phi = form.phi();
+      VarPtr phi = form.u();
       VarPtr phi_d2 = Teuchos::rcp( new Var(phi->ID(), phi->rank(), phi->name(), op, UNKNOWN_FS, phi->varType()) );
       FunctionPtr f_soln_d2 = Function::solution(phi_d2, soln);
       err = (f_d2 - f_soln_d2)->l2norm(mesh);
@@ -793,10 +793,10 @@ TEUCHOS_UNIT_TEST( BasisCache, SetRefCellPointsSpaceTimeSide )
     
     SolutionPtr soln = Solution::solution(mesh);
     map<int, FunctionPtr> functionMap;
-    functionMap[form.phi()->ID()] = f;
+    functionMap[form.u()->ID()] = f;
     soln->projectOntoMesh(functionMap);
     // confirm that the projection worked:
-    FunctionPtr f_soln = Function::solution(form.phi(), soln);
+    FunctionPtr f_soln = Function::solution(form.u(), soln);
     err = (f - f_soln)->l2norm(mesh);
     TEST_COMPARE(err, <, tol);
     
@@ -809,10 +809,10 @@ TEUCHOS_UNIT_TEST( BasisCache, SetRefCellPointsSpaceTimeSide )
     if (myCells->find(cellID) != myCells->end())
     {
       DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
-      BasisPtr basis = trialOrder->getBasis(form.phi()->ID());
+      BasisPtr basis = trialOrder->getBasis(form.u()->ID());
       FieldContainer<double> cellCoefficients = soln->allCoefficientsForCellID(cellID);
       FieldContainer<double> basisCoefficients(basis->getCardinality());
-      const vector<int>* dofIndices = &trialOrder->getDofIndices(form.phi()->ID());
+      const vector<int>* dofIndices = &trialOrder->getDofIndices(form.u()->ID());
       for (int basisOrdinal=0; basisOrdinal<basis->getCardinality(); basisOrdinal++)
       {
         basisCoefficients[basisOrdinal] = cellCoefficients[(*dofIndices)[basisOrdinal]];
@@ -828,7 +828,7 @@ TEUCHOS_UNIT_TEST( BasisCache, SetRefCellPointsSpaceTimeSide )
     TEST_COMPARE(err, <, tol);
     
     // we should also be able to do the same test more simply using Var::laplacian(), without requiring BasisSumFunction explicitly:
-    FunctionPtr f_soln_laplacian = Function::solution(form.phi()->laplacian(), soln);
+    FunctionPtr f_soln_laplacian = Function::solution(form.u()->laplacian(), soln);
     err = (f_laplacian - f_soln_laplacian)->l2norm(mesh);
     TEST_COMPARE(err, <, tol);
   }
