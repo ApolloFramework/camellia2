@@ -34,7 +34,7 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
 
   Space tauSpace = (spaceDim > 1) ? HDIV : HGRAD;
   Space uhat_space = HGRAD;
-  Space sigmaSpace = (spaceDim > 1) ? VECTOR_L2 : L2;
+  Space sigmaSpace;
 
   // fields
   VarPtr u;
@@ -56,6 +56,7 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
   switch (_formulationChoice)
   {
     case ULTRAWEAK:
+      sigmaSpace = (spaceDim > 1) ? VECTOR_L2 : L2;
       u = _vf->fieldVar(S_U);
       sigma = _vf->fieldVar(S_SIGMA, sigmaSpace);
       
@@ -174,6 +175,35 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
         _bf->addTerm( tau * _beta * u->grad(), _beta * v->grad());
         _bf->addTerm( tau * _alpha * u, _beta * v->grad());
       }
+      break;
+    case LEAST_SQUARES:
+      sigmaSpace = (spaceDim > 1) ? HDIV : HGRAD;
+
+      u     = _vf->fieldVar(S_U, HGRAD);
+      sigma = _vf->fieldVar(S_SIGMA, sigmaSpace);
+      v   = _vf->testVar(S_V, HGRAD);
+      tau = _vf->testVar(S_TAU, tauSpace);
+
+      _bf = Teuchos::rcp( new BF(_vf) );
+
+      if (spaceDim==1)
+      {
+        _bf->addTerm( sigma - _epsilon * u->dx(), tau );
+        _bf->addTerm( -_epsilon * sigma + _epsilon * _epsilon * u->dx(), v->dx() );
+
+        _bf->addTerm( sigma->dx() - _beta * u->dx() - _alpha * u, tau->dx());
+        _bf->addTerm( -sigma->dx() + _beta * u->dx() + _alpha * u, _beta * v->dx());
+        _bf->addTerm( -_alpha * sigma->dx() + _alpha * _beta * u->dx() + _alpha * _alpha * u, v);
+      }
+      else
+      {
+        _bf->addTerm( sigma - _epsilon * u->grad(), tau );
+        _bf->addTerm( -_epsilon * sigma + _epsilon * _epsilon * u->grad(), v->grad() );
+        
+        _bf->addTerm( sigma->div() - _beta * u->grad() - _alpha * u, tau->div());
+        _bf->addTerm( -sigma->div() + _beta * u->grad() + _alpha * u, _beta * v->grad());
+        _bf->addTerm( -_alpha * sigma->div() + _alpha * _beta * u->grad() + _alpha * _alpha * u, v);
+      }
   }
 }
 
@@ -194,15 +224,33 @@ BFPtr ConvectionDiffusionReactionFormulation::bf()
 RHSPtr ConvectionDiffusionReactionFormulation::rhs(FunctionPtr f)
 {
   RHSPtr rhs = RHS::rhs();
-  rhs->addTerm(f * v());
-  if (_formulationChoice == SUPG)
+  if (_formulationChoice == LEAST_SQUARES)
   {
-    // add stabilization term
-    FunctionPtr tau = _stabilizationWeight;
     if (_spaceDim == 1)
-      rhs->addTerm(tau * f * (_beta * v()->dx()));
+    {
+      rhs->addTerm( -f * tau()->dx());
+      rhs->addTerm( f * _beta * v()->dx());
+      rhs->addTerm( f * _alpha * v());
+    }
     else
-      rhs->addTerm(tau * f * (_beta * v()->grad()));
+    {
+      rhs->addTerm( -f * tau()->div());
+      rhs->addTerm( f * _beta * v()->grad());
+      rhs->addTerm( f * _alpha * v());
+    }
+  }
+  else
+  {
+    rhs->addTerm(f * v());
+    if (_formulationChoice == SUPG)
+    {
+      // add stabilization term
+      FunctionPtr tau = _stabilizationWeight;
+      if (_spaceDim == 1)
+        rhs->addTerm(tau * f * (_beta * v()->dx()));
+      else
+        rhs->addTerm(tau * f * (_beta * v()->grad()));
+    }
   }
   return rhs;
 }

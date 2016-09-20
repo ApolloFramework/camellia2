@@ -16,6 +16,7 @@
 #include "Function.h"
 #include "HDF5Exporter.h"
 #include "MeshFactory.h"
+#include "RHS.h"
 #include "SerialDenseWrapper.h"
 #include "Solution.h"
 #include "TypeDefs.h"
@@ -83,7 +84,7 @@ namespace
       bc->addDirichlet(form.u(), SpatialFilter::allSpace(), u_exact);
       ip = form.bf()->naiveNorm(spaceDim);
     }
-    else if (formulationChoice == ConvectionDiffusionReactionFormulation::SUPG)
+    else if ((formulationChoice == ConvectionDiffusionReactionFormulation::SUPG) || (formulationChoice == ConvectionDiffusionReactionFormulation::LEAST_SQUARES) )
     {
       ip = Teuchos::null;
       delta_k = 0;
@@ -102,7 +103,7 @@ namespace
     // because valgrind is complaining that SuperLU_Dist is doing some incorrect reads here, we
     // replace with KLU.  (Valgrind does not then complain.)
     SolverPtr solver = Solver::getSolver(Solver::KLU, false);
-    
+        
     soln->solve(solver);
     
     FunctionPtr u_soln = Function::solution(form.u(), soln);
@@ -477,6 +478,27 @@ namespace
   {
     int spaceDim = 3;
     ConvectionDiffusionReactionFormulation::FormulationChoice formulation = ConvectionDiffusionReactionFormulation::ULTRAWEAK;
+    testSolve(spaceDim, formulation, out, success);
+  }
+
+  TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, SolveLeastSquares_1D )
+  {
+    int spaceDim = 1;
+    ConvectionDiffusionReactionFormulation::FormulationChoice formulation = ConvectionDiffusionReactionFormulation::LEAST_SQUARES;
+    testSolve(spaceDim, formulation, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, SolveLeastSquares_2D )
+  {
+    int spaceDim = 2;
+    ConvectionDiffusionReactionFormulation::FormulationChoice formulation = ConvectionDiffusionReactionFormulation::LEAST_SQUARES;
+    testSolve(spaceDim, formulation, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, SolveLeastSquares_3D_Slow )
+  {
+    int spaceDim = 3;
+    ConvectionDiffusionReactionFormulation::FormulationChoice formulation = ConvectionDiffusionReactionFormulation::LEAST_SQUARES;
     testSolve(spaceDim, formulation, out, success);
   }
 
