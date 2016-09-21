@@ -133,6 +133,11 @@ _finePartitionMap(fineSolution->getPartitionMap())
                                              useDiagonalSchwarzWeighting, sharedBasisReconciliation);
 }
 
+Teuchos::RCP<GMGSolver> GMGSolver::cgSolver(SolutionPtr soln, double tol, int maxIters)
+{
+  return GMGSolver::gmgSolver(soln, true, tol, maxIters);
+}
+
 double GMGSolver::condest()
 {
   return _condest;
@@ -238,6 +243,53 @@ Teuchos::RCP<GMGOperator> GMGSolver::gmgOperatorFromMeshSequence(const std::vect
   }
   finestOperator->setSmootherApplicationCount(fineSmootherApplications);
   return finestOperator;
+}
+
+Teuchos::RCP<GMGSolver> GMGSolver::gmgSolver(SolutionPtr soln, bool useCG, double tol, int maxIters)
+{
+  Teuchos::ParameterList pl;
+  pl.set("kCoarse", 0);
+  int delta_k = soln->mesh()->testSpaceEnrichment(); // might matter in cases where GMGOperator actually computes some local stiffness matrices on its own (currently, this can happen on coarse meshes when static condensation is employed).
+  pl.set("delta_k", delta_k);
+  pl.set("jumpToCoarsePolyOrder", true);
+  vector<MeshPtr> meshesCoarseToFine = GMGSolver::meshesForMultigrid(soln->mesh(), pl);
+  
+  vector<MeshPtr> prunedMeshes;
+  int minDofCount = 2000; // skip any coarse meshes that have fewer dofs than this
+  for (int i=0; i<meshesCoarseToFine.size()-2; i++) // leave the last two meshes, so we can guarantee there are at least two
+  {
+    MeshPtr mesh = meshesCoarseToFine[i];
+    GlobalIndexType numGlobalDofs;
+    if (soln->usesCondensedSolve())
+      numGlobalDofs = mesh->numFluxDofs(); // this might under-count, in case e.g. of pressure constraints.  But it's meant as a heuristic anyway.
+    else
+      numGlobalDofs = mesh->numGlobalDofs();
+    
+    if (numGlobalDofs > minDofCount)
+    {
+      prunedMeshes.push_back(mesh);
+    }
+  }
+  prunedMeshes.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-2]);
+  prunedMeshes.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-1]);
+  
+  bool saveFactorization = true;
+  auto coarseSolver = Solver::getDirectSolver(saveFactorization);
+  
+  Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(soln, prunedMeshes, maxIters, tol, GMGOperator::V_CYCLE,
+                                                                 coarseSolver, soln->usesCondensedSolve(), false));
+  
+  gmgSolver->setAztecOutput(0);
+  gmgSolver->setComputeConditionNumberEstimate(false);
+  
+  gmgSolver->setUseConjugateGradient(useCG);
+  
+  return gmgSolver;
+}
+
+Teuchos::RCP<GMGSolver> GMGSolver::gmresSolver(SolutionPtr soln, double tol, int maxIters)
+{
+  return GMGSolver::gmgSolver(soln, false, tol, maxIters);
 }
 
 vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, int kCoarse, int delta_k)
