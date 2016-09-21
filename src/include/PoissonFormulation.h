@@ -47,6 +47,8 @@ public:
   PoissonFormulation(int spaceDim, bool useConformingTraces, PoissonFormulationChoice formulationChoice=ULTRAWEAK);
 
   BFPtr bf();
+  
+  RHSPtr rhs(FunctionPtr forcingFunction);
 
   // field variables:
   VarPtr u();

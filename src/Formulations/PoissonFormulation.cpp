@@ -10,10 +10,11 @@
 //
 
 #include "PoissonFormulation.h"
+#include "RHS.h"
 
 using namespace Camellia;
 
-const string PoissonFormulation::S_U = "\\u";
+const string PoissonFormulation::S_U = "u";
 const string PoissonFormulation::S_SIGMA = "\\sigma";
 
 const string PoissonFormulation::S_U_HAT = "\\widehat{u}";
@@ -134,6 +135,13 @@ PoissonFormulation::PoissonFormulation(int spaceDim, bool useConformingTraces, P
 BFPtr PoissonFormulation::bf()
 {
   return _poissonBF;
+}
+
+RHSPtr PoissonFormulation::rhs(FunctionPtr forcingFunction)
+{
+  RHSPtr rhs = RHS::rhs();
+  rhs->addTerm(forcingFunction * v());
+  return rhs;
 }
 
 // field variables:
