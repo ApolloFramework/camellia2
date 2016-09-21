@@ -113,6 +113,10 @@ public:
   
   // ! "kCoarse", "delta_k", "jumpToCoarsePolyOrder"
   static std::vector<MeshPtr> meshesForMultigrid(MeshPtr fineMesh, Teuchos::ParameterList &parameters);
+  
+  static Teuchos::RCP<GMGSolver> cgSolver(SolutionPtr soln, double cgTol, int maxIters);
+  static Teuchos::RCP<GMGSolver> gmgSolver(SolutionPtr soln, bool useCG, double tol, int maxIters);
+  static Teuchos::RCP<GMGSolver> gmresSolver(SolutionPtr soln, double gmresTol, int maxIters);
 };
 }
 
