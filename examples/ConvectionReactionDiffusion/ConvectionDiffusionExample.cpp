@@ -106,8 +106,24 @@ FunctionPtr exactSolution(double epsilon, double beta_1, double beta_2)
   double x_beta_epsilon = beta_1 / epsilon;
   double y_beta_epsilon = beta_2 / epsilon;
 
-  FunctionPtr xTerm = x + (FunctionPtr) Teuchos::rcp( new ExpTerm(x_beta_epsilon, true));
-  FunctionPtr yTerm = y + (FunctionPtr) Teuchos::rcp( new ExpTerm(y_beta_epsilon, false));
+  FunctionPtr xTerm, yTerm;
+  
+  if (beta_1 != 0)
+  {
+    xTerm = x + (FunctionPtr) Teuchos::rcp( new ExpTerm(x_beta_epsilon, true));
+  }
+  else
+  {
+    xTerm = x;
+  }
+  if (beta_2 != 0)
+  {
+    yTerm = y + (FunctionPtr) Teuchos::rcp( new ExpTerm(y_beta_epsilon, false));
+  }
+  else
+  {
+    yTerm = y;
+  }
   
   return xTerm * yTerm;
 }
