@@ -436,6 +436,7 @@ int main(int argc, char *argv[])
   double refErrThreshold = 0; // when error is below threshold, stop refinements
   string meshSavePrefix = "";
   string meshLoadPrefix = "";
+  double alpha = 0; // no reaction term
   
   // track the following for each refinement:
   vector<double> indicatorMeasures;
@@ -451,6 +452,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("polyOrder", &polyOrder );
   cmdp.setOption("delta_k", &delta_k );
   cmdp.setOption("spaceDim", &spaceDim);
+  cmdp.setOption("alpha", &alpha);
   cmdp.setOption("epsilon", &epsilon);
   cmdp.setOption("exportMatrix", "dontExportMatrix", &exportMatrix);
   cmdp.setOption("beta_1", &beta_1);
@@ -526,7 +528,6 @@ int main(int argc, char *argv[])
   
   bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL);
   
-  double alpha = 0; // no reaction term
   FunctionPtr u_exact = exactSolution(epsilon, beta_1, beta_2);
 
   ostringstream thisRunPrefix;
@@ -538,6 +539,10 @@ int main(int argc, char *argv[])
   else
   {
     thisRunPrefix << "Uniform_";
+  }
+  if (alpha != 0.0)
+  {
+    thisRunPrefix << "alpha" << alpha << "_";
   }
   thisRunPrefix << "meshWidth" << meshWidth << "_" << numRefinements << "refs_";
   
