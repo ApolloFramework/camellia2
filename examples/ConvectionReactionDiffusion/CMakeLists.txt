@@ -3,9 +3,6 @@ project(ConvectionDiffusionReactionExamples)
 add_executable(ConditionNumberMinimizationExperiment ConditionNumberMinimizationExperiment.cpp)
 target_link_libraries(ConditionNumberMinimizationExperiment Camellia)
 
-add_executable(ConvectionReactionExample ConvectionReactionExample.cpp)
-target_link_libraries(ConvectionReactionExample Camellia)
-
 add_executable(ConvectionDiffusionExample ConvectionDiffusionExample.cpp)
 target_link_libraries(ConvectionDiffusionExample Camellia)
 
