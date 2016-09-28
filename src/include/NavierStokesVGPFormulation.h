@@ -154,7 +154,7 @@ public:
   void setIP( string normName );
 
   // ! refine according to energy error in the accumulated solution
-  void refine();
+  void refine(bool printToConsole);
   
   // ! refine every active element in the mesh
   void refineUniformly();

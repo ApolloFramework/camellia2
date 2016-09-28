@@ -1105,12 +1105,12 @@ void NavierStokesVGPFormulation::refine(RefinementStrategyPtr refStrategy)
   _solnIncrement->setRHS(_rhsForSolve);
 }
 
-void NavierStokesVGPFormulation::refine()
+void NavierStokesVGPFormulation::refine(bool printToConsole)
 {
   _nonlinearIterationCount = 0;
   this->clearSolutionIncrement();
   _solnIncrement->setRHS(_rhsForResidual);
-  _refinementStrategy->refine();
+  _refinementStrategy->refine(printToConsole);
   _solnIncrement->setRHS(_rhsForSolve);
 }
 
