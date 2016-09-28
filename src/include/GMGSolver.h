@@ -109,7 +109,8 @@ public:
   
   vector<int> getIterationCountLog();
   
-  static std::vector<MeshPtr> meshesForMultigrid(MeshPtr fineMesh, int kCoarse, int delta_k);
+  // ! delta_k = -1: use fineMesh's delta_k
+  static std::vector<MeshPtr> meshesForMultigrid(MeshPtr fineMesh, int kCoarse, int delta_k = -1);
   
   // ! "kCoarse", "delta_k", "jumpToCoarsePolyOrder"
   static std::vector<MeshPtr> meshesForMultigrid(MeshPtr fineMesh, Teuchos::ParameterList &parameters);
@@ -117,6 +118,11 @@ public:
   static Teuchos::RCP<GMGSolver> cgSolver(SolutionPtr soln, double cgTol, int maxIters);
   static Teuchos::RCP<GMGSolver> gmgSolver(SolutionPtr soln, bool useCG, double tol, int maxIters);
   static Teuchos::RCP<GMGSolver> gmresSolver(SolutionPtr soln, double gmresTol, int maxIters);
+  
+  static Teuchos::RCP<GMGSolver> gmgSolver(TSolutionPtr<double> fineSolution, bool useConjugateGradient,
+                                           const std::vector<MeshPtr> &meshesCoarseToFine, int maxIters, double tol,
+                                           GMGOperator::MultigridStrategy multigridStrategy = GMGOperator::V_CYCLE,
+                                           Teuchos::RCP<Solver> coarseSolver = Solver::getDirectSolver(true));
 };
 }
 

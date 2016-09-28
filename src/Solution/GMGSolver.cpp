@@ -287,6 +287,17 @@ Teuchos::RCP<GMGSolver> GMGSolver::gmgSolver(SolutionPtr soln, bool useCG, doubl
   return gmgSolver;
 }
 
+Teuchos::RCP<GMGSolver> GMGSolver::gmgSolver(TSolutionPtr<double> fineSolution, bool useConjugateGradient,
+                                             const std::vector<MeshPtr> &meshesCoarseToFine, int maxIters, double tol,
+                                             GMGOperator::MultigridStrategy multigridStrategy,
+                                             Teuchos::RCP<Solver> coarseSolver)
+{
+  auto solver = Teuchos::rcp( new GMGSolver(fineSolution, meshesCoarseToFine, maxIters, tol, multigridStrategy,
+                                            coarseSolver, fineSolution->usesCondensedSolve()) );
+  solver->setUseConjugateGradient(useConjugateGradient);
+  return solver;
+}
+
 Teuchos::RCP<GMGSolver> GMGSolver::gmresSolver(SolutionPtr soln, double tol, int maxIters)
 {
   return GMGSolver::gmgSolver(soln, false, tol, maxIters);
@@ -295,6 +306,11 @@ Teuchos::RCP<GMGSolver> GMGSolver::gmresSolver(SolutionPtr soln, double tol, int
 vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, int kCoarse, int delta_k)
 {
   Teuchos::ParameterList pl;
+  
+  if (delta_k == -1) // then use fine mesh's delta_k
+  {
+    delta_k = fineMesh->globalDofAssignment()->getTestOrderEnrichment();
+  }
   
   pl.set("kCoarse", kCoarse);
   pl.set("delta_k", delta_k);
@@ -568,6 +584,7 @@ int GMGSolver::solve(bool buildCoarseStiffness)
     }
     
     Belos::PseudoBlockCGSolMgr<Scalar,MV,OP>* cgSolver;
+    Belos::PseudoBlockGmresSolMgr<Scalar,MV,OP>* gmresSolver;
     
     if (_useCG)
     {
@@ -578,6 +595,7 @@ int GMGSolver::solve(bool buildCoarseStiffness)
     {
       solverParams->set ("Num Blocks", 200); // is this equivalent to AZ_kspace??
       solver = factory.create("GMRES", solverParams);
+      gmresSolver = dynamic_cast<Belos::PseudoBlockGmresSolMgr<Scalar,MV,OP>*>(solver.get());
     }
     
 //    {
@@ -625,7 +643,7 @@ int GMGSolver::solve(bool buildCoarseStiffness)
       solveResult = 1;  // failure (not converged, and user indicates that should be an error)
     }
     
-    if (_computeCondest && _useCG)
+    if (_computeCondest && _useCG)  // right now, gmresSolver does not support condest
     {
       _condest = cgSolver->getConditionEstimate();
       if ((rank==0) && (_azOutput > 0))
