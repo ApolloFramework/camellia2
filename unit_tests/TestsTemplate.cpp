@@ -13,7 +13,7 @@
 
 #include "Teuchos_UnitTestHarness.hpp"
 
-#include "TypeDefs.h"
+#include "Camellia.h"
 
 using namespace Camellia;
 
