@@ -13,8 +13,9 @@
 
 #ifdef HAVE_MOAB
 // MOAB includes:
-#include "moab/ParallelComm.hpp"
-#include "MBParallelConventions.h"
+#include "moab/Interface.hpp"
+//#include "moab/ParallelComm.hpp"
+//#include "MBParallelConventions.h"
 #endif
 
 using namespace Camellia;
