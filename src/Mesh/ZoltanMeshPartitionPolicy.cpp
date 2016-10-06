@@ -73,7 +73,7 @@ void ZoltanMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType num
       if (zz == NULL)
       {
         cout << "ZoltanMeshPartititionPolicy: construction of new Zoltan object failed.\n";
-        MPI::Finalize();
+        MPI_Finalize();
         exit(0);
       }
       bool useLocalIDs = false;
