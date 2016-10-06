@@ -62,7 +62,6 @@ if(ADDITIONAL_LIBRARY_DIRS)
   link_directories(${ADDITIONAL_LIBRARY_DIRS})
   set(Trilinos_TPL_LIBRARIES ${Trilinos_TPL_LIBRARIES}
 ${ADDITIONAL_LIBRARIES})
-#  link_libraries(${ADDITIONAL_LIBRARIES})
 endif()
 
 MESSAGE(" Looking for Trilinos in ${TRILINOS_PATH}/lib/cmake/Trilinos
@@ -178,19 +177,12 @@ include_directories(
   ${Trilinos_TPL_INCLUDE_DIRS}
   ${Trilinos_INCLUDE_DIRS}
   ${CAMELLIA_SOURCE_DIR}/include
-  TPL/choice
 )
 
 link_directories(
   ${Trilinos_LIBRARY_DIRS}
   ${Trilinos_TPL_LIBRARY_DIRS}
-  #${MUMPS_PATH}/lib
 )
-
-if (MUMPS_DIR)
-  include_directories(${MUMPS_DIR}/include)
-  link_directories(${MUMPS_DIR})
-endif()
 
 link_libraries(
   ${Trilinos_LIBRARIES}
@@ -200,18 +192,12 @@ link_libraries(
 
 add_library(Camellia ${LIB_SOURCES} ${HEADERS})
 
-link_libraries(
-  Camellia
-  ${Trilinos_LIBRARIES}
-  ${Trilinos_TPL_LIBRARIES}
-  ${ADDITIONAL_LIBRARIES}
-  # Xdmd
-  # hdf5_cpp
-  #  dmumps
-  #  mumps_common
-  #  pord
-)
-# target_link_libraries(Camellia Xdmf)
+#link_libraries(
+#  Camellia
+#  ${Trilinos_LIBRARIES}
+#  ${Trilinos_TPL_LIBRARIES}
+#  ${ADDITIONAL_LIBRARIES}
+#)
 
 FILE(GLOB ALL_HEADER_FILES "${HEADERS}/*.h" "${HEADERS}/*.hpp")
 install (TARGETS Camellia DESTINATION lib)
