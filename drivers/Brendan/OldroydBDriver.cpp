@@ -1105,17 +1105,13 @@ int main(int argc, char *argv[])
         // exporter->exportSolution(solutionIncrement, refIndex);
         
         // output mesh with GnuPlotUtil
-        if (commRank == 0)
-        {
-          ostringstream meshExportName;
-          meshExportName << outputDir << "/" << solnName.str() << "/" << "ref" << refIndex << "_mesh";
-          // int numPointsPerEdge = 3;
-          bool labelCells = false;
-          string meshColor = "black";
-          GnuPlotUtil::writeComputationalMeshSkeleton(meshExportName.str(), mesh, labelCells, meshColor);
-        }
+        ostringstream meshExportName;
+        meshExportName << outputDir << "/" << solnName.str() << "/" << "ref" << refIndex << "_mesh";
+        // int numPointsPerEdge = 3;
+        bool labelCells = false;
+        string meshColor = "black";
+        GnuPlotUtil::writeComputationalMeshSkeleton(meshExportName.str(), mesh, labelCells, meshColor);
       }
-
 
       // if ((energyError < errorRef*errorTol && iterCount < maxNonlinearIterations-1) || energyError < 1e-8 )
       // if (energyError < errorRef*errorTol || energyError < 1e-8 )
