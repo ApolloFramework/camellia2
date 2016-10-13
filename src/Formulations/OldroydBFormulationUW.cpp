@@ -125,6 +125,7 @@ OldroydBFormulationUW::OldroydBFormulationUW(MeshTopologyPtr meshTopo, Teuchos::
 {
   // basic parameters
   int spaceDim = parameters.get<int>("spaceDim");
+  double rho = parameters.get<double>("rho",1.0); // density
   double muS = parameters.get<double>("muS",1.0); // solvent viscosity
   double muP = parameters.get<double>("muP",1.0); // polymeric viscosity
   double alpha = parameters.get<double>("alpha",0);
@@ -152,6 +153,7 @@ OldroydBFormulationUW::OldroydBFormulationUW(MeshTopologyPtr meshTopo, Teuchos::
   _enforceLocalConservation = enforceLocalConservation;
   _spatialPolyOrder = spatialPolyOrder;
   _temporalPolyOrder = temporalPolyOrder;
+  _rho = rho;
   _muS = muS;
   _muP = muP;
   _alpha = alpha;
@@ -509,7 +511,8 @@ OldroydBFormulationUW::OldroydBFormulationUW(MeshTopologyPtr meshTopo, Teuchos::
   // convective terms:
   // vector<FunctionPtr> L_prev, u_prev;
 
-  double Re = 1.0 / _muS;
+  double Re = _rho / _muS;
+  // double Re = 1.0 / _muS;
   TFunctionPtr<double> p_prev = TFunction<double>::solution(this->p(), _backgroundFlow);
 
   if (!_stokesOnly)
@@ -619,7 +622,7 @@ OldroydBFormulationUW::OldroydBFormulationUW(MeshTopologyPtr meshTopo, Teuchos::
       //
       _oldroydBBF->addTerm( lambdaFxn * Tu_ijn_hat, S_ij);
       //
-      _oldroydBBF->addTerm( -2 * Re * _muP * L_ij, S_ij);
+      _oldroydBBF->addTerm( -2 / _muS * _muP * L_ij, S_ij);
 
       for (int comp_k=1; comp_k <= _spaceDim; comp_k++)
       {
@@ -649,8 +652,8 @@ OldroydBFormulationUW::OldroydBFormulationUW(MeshTopologyPtr meshTopo, Teuchos::
             break;
         }
         //
-        _oldroydBBF->addTerm( -2 * lambdaFxn * Re * L_prev_ik * T_kj, S_ij);
-        _oldroydBBF->addTerm( -2 * lambdaFxn * Re * T_prev_kj * L_ik, S_ij);
+        _oldroydBBF->addTerm( -2 * lambdaFxn / _muS * L_prev_ik * T_kj, S_ij);
+        _oldroydBBF->addTerm( -2 * lambdaFxn / _muS * T_prev_kj * L_ik, S_ij);
 
         // Giesekus model
         if (alpha > 0)
@@ -945,8 +948,11 @@ void OldroydBFormulationUW::addWallCondition(SpatialFilterPtr wall)
 void OldroydBFormulationUW::addSymmetryCondition(SpatialFilterPtr symmetryRegion)
 {
   TFunctionPtr<double> zero = TFunction<double>::zero();
-  // _solnIncrement->bc()->addDirichlet(this->sigman_hat(1), symmetryRegion, zero);
+  // could try to replace with (\eps(u)\hat{n})\cdot\hat{n}^\perp = sigman_hat(1) - T_12 = 0
+  _solnIncrement->bc()->addDirichlet(this->sigman_hat(1), symmetryRegion, zero);
+  _solnIncrement->bc()->addDirichlet(this->Tun_hat(1,1), symmetryRegion, zero);
   _solnIncrement->bc()->addDirichlet(this->Tun_hat(1,2), symmetryRegion, zero);
+  _solnIncrement->bc()->addDirichlet(this->Tun_hat(2,2), symmetryRegion, zero);
   _solnIncrement->bc()->addDirichlet(this->u_hat(2), symmetryRegion, zero);
 }
 
@@ -1250,7 +1256,7 @@ void OldroydBFormulationUW::initializeSolution(MeshTopologyPtr meshTopo, int fie
 
     TFunctionPtr<double> vorticity = Teuchos::rcp( new PreviousSolutionFunction<double>(_solution, u2_dx - u1_dy) );
     RHSPtr streamRHS = RHS::rhs();
-    VarPtr q_stream = _streamFormulation->v();
+    VarPtr q_stream = _streamFormulation->q();
     streamRHS->addTerm( -vorticity * q_stream );
     bool dontWarnAboutOverriding = true;
     ((PreviousSolutionFunction<double>*) vorticity.get())->setOverrideMeshCheck(true,dontWarnAboutOverriding);
@@ -1269,10 +1275,10 @@ void OldroydBFormulationUW::initializeSolution(MeshTopologyPtr meshTopo, int fie
     TFunctionPtr<double> n = TFunction<double>::normal();
 
     BCPtr streamBC = BC::bc();
-    VarPtr phi = _streamFormulation->u();
+    VarPtr phi = _streamFormulation->phi();
     streamBC->addZeroMeanConstraint(phi);
 
-    VarPtr psi_n = _streamFormulation->sigma_n_hat();
+    VarPtr psi_n = _streamFormulation->psi_n_hat();
     streamBC->addDirichlet(psi_n, SpatialFilter::allSpace(), u1_soln * n->y() - u2_soln * n->x());
 
     IPPtr streamIP = _streamFormulation->bf()->graphNorm();
@@ -1344,6 +1350,11 @@ int OldroydBFormulationUW::nonlinearIterationCount()
   return _nonlinearIterationCount;
 }
 
+double OldroydBFormulationUW::rho()
+{
+  return _rho;
+}
+
 double OldroydBFormulationUW::muS()
 {
   return _muS;
@@ -1380,9 +1391,9 @@ void OldroydBFormulationUW::setRefinementStrategy(RefinementStrategyPtr refStrat
   _refinementStrategy = refStrategy;
 }
 
-void OldroydBFormulationUW::refine(bool printToConsole)
+void OldroydBFormulationUW::refine()
 {
-  _refinementStrategy->refine(printToConsole);
+  _refinementStrategy->refine();
 }
 
 void OldroydBFormulationUW::hRefine()
@@ -1543,7 +1554,8 @@ RHSPtr OldroydBFormulationUW::rhs(TFunctionPtr<double> f, bool excludeFluxesAndT
   // }
 
   // add the u L term:
-  double Re = 1.0 / muS;
+  double Re = this->rho() / muS;
+  // double Re = 1.0 / muS;
   double muP = this->muP();
   Teuchos::RCP<ParameterFunction> lambda = this->lambda();
   TFunctionPtr<double> lambdaFxn = lambda;
@@ -1647,7 +1659,7 @@ RHSPtr OldroydBFormulationUW::rhs(TFunctionPtr<double> f, bool excludeFluxesAndT
       //
       // rhs->addTerm( lambda * Tu_ijn_hat_prev * S_ij);
       //
-      rhs->addTerm( 2 * muP * Re * L_ij_prev * S_ij);
+      rhs->addTerm( 2.0 * muP / muS * L_ij_prev * S_ij);
 
       for (int comp_k=1; comp_k <= _spaceDim; comp_k++)
       {
@@ -1674,7 +1686,7 @@ RHSPtr OldroydBFormulationUW::rhs(TFunctionPtr<double> f, bool excludeFluxesAndT
             break;
         }
 
-        rhs->addTerm( 2.0 * lambdaFxn * Re * L_ik_prev * T_kj_prev * S_ij);
+        rhs->addTerm( 2.0 * lambdaFxn / muS * L_ik_prev * T_kj_prev * S_ij);
 
         // Giesekus model
         if (alpha > 0)
@@ -1993,7 +2005,7 @@ VarPtr OldroydBFormulationUW::streamPhi()
       cout << "ERROR: streamPhi() called before initializeSolution called.  Returning null.\n";
       return Teuchos::null;
     }
-    return _streamFormulation->u();
+    return _streamFormulation->phi();
   }
   else
   {

@@ -35,6 +35,7 @@ class OldroydBFormulationUW
 
   int _spaceDim;
   bool _useConformingTraces;
+  double _rho;
   double _muS;
   double _muP;
   double _alpha;
@@ -185,6 +186,9 @@ public:
   // ! on the OldroydBFormulationUW on which save() was invoked as they were for this OldroydBFormulationUW.
   void load(std::string prefixString);
 
+  // ! Returns density, rho.
+  double rho();
+
   // ! Returns solvent viscosity, muS.
   double muS();
 
@@ -201,7 +205,7 @@ public:
   void setLambda(double lambda);
 
   // ! refine according to energy error in the solution
-  void refine(bool printToConsole=false);
+  void refine();
 
   // ! h-refine according to energy error in the solution
   void hRefine();

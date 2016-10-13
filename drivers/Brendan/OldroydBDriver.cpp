@@ -23,6 +23,7 @@
 #include "BF.h"
 #include "Function.h"
 #include "RefinementStrategy.h"
+#include "ErrorIndicator.h"
 #include "GMGSolver.h"
 #include "OldroydBFormulationUW.h"
 #include "H1ProjectionFormulation.h"
@@ -34,6 +35,8 @@
 #include "PreviousSolutionFunction.h"
 #include "RieszRep.h"
 #include "BasisFactory.h"
+#include "GnuPlotUtil.h"
+
 
 #include "CamelliaDebugUtility.h"
 
@@ -92,6 +95,66 @@ public:
   bool matchesPoint(double x, double y)
   {
     double tol = 5e-1; // be generous b/c dealing with parametric curve
+    if ( abs(x) > _radius + 1e-12 )
+    // added this exception for the half-space geometries
+    {
+      return false;
+    }
+    else {
+      return ( sqrt(x*x+y*y) < _radius+tol );
+    }
+  }
+};
+
+// class HalfCylinderBoundary : public SpatialFilter
+// {
+//   double _radius;
+// public:
+//   HalfCylinderBoundary(double radius)
+//   {
+//     _radius = radius;
+//   }
+//   // CylinderBoundary(double radius) : _radius(radius) {}
+//   bool matchesPoint(double x, double y)
+//   {
+//     double tol = 5e-1; // be generous b/c dealing with parametric curve
+//     if ( abs(x) > _radius + 1e-12 ) {
+//       return false;
+//     }
+//     else {
+//       return ( sqrt(x*x+y*y) < _radius+tol );
+//     }
+//   }
+// };
+
+class CylinderBoundaryGenerous : public SpatialFilter
+{
+  double _radius;
+public:
+  CylinderBoundaryGenerous(double radius)
+  {
+    _radius = radius;
+  }
+  // CylinderBoundary(double radius) : _radius(radius) {}
+  bool matchesPoint(double x, double y)
+  {
+    double tol = 1e-1; // be generous b/c dealing with parametric curve
+    return (sqrt(x*x+y*y) < _radius+tol);
+  }
+};
+
+class CylinderBoundaryExtreme : public SpatialFilter
+{
+  double _radius;
+public:
+  CylinderBoundaryExtreme(double radius)
+  {
+    _radius = radius;
+  }
+  // CylinderBoundary(double radius) : _radius(radius) {}
+  bool matchesPoint(double x, double y)
+  {
+    double tol = 5e-10; // be generous b/c dealing with parametric curve
     return (sqrt(x*x+y*y) < _radius+tol);
   }
 };
@@ -163,6 +226,83 @@ int sgn(double val) {
   return 0;
 }
 
+template <typename Scalar>
+class DragOrientedErrorIndicator : public ErrorIndicator
+{
+  FunctionPtr _d_eta;
+public:
+  DragOrientedErrorIndicator(MeshPtr mesh, FunctionPtr d_eta) : ErrorIndicator(mesh)
+  {
+    _d_eta = d_eta;
+  }
+
+  //! determine rank-local error measures.  Populates ErrorIndicator::_localErrorMeasures.
+  virtual void measureError()
+  {
+    _localErrorMeasures.clear();
+    const set<GlobalIndexType>* myCells = &_mesh->cellIDsInPartition();
+    for (auto cellID : *myCells)
+    {
+      _localErrorMeasures[cellID] = abs(_d_eta->integrate(cellID, _mesh));
+    }
+  }
+};
+
+template <typename Scalar>
+class BoundaryOrientedErrorIndicator : public ErrorIndicator
+{
+  SolutionPtr _solution;
+  SpatialFilterPtr _spatialFilter;
+public:
+  BoundaryOrientedErrorIndicator(SolutionPtr soln, SpatialFilterPtr spatialFilter) : ErrorIndicator(soln->mesh())
+  {
+    _solution = soln;
+    _spatialFilter = spatialFilter;
+  }
+
+  //! determine rank-local error measures.  Populates ErrorIndicator::_localErrorMeasures.
+  virtual void measureError()
+  {
+
+    const map<GlobalIndexType, double>* rankLocalEnergyError = &_solution->rankLocalEnergyError();
+    // square roots have already been taken
+    bool energyErrorIsSquared = false;
+
+    _localErrorMeasures.clear();
+    for (auto entry : *rankLocalEnergyError)
+    {
+      GlobalIndexType cellID = entry.first;
+      double error = energyErrorIsSquared ? sqrt(entry.second) : entry.second;
+      _localErrorMeasures[cellID] = error;
+    }
+
+    // calculate max
+    double localMax;
+    double globalMax;
+    for (auto measureEntry : _localErrorMeasures) {
+      double cellError = measureEntry.second;
+      localMax = max(localMax,cellError);
+    }
+    _mesh->Comm()->MaxAll(&localMax, &globalMax, 1);
+
+    // add loop through elements to refine elements on the cylinder boundary
+    for (auto entry : *rankLocalEnergyError)
+    {
+      GlobalIndexType cellID = entry.first;
+      vector< vector<double> > verticesOfElement = _mesh->verticesForCell(cellID);
+      for (int vertexIndex=0; vertexIndex<verticesOfElement.size(); vertexIndex++)
+      {
+        if (_spatialFilter->matchesPoint(verticesOfElement[vertexIndex][0], verticesOfElement[vertexIndex][1]))
+        {
+          _localErrorMeasures[cellID] = globalMax;
+        }
+      }
+    }
+
+  }
+};
+
+
 int main(int argc, char *argv[])
 {
 
@@ -186,7 +326,7 @@ int main(int argc, char *argv[])
   string formulation = "OldroydB";
   // string formulation = "NavierStokes";
   string problemChoice = "LidDriven";
-  // double rho = 1;
+  double rho = 1;
   double lambda = 1;
   double muS = 1; // solvent viscosity
   double muP = 1; // polymeric viscosity
@@ -207,9 +347,10 @@ int main(int argc, char *argv[])
   double solverTolerance = 1e-8;
   int maxNonlinearIterations = 25;
   int enrichDegree = 0;
-  double nonlinearTolerance = 1e-10;
+  double nonlinearTolerance = 1e-8;
   // double minNonlinearTolerance = 10*solverTolerance;
-  double minNonlinearTolerance = 1e-8;
+  // double minNonlinearTolerance = 5e-7;
+  double minNonlinearTolerance = 1e-4;
   // double minNonlinearTolerance = 4e-5;
   int maxLinearIterations = 1000;
   // bool computeL2Error = false;
@@ -221,7 +362,7 @@ int main(int argc, char *argv[])
   string tag="";
   cmdp.setOption("formulation", &formulation, "OldroydB, NavierStokes");
   cmdp.setOption("problem", &problemChoice, "LidDriven, HemkerCylinder, HalfHemker, Benchmark");
-  // cmdp.setOption("rho", &rho, "rho");
+  cmdp.setOption("rho", &rho, "rho");
   cmdp.setOption("lambda", &lambda, "lambda");
   cmdp.setOption("muS", &muS, "muS");
   cmdp.setOption("muP", &muP, "muP");
@@ -287,18 +428,11 @@ int main(int argc, char *argv[])
   parameters.set("useConservationFormulation",false);
   parameters.set("useTimeStepping", false);
   parameters.set("useSpaceTime", false);
-  // if (formulation == "NavierStokes")
-  // {
-  //   parameters.set("mu", muS);
-  // }
-  // else
-  // {
-    // parameters.set("rho", rho);
-    parameters.set("lambda", lambda);
-    parameters.set("muS", muS);
-    parameters.set("muP", muP);
-    parameters.set("alpha", alpha);
-  // }
+  parameters.set("rho", rho);
+  parameters.set("lambda", lambda);
+  parameters.set("muS", muS);
+  parameters.set("muP", muP);
+  parameters.set("alpha", alpha);
 
 
   //////////////////////  DECLARE EXACT SOLUTION  //////////////////////
@@ -312,7 +446,7 @@ int main(int argc, char *argv[])
   map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr > globalEdgeToCurveMap;
 
 
-  double xLeft, xRight, height, cylinderRadius;
+  double xLeft, xRight, height, yMax, cylinderRadius;
   if (problemChoice == "LidDriven")
   {
     // LID-DRIVEN CAVITY FLOW
@@ -333,33 +467,32 @@ int main(int argc, char *argv[])
     map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = HemkerGeometry->edgeToCurveMap();
     globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
     spatialMeshTopo = Teuchos::rcp( new MeshTopology(HemkerGeometry) );
+    spatialMeshTopo->setEdgeToCurveMap(globalEdgeToCurveMap, Teuchos::null);
   }
   else if (problemChoice == "HalfHemker")
   {
     // CONFINED CYLINDER exploiting geometric symmetry
-    cout << "WARNING: Nate commented out some code here to allow compilation.\n";
-    {
-//    xLeft = -15.0, xRight = 15.0;
-//    height = 2.0;
-//    cylinderRadius = 1.0;
-//    MeshGeometryPtr halfHemkerGeometry = MeshFactory::halfHemkerGeometry(xLeft, xRight, height, cylinderRadius);
-//    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = halfHemkerGeometry->edgeToCurveMap();
-//    globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
-//    spatialMeshTopo = Teuchos::rcp( new MeshTopology(halfHemkerGeometry) );
-    }
+    xLeft = -15.0, xRight = 15.0;
+    cylinderRadius = 1.0;
+    yMax = 2.0*cylinderRadius;
+    // MeshGeometryPtr spatialMeshGeom = MeshFactory::halfHemkerGeometry(xLeft,xRight,yMax,cylinderRadius);
+    MeshGeometryPtr spatialMeshGeom = MeshFactory::halfConfinedCylinderGeometry(cylinderRadius);
+    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = spatialMeshGeom->edgeToCurveMap();
+    globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
+    spatialMeshTopo = Teuchos::rcp( new MeshTopology(spatialMeshGeom) );
+    spatialMeshTopo->setEdgeToCurveMap(globalEdgeToCurveMap, Teuchos::null);
   }
   else if (problemChoice == "Benchmark")
   {
     // CONFINED CYLINDER BENCHMARK PROBLEM
-    cout << "WARNING: Nate commented out some code here to allow compilation.\n";
-    {
-//    xLeft = -15.0, xRight = 15.0;
-//    cylinderRadius = 1.0;
-//    spatialMeshGeom = MeshFactory::confinedCylinderGeometry(xLeft, xRight, cylinderRadius);
-//    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = spatialMeshGeom->edgeToCurveMap();
-//    globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
-//    spatialMeshTopo = Teuchos::rcp( new MeshTopology(spatialMeshGeom) );
-    }
+    xLeft = -15.0, xRight = 15.0;
+    cylinderRadius = 1.0;
+    yMax = 2.0*cylinderRadius;
+    spatialMeshGeom = MeshFactory::confinedCylinderGeometry(cylinderRadius);
+    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = spatialMeshGeom->edgeToCurveMap();
+    globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
+    spatialMeshTopo = Teuchos::rcp( new MeshTopology(spatialMeshGeom) );
+    spatialMeshTopo->setEdgeToCurveMap(globalEdgeToCurveMap, Teuchos::null);
   }
   else if (problemChoice == "Test 1")
   {
@@ -377,13 +510,11 @@ int main(int argc, char *argv[])
   BasisFactory::basisFactory()->setUseEnrichedTraces(useEnrichedTraces);
   OldroydBFormulationUW form(spatialMeshTopo, parameters);
   ///////////
-
   MeshPtr mesh = form.solutionIncrement()->mesh();
   if (globalEdgeToCurveMap.size() > 0)
   {
-    mesh->setEdgeToCurveMap(globalEdgeToCurveMap);
+    spatialMeshTopo->initializeTransformationFunction(mesh);
   }
-
 
   /////////////////////  DECLARE SOLUTION POINTERS /////////////////////
   SolutionPtr solutionIncrement = form.solutionIncrement();
@@ -472,56 +603,12 @@ int main(int argc, char *argv[])
     // CONFINED CYLINDER exploiting geometric symmetry
     SpatialFilterPtr leftBoundary = SpatialFilter::matchingX(xLeft);
     SpatialFilterPtr rightBoundary = SpatialFilter::matchingX(xRight);
-    SpatialFilterPtr topBoundary = SpatialFilter::matchingY(height);
+    SpatialFilterPtr topBoundary = SpatialFilter::matchingY(yMax);
     SpatialFilterPtr bottomBoundary = SpatialFilter::matchingY(0.0);
     SpatialFilterPtr cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius));
 
     // inflow on left boundary
-    TFunctionPtr<double> u1_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_U1(height) );
-    // TFunctionPtr<double> u1_inflowFunction = one;
-    TFunctionPtr<double> u2_inflowFunction = zero;
-
-    TFunctionPtr<double> T11un_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_Tun(height, muP, lambda, 1, 1) );
-    TFunctionPtr<double> T12un_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_Tun(height, muP, lambda, 1, 2) );
-    TFunctionPtr<double> T22un_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_Tun(height, muP, lambda, 2, 2) );
-
-    TFunctionPtr<double> u = Function::vectorize(u1_inflowFunction,u2_inflowFunction);
-
-    form.addInflowCondition(leftBoundary, u);
-    form.addInflowViscoelasticStress(leftBoundary, T11un_inflowFunction, T12un_inflowFunction, T22un_inflowFunction);
-
-    // top+bottom
-    // form.addOutflowCondition(topBoundary, false);
-    // form.addOutflowCondition(bottomBoundary, false);
-    form.addWallCondition(topBoundary);
-    form.addSymmetryCondition(bottomBoundary);
-
-    // outflow on right boundary
-    // form.addOutflowCondition(rightBoundary, true); // true to impose zero traction by penalty (TODO)
-    form.addOutflowCondition(rightBoundary, height, muP, lambda, false); // false for zero flux variable
-
-    // no slip on cylinder
-    form.addWallCondition(cylinderBoundary);
-
-    // cout << "ERROR: Problem type not currently supported. Returning null.\n";
-    // return Teuchos::null;  
-  }
-  else if (problemChoice == "Benchmark")
-  {
-    // CONFINED CYLINDER exploiting geometric symmetry
-    double yMax = 2.0*cylinderRadius;
-    SpatialFilterPtr leftBoundary = SpatialFilter::matchingX(xLeft);
-    SpatialFilterPtr rightBoundary = SpatialFilter::matchingX(xRight);
-    SpatialFilterPtr topBoundary = SpatialFilter::matchingY(yMax);
-    SpatialFilterPtr bottomBoundary = SpatialFilter::matchingY(-yMax);
-    SpatialFilterPtr cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius));
-
-
-    // UPDATE THIS FOR WHEN LAMBDA CHANGES
-
-    // inflow on left boundary
     TFunctionPtr<double> u1_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_U1(yMax) );
-    // TFunctionPtr<double> u1_inflowFunction = one;
     TFunctionPtr<double> u2_inflowFunction = zero;
 
     TFunctionPtr<double> T11un_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_Tun(yMax, muP, lambda, 1, 1) );
@@ -534,8 +621,47 @@ int main(int argc, char *argv[])
     form.addInflowViscoelasticStress(leftBoundary, T11un_inflowFunction, T12un_inflowFunction, T22un_inflowFunction);
 
     // top+bottom
-    // form.addOutflowCondition(topBoundary, false);
-    // form.addOutflowCondition(bottomBoundary, false);
+    form.addWallCondition(topBoundary);
+    form.addSymmetryCondition(bottomBoundary);
+
+    // outflow on right boundary
+    // form.addOutflowCondition(rightBoundary, true); // true to impose zero traction by penalty (TODO)
+    // form.addOutflowCondition(rightBoundary, yMax, muP, lambda, false); // false for zero flux variable
+    form.addInflowCondition(rightBoundary, u);
+
+    // no slip on cylinder
+    // do this before symmetry condition in case of overlap of spatial filter
+    form.addWallCondition(cylinderBoundary);
+
+    //   zero-mean constraint
+    bc->addZeroMeanConstraint(p);
+  }
+  else if (problemChoice == "Benchmark")
+  {
+    // CONFINED CYLINDER exploiting geometric symmetry
+    SpatialFilterPtr leftBoundary = SpatialFilter::matchingX(xLeft);
+    SpatialFilterPtr rightBoundary = SpatialFilter::matchingX(xRight);
+    SpatialFilterPtr topBoundary = SpatialFilter::matchingY(yMax);
+    SpatialFilterPtr bottomBoundary = SpatialFilter::matchingY(-yMax);
+    SpatialFilterPtr cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius));
+
+
+    // UPDATE THIS FOR WHEN LAMBDA CHANGES
+
+    // inflow on left boundary
+    TFunctionPtr<double> u1_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_U1(yMax) );
+    TFunctionPtr<double> u2_inflowFunction = zero;
+
+    TFunctionPtr<double> T11un_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_Tun(yMax, muP, lambda, 1, 1) );
+    TFunctionPtr<double> T12un_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_Tun(yMax, muP, lambda, 1, 2) );
+    TFunctionPtr<double> T22un_inflowFunction = Teuchos::rcp( new ParabolicInflowFunction_Tun(yMax, muP, lambda, 2, 2) );
+
+    TFunctionPtr<double> u = Function::vectorize(u1_inflowFunction,u2_inflowFunction);
+
+    form.addInflowCondition(leftBoundary, u);
+    form.addInflowViscoelasticStress(leftBoundary, T11un_inflowFunction, T12un_inflowFunction, T22un_inflowFunction);
+
+    // top+bottom
     form.addWallCondition(topBoundary);
     form.addWallCondition(bottomBoundary);
 
@@ -559,37 +685,6 @@ int main(int argc, char *argv[])
   {
     cout << "ERROR: Problem type not currently supported. Returning null.\n";
     return Teuchos::null;
-  }
-
-  //////////////////////////////////////////////////////////////////////
-  ////////////////////////  REFINEMENT STRATEGY  ///////////////////////
-  //////////////////////////////////////////////////////////////////////
-
-  bool H1ProjectionConformingTraces = true; // no difference for primal/continuous formulations
-  int spaceDim = 2;
-  double lengthScale = 1.0;
-  H1ProjectionFormulation formPhi(spaceDim, H1ProjectionConformingTraces, H1ProjectionFormulation::CONTINUOUS_GALERKIN, lengthScale);
-  VarPtr phi;
-  BFPtr phiBF;
-  MeshPtr phiMesh;
-  IPPtr phiIP;
-  RHSPtr phiRHS;
-  if (errorIndicator == "DragOriented")
-  {
-    phi = formPhi.phi();
-    phiBF = formPhi.bf();
-    MeshTopologyPtr phiMeshTopo = spatialMeshTopo->deepCopy();
-    vector<int> H1Order = {k+1+delta_k};
-    int phiTestEnrichment = 0; // unnecessary since using Bubnov-Galerkin
-    phiMesh = Teuchos::rcp( new Mesh(phiMeshTopo, phiBF, H1Order, phiTestEnrichment) ) ;
-    // if (globalEdgeToCurveMap.size() > 0)
-    // {
-    //   phiMesh->setEdgeToCurveMap(globalEdgeToCurveMap);
-    // }
-    mesh->registerObserver(phiMesh); // will refine phiMesh in the same way as mesh.
-
-    phiIP = Teuchos::null;
-    phiRHS = RHS::rhs();
   }
 
   //////////////////////////////////////////////////////////////////////
@@ -637,36 +732,6 @@ int main(int argc, char *argv[])
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "unrecognized multigrid strategy");
   }
 
-  // Teuchos::RCP<GMGSolver> gmgSolver;
-  // if (solverChoice[0] == 'G')
-  // {
-  //   bool reuseFactorization = true;
-  //   SolverPtr coarseSolver = Solver::getDirectSolver(reuseFactorization);
-  //   int kCoarse = 1;
-  //   vector<MeshPtr> meshSequence = GMGSolver::meshesForMultigrid(mesh, kCoarse, delta_k);
-  //   // for (int i=0; i < meshSequence.size(); i++)
-  //   // {
-  //   //   if (commRank == 0)
-  //   //     cout << meshSequence[i]->numGlobalDofs() << endl;
-  //   // }
-  //   while (meshSequence[0]->numGlobalDofs() < 2000 && meshSequence.size() > 2)
-  //     meshSequence.erase(meshSequence.begin());
-  //   gmgSolver = Teuchos::rcp(new GMGSolver(solutionIncrement, meshSequence, maxLinearIterations, solverTolerance, multigridStrategy, coarseSolver, useCondensedSolve));
-  //   gmgSolver->setUseConjugateGradient(useConjugateGradient);
-  //   int azOutput = 20; // print residual every 20 CG iterations
-  //   gmgSolver->setAztecOutput(azOutput);
-  //   gmgSolver->gmgOperator()->setNarrateOnRankZero(logFineOperator,"finest GMGOperator");
-
-  //   if (solverChoice == "GMG-Direct")
-  //     gmgSolver->gmgOperator()->setSchwarzFactorizationType(GMGOperator::Direct);
-  //   if (solverChoice == "GMG-ILU")
-  //     gmgSolver->gmgOperator()->setSchwarzFactorizationType(GMGOperator::ILU);
-  //   if (solverChoice == "GMG-IC")
-  //     gmgSolver->gmgOperator()->setSchwarzFactorizationType(GMGOperator::IC);
-  //   form.setSolver(gmgSolver);
-  // }
-  // else if (solverChoice != "SuperLUDist")
-  //   form.setSolver(solvers[solverChoice]);
 
   // choose local normal matrix calculation algorithm
   BFPtr bf = form.bf();
@@ -900,8 +965,8 @@ int main(int argc, char *argv[])
         if (iterCount == 0)
           l2UpdateInitial = l2Update;
 
-        if (l2Update < 1e-12)
-          break;
+        // if (l2Update < 1e-12)
+        //   break;
 
         iterCount++;
       }
@@ -927,7 +992,16 @@ int main(int argc, char *argv[])
       double dragError = 0.0;
       if (problemChoice == "HemkerCylinder" || problemChoice == "HalfHemker" || problemChoice == "Benchmark")
       {
-        SpatialFilterPtr cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius));
+        SpatialFilterPtr cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius) );
+        // SpatialFilterPtr cylinderBoundary;
+        // if ( problemChoice == "HalfHemker" )
+        // {
+        //   cylinderBoundary = Teuchos::rcp( new HalfCylinderBoundary(cylinderRadius));
+        // }
+        // else
+        // {
+        //   cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius));
+        // }
 
         TFunctionPtr<double> boundaryRestriction = Function::meshBoundaryCharacteristic();
 
@@ -987,7 +1061,8 @@ int main(int argc, char *argv[])
 
       if (commRank == 0)
       {
-        cout << "Lambda: " << lambda
+        cout << setprecision(8) 
+          << "Lambda: " << lambda
           << " \nRefinement: " << refIndex
           << " \tElements: " << mesh->numActiveElements()
           << " \tDOFs: " << mesh->numGlobalDofs()
@@ -1002,7 +1077,8 @@ int main(int argc, char *argv[])
           << " \tDrag error estimate : " << dragError
           // << " \nLine search distance: " << s
           << endl;
-        dataFile << lambda
+        dataFile << setprecision(8)
+          << lambda
           << " " << refIndex
           << " " << mesh->numActiveElements()
           << " " << mesh->numGlobalDofs()
@@ -1027,13 +1103,24 @@ int main(int argc, char *argv[])
       {
         exporter->exportSolution(solutionBackground, refIndex);
         // exporter->exportSolution(solutionIncrement, refIndex);
+        
+        // output mesh with GnuPlotUtil
+        if (commRank == 0)
+        {
+          ostringstream meshExportName;
+          meshExportName << outputDir << "/" << solnName.str() << "/" << "ref" << refIndex << "_mesh";
+          // int numPointsPerEdge = 3;
+          bool labelCells = false;
+          string meshColor = "black";
+          GnuPlotUtil::writeComputationalMeshSkeleton(meshExportName.str(), mesh, labelCells, meshColor);
+        }
       }
 
 
       // if ((energyError < errorRef*errorTol && iterCount < maxNonlinearIterations-1) || energyError < 1e-8 )
       // if (energyError < errorRef*errorTol || energyError < 1e-8 )
-      if (dragError < errorRef*errorTol || energyError < 1e-8 )
-        break;
+      // if (dragError < errorRef*errorTol || energyError < 1e-8 )
+      //   break;
 
       if (refIndex != numRefs)
       {
@@ -1045,170 +1132,140 @@ int main(int argc, char *argv[])
         }
         else if (errorIndicator == "CylinderBoundary")
         {
-          // cout << "ERROR: Error indicator type not currently supported. Returning null.\n";
-          // return Teuchos::null;
-
-          SpatialFilterPtr cylinderBoundary;
-          if (problemChoice == "Benchmark")
+          if (problemChoice == "Benchmark" || problemChoice == "HalfHemker")
           {
-            cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius));
+            // SpatialFilterPtr cylinderBoundaryGenerous = Teuchos::rcp( new CylinderBoundaryGenerous(cylinderRadius));
+            SpatialFilterPtr cylinderBoundaryExtreme = Teuchos::rcp( new CylinderBoundaryExtreme(cylinderRadius));
+            double energyThreshold = 0.2;
+            // ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new BoundaryOrientedErrorIndicator<double>(solutionIncrement, cylinderBoundaryGenerous) );
+            ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new BoundaryOrientedErrorIndicator<double>(solutionIncrement, cylinderBoundaryExtreme) );
+            RefinementStrategyPtr refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, energyThreshold) );
+            refStrategy->refine();
           }
-          else {
+          else
+          {
             cout << "ERROR: Error indicator type not currently supported for this mesh. Returning null.\n";
             return Teuchos::null;
-          }
-
-          cout << "WARNING: Nate commented out some code here to allow compilation.\n";
-          {
-//          vector< Teuchos::RCP< Element > > activeElements = mesh->activeElements();
-//          vector<GlobalIndexType> cellsToRefine;
-//          // refine cells bordering on the cylinder
-//          for (vector< Teuchos::RCP< Element > >::iterator activeElemIt = activeElements.begin(); activeElemIt != activeElements.end(); activeElemIt++)
-//          {
-//            Teuchos::RCP< Element > current_element = *(activeElemIt);
-//            int cellID = current_element->cellID();
-//            vector< vector<double> > verticesOfElement = mesh->verticesForCell(cellID);
-//            for (int vertexIndex=0; vertexIndex<verticesOfElement.size(); vertexIndex++)
-//            {
-//              if (cylinderBoundary->matchesPoint(verticesOfElement[vertexIndex][0], verticesOfElement[vertexIndex][1]))
-//              {
-//                cellsToRefine.push_back(cellID);
-//                break;
-//              }
-//            }
-//          }
-//
-//          RefinementStrategyPtr refStrategy = form.getRefinementStrategy();
-//          refStrategy->hRefineCells(mesh, cellsToRefine);
-//          bool repartitionAndRebuild = false;
-//          mesh->enforceOneIrregularity(repartitionAndRebuild);
-//          // now, repartition and rebuild:
-//          mesh->repartitionAndRebuild();
           }
         }
         else if (errorIndicator == "DragOriented")
         {
-          // cout << "ERROR: Error indicator type not currently supported. Returning null.\n";
-          // return Teuchos::null;
-          // form.setRefinementStrategy("DragOriented");
 
+          // define spatial filters for the H1-projection problems
           SpatialFilterPtr cylinderBoundary, topBoundary, bottomBoundary, leftBoundary, 
   rightBoundary;
-          double yMax = 2.0 * cylinderRadius;
-          if (problemChoice == "Benchmark")
+          if (problemChoice == "Benchmark" || problemChoice == "HalfHemker")
           {
             cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius));
             topBoundary = SpatialFilter::matchingY(yMax);
-            bottomBoundary = SpatialFilter::matchingY(-yMax);
+            if (problemChoice == "Benchmark")
+            {
+              bottomBoundary = SpatialFilter::matchingY(-yMax);
+            }
+            else
+            {
+              bottomBoundary = SpatialFilter::matchingY(0.0);
+            }
             leftBoundary = SpatialFilter::matchingX(xLeft);
             rightBoundary = SpatialFilter::matchingX(xRight);
           }
-          else {
+          else
+          {
             cout << "ERROR: Error indicator type not currently supported for this mesh. Returning null.\n";
             return Teuchos::null;
           }
-          BCPtr qBC = BC::bc();
-          BCPtr phiBC = BC::bc();
+          
+          // Set up Galerkin H1-projection problem(s)
+          bool H1ProjectionConformingTraces = true; // no difference for primal/continuous formulations
+          int spaceDim = 2;
+          double lengthScale = 1.0;
+          H1ProjectionFormulation formPhi(spaceDim, H1ProjectionConformingTraces, H1ProjectionFormulation::CONTINUOUS_GALERKIN, lengthScale);
+          VarPtr phi = formPhi.phi();
+          BFPtr phiBF = formPhi.bf();
+          MeshTopologyPtr phiMeshTopo = spatialMeshTopo->deepCopy();
+          vector<int> H1Order = {k+1+delta_k}; // = order of the test space velocity
+          int phiTestEnrichment = 0;
+          MeshPtr phiMesh = Teuchos::rcp( new Mesh(phiMeshTopo, phiBF, H1Order, phiTestEnrichment) ) ;
+          phiMesh->registerObserver(mesh);
+          IPPtr phiIP = Teuchos::null;
+          RHSPtr phiRHS = RHS::rhs();
+          // BCPtr qBC = BC::bc(); // necessary for scaling factor
+          // BCPtr phiBC = BC::bc(); // necessary for scaling factor
           BCPtr phiPlusBC = BC::bc();
           BCPtr phiMinusBC = BC::bc();
 
-          // compute error representation function
-
-
-          LinearTermPtr residual = solutionIncrement->rhs()->linearTerm() - bf->testFunctional(solutionIncrement,false);
+          // compute error representation function from solution increment
+          bool excludeBoundaryTerms = false;
+          LinearTermPtr residual = solutionIncrement->rhs()->linearTerm() - bf->testFunctional(solutionIncrement,excludeBoundaryTerms);
           RieszRepPtr rieszResidual = Teuchos::rcp(new RieszRep(mesh, solutionIncrement->ip(), residual));
-          // RieszRepPtr rieszResidual = form.rieszResidual(Teuchos::null); // this MUST to be computed wrong, the refinement patterns are not symmetric ???????
           rieszResidual->computeRieszRep();
+          // extract the component of psi corresponding to the first test velocity component
           FunctionPtr psi_v1 =  Teuchos::rcp( new RepFunction<double>(form.v(1), rieszResidual) );
 
+
           // compute scaling factor
-          double scale;
-          // use phiPlus for scale of q
-          qBC->addDirichlet(phi, cylinderBoundary, one);
-          qBC->addDirichlet(phi, topBoundary, zero);
-          qBC->addDirichlet(phi, bottomBoundary, zero);
-          SolutionPtr qSolution = Solution::solution(phiBF, phiMesh, qBC, phiRHS, phiIP);
-          qSolution->solve();
-          FunctionPtr extension = TFunction<double>::solution(phi, qSolution);
-          FunctionPtr dx_extension = extension->dx();
-          FunctionPtr dy_extension = extension->dy();
-          FunctionPtr d_extensionNorm = extension * extension + (lengthScale * lengthScale) * (dx_extension * dx_extension + dy_extension * dy_extension);
-          double extensionNorm = d_extensionNorm->integrate(phiMesh);
-          double qExtensionNorm = sqrt(extensionNorm);
-          // use phiPlus for scale of psi_v1
-          phiBC->addDirichlet(phi, cylinderBoundary, psi_v1);
-          phiBC->addDirichlet(phi, topBoundary, psi_v1);
-          phiBC->addDirichlet(phi, bottomBoundary, psi_v1);
-          SolutionPtr phiSolution = Solution::solution(phiBF, phiMesh, phiBC, phiRHS, phiIP);
-          phiSolution->solve();
-          extension = TFunction<double>::solution(phi, phiSolution);
-          dx_extension = extension->dx();
-          dy_extension = extension->dy();
-          d_extensionNorm = extension * extension + (lengthScale * lengthScale) * (dx_extension * dx_extension + dy_extension * dy_extension);
-          extensionNorm = d_extensionNorm->integrate(phiMesh);
-          double psiExtensionNorm = sqrt(extensionNorm);
+          double scale; // skipping this for now since it doesn't vastly affect the outcome
+          // // use phiPlus for scale of q
+          // qBC->addDirichlet(phi, cylinderBoundary, one);
+          // qBC->addDirichlet(phi, topBoundary, zero);
+          // qBC->addDirichlet(phi, bottomBoundary, zero);
+          // SolutionPtr qSolution = Solution::solution(phiBF, phiMesh, qBC, phiRHS, phiIP);
+          // qSolution->solve();
+          // FunctionPtr extension = TFunction<double>::solution(phi, qSolution);
+          // FunctionPtr dx_extension = extension->dx();
+          // FunctionPtr dy_extension = extension->dy();
+          // FunctionPtr d_extensionNorm = extension * extension + (lengthScale * lengthScale) * (dx_extension * dx_extension + dy_extension * dy_extension);
+          // double extensionNorm = d_extensionNorm->integrate(phiMesh);
+          // double qExtensionNorm = sqrt(extensionNorm);
+          // // use phiPlus for scale of psi_v1
+          // phiBC->addDirichlet(phi, cylinderBoundary, psi_v1);
+          // phiBC->addDirichlet(phi, topBoundary, psi_v1);
+          // phiBC->addDirichlet(phi, bottomBoundary, psi_v1);
+          // SolutionPtr phiSolution = Solution::solution(phiBF, phiMesh, phiBC, phiRHS, phiIP);
+          // phiSolution->solve();
+          // extension = TFunction<double>::solution(phi, phiSolution);
+          // dx_extension = extension->dx();
+          // dy_extension = extension->dy();
+          // d_extensionNorm = extension * extension + (lengthScale * lengthScale) * (dx_extension * dx_extension + dy_extension * dy_extension);
+          // extensionNorm = d_extensionNorm->integrate(phiMesh);
+          // double psiExtensionNorm = sqrt(extensionNorm);
 
-          scale = psiExtensionNorm / qExtensionNorm;
+          // scale = psiExtensionNorm / qExtensionNorm;
           // cout << "scale = " << scale << endl;
-          // scale = 1.0;
-
-
-
-
-
-
-          // DEBUGGING
-  //        Teuchos::RCP<HDF5Exporter> phiExporter = Teuchos::rcp(new HDF5Exporter(phiMesh, solnName.str()+"phi", outputDir));
-  //        phiExporter->exportSolution(phiSolution, refIndex);
-
-          // compute average of psi_v1 along cylinder TWO DIFFERENT WAYS
-          // compute average from solution from solution
-          TFunctionPtr<double> boundaryRestriction = Function::meshBoundaryCharacteristic();
-          TFunctionPtr<double> phi_bndry = Teuchos::rcp( new PreviousSolutionFunction<double>(phiSolution, phi) );
-          phi_bndry = Teuchos::rcp( new SpatiallyFilteredFunction<double>( phi_bndry*boundaryRestriction, cylinderBoundary) );
-          double averagePhi = phi_bndry->integrate(phiMesh);
-
-          // compute average from Dirichlet BC's
-          // TFunctionPtr<double> phiPlusBC_bndry = Teuchos::rcp( new SpatiallyFilteredFunction<double>( one*boundaryRestriction, cylinderBoundary) ); // also evaluates to 2*pi
-          TFunctionPtr<double> phiBC_bndry = Teuchos::rcp( new SpatiallyFilteredFunction<double>( psi_v1*boundaryRestriction, cylinderBoundary) );
-          double averagePhiBC = phiBC_bndry->integrate(phiMesh);
-
-          // cout << "averagePhi = " << averagePhi << endl; // average from solution
-          // cout << "averagePhiBC = " << averagePhiBC << endl; // average from BC's
-          // DEBUGGING
-
-
-
-
-
+          scale = 1.0;
 
 
           // drag error ~ (e_1,psi_{v})_{1/2} = (1, psi_{v1})_{1/2}
-          // phiPlusBC->addDirichlet(phiPlus, cylinderBoundary, one); // later integral evaluates to 2*pi in this case, as it should
-          // phiPlusBC->addDirichlet(phiPlus, cylinderBoundary, psi_v1);
           phiPlusBC->addDirichlet(phi, cylinderBoundary, 1.0/scale*psi_v1+scale*one);
           phiPlusBC->addDirichlet(phi, topBoundary, 1.0/scale*psi_v1);
           phiPlusBC->addDirichlet(phi, bottomBoundary, 1.0/scale*psi_v1);
-          // phiPlusBC->addDirichlet(phi, leftBoundary, psi_v1);
-          // phiPlusBC->addDirichlet(phi, rightBoundary, psi_v1);
+          phiPlusBC->addDirichlet(phi, leftBoundary, 1.0/scale*psi_v1);
+          phiPlusBC->addDirichlet(phi, rightBoundary, 1.0/scale*psi_v1);
 
           phiMinusBC->addDirichlet(phi, cylinderBoundary, 1.0/scale*psi_v1-scale*one);
           phiMinusBC->addDirichlet(phi, topBoundary, 1.0/scale*psi_v1);
           phiMinusBC->addDirichlet(phi, bottomBoundary, 1.0/scale*psi_v1);
-          // phiMinusBC->addDirichlet(phi, leftBoundary, psi_v1);
-          // phiMinusBC->addDirichlet(phi, rightBoundary, psi_v1);
+          phiMinusBC->addDirichlet(phi, leftBoundary, 1.0/scale*psi_v1);
+          phiMinusBC->addDirichlet(phi, rightBoundary, 1.0/scale*psi_v1);
+
+
+          // if (problemChoice == "Benchmark")
+          // {
+          //   phiPlusBC->addDirichlet(phi, bottomBoundary, 1.0/scale*psi_v1);
+          //   phiMinusBC->addDirichlet(phi, bottomBoundary, 1.0/scale*psi_v1);
+          // }
+
           SolutionPtr phiPlusSolution = Solution::solution(phiBF, phiMesh, phiPlusBC, phiRHS, phiIP);
           SolutionPtr phiMinusSolution = Solution::solution(phiBF, phiMesh, phiMinusBC, phiRHS, phiIP);
-          // SolutionPtr phiMinusSolution = Solution::solution(phiMinusBF, phiMinusMesh, phiMinusBC, phiRHS, phiIP);
 
+          int outputLevel = 1;
+          phiPlusSolution->setWarnAboutDiscontinuousBCs(outputLevel);
           phiPlusSolution->solve();
+          phiMinusSolution->setWarnAboutDiscontinuousBCs(outputLevel);
           phiMinusSolution->solve();
 
 
-
           FunctionPtr phiP_fxn = TFunction<double>::solution(phi, phiPlusSolution);
-          // FunctionPtr phiPlus_fxn = TFunction<double>::solution(phiPlus, phiPlusSolution);
-          // FunctionPtr phiMinus_fxn = TFunction<double>::solution(phiMinus, phiMinusSolution);
           FunctionPtr dx_phiP_fxn = phiP_fxn->dx();
           FunctionPtr dy_phiP_fxn = phiP_fxn->dy();
           FunctionPtr d_eta = phiP_fxn * phiP_fxn + (lengthScale * lengthScale) * (dx_phiP_fxn * dx_phiP_fxn + dy_phiP_fxn * dy_phiP_fxn);
@@ -1218,109 +1275,16 @@ int main(int argc, char *argv[])
           FunctionPtr dy_phiM_fxn = phiM_fxn->dy();
           d_eta = d_eta - phiM_fxn * phiM_fxn - (lengthScale * lengthScale) * (dx_phiM_fxn * dx_phiM_fxn + dy_phiM_fxn * dy_phiM_fxn);
 
+          double energyThreshold = 0.01;
+          ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new DragOrientedErrorIndicator<double>(phiMesh, d_eta) );
+          RefinementStrategyPtr refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, energyThreshold) );
+
+          refStrategy->refine();
 
 
-
-
-          // vector< Teuchos::RCP< Element > > activeElements = phiMesh->activeElements();
-          map<GlobalIndexType, double> eta;
-          // double maxEta = 0.0;
-          vector<GlobalIndexType> cellsToRefine;
-          // // refine cells bordering on the cylinder
-          // for (vector< Teuchos::RCP< Element > >::iterator activeElemIt = activeElements.begin(); activeElemIt != activeElements.end(); activeElemIt++)
-          // {
-          //   Teuchos::RCP< Element > current_element = *(activeElemIt);
-          //   GlobalIndexType cellID = current_element->cellID();
-
-          //   eta[cellID] = abs(d_eta->integrate(cellID, phiMesh));
-          //   maxEta = max(maxEta,eta[cellID]);
-
-          // }
-
-          // keep track of local maximum value
-          double localMax = 0;
-          // get reference to my cellIDs container (pointer avoids copy)
-          const set<GlobalIndexType>* myCellIDs = &phiMesh->cellIDsInPartition();
-          // C++11 - style for loop looks prettier than things involving iterators:
-          for (GlobalIndexType cellID : *myCellIDs)
-          {
-            eta[cellID] = abs(d_eta->integrate(cellID, phiMesh));
-            localMax = max(localMax, eta[cellID]);
-          }
-          // MPI communication to determine global maximum value
-          double globalMax;
-          phiMesh->Comm()->MaxAll(&localMax, &globalMax, 1);
-
-          Camellia::print("eta",eta);
-          
-          cout << "globalMax = " << globalMax << endl;
-
-          // debugging
-          // if (commRank == 0)
-          // {
-
-          //   cout << "size of eta " << eta.size() << endl;
-          //   for (int el = 0; el < eta.size(); el++)
-          //   {            
-          //     cout << " eta[" << el << "] " << eta[el] << endl;
-          //   }
-          // }
-          // debugging
-          // if (commRank == 0)
-          // {
-          //   cout << " activeElements size " << activeElements.size() << endl;
-          // }
-          // for (vector< Teuchos::RCP< Element > >::iterator activeElemIt = activeElements.begin(); activeElemIt != activeElements.end(); activeElemIt++)
-          // {
-          //   Teuchos::RCP< Element > current_element = *(activeElemIt);
-          //   GlobalIndexType cellID = current_element->cellID();
-
-          //   if ( eta[cellID] >= maxEta * 0.01 )
-          //   {
-          //     cellsToRefine.push_back(cellID);
-          //   }
-
-          // }
-          for (GlobalIndexType cellID : *myCellIDs)
-          {
-            if ( eta[cellID] >= globalMax * 0.01 )
-            {
-              cellsToRefine.push_back(cellID);
-            }
-          }
-
-
-          // debugging
-          if (commRank == 0)
-          {
-
-            cout << " cellsToRefine = " << cellsToRefine.size() << endl;
-            for (int el = 0; el < cellsToRefine.size(); el++)
-            {            
-              cout << " cellsToRefine[" << el << "] " << cellsToRefine[el] << endl;
-            }
-          }
-          // debugging
-
-          // refine phiMesh instead of mesh and register meshes
-          RefinementStrategyPtr refStrategy = form.getRefinementStrategy();
-          refStrategy->hRefineCells(mesh, cellsToRefine);
-          bool repartitionAndRebuild = false;
-          mesh->enforceOneIrregularity(repartitionAndRebuild);
-          // now, repartition and rebuild:
-          mesh->repartitionAndRebuild();
-
-          // RefinementStrategyPtr refStrategy = form.getRefinementStrategy();
-          // refStrategy->hRefineCells(mesh, cellsToRefine);
-          // bool repartitionAndRebuild = false;
-          // mesh->enforceOneIrregularity(repartitionAndRebuild);
-          // // now, repartition and rebuild:
-          // mesh->repartitionAndRebuild();
-
+          // just refines based on energy error for debugging
           // form.refine();
         }
-        // form.refine();
-        // refStrategy->refine();
       }
     }
     lambda += delta_lambda;
