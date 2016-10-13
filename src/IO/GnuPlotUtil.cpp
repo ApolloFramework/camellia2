@@ -5,9 +5,33 @@
 #include "GnuPlotUtil.h"
 
 #include "BasisCache.h"
+#include "GlobalDofAssignment.h"
+#include "MeshFactory.h"
+#include "MPIWrapper.h"
 
 using namespace Intrepid;
 using namespace Camellia;
+
+MeshPtr gatherMeshToRankZeroIfDistributed(MeshPtr mesh)
+{
+  if (mesh->getTopology()->isDistributed())
+  {
+    int rank = mesh->Comm()->MyPID();
+    MeshTopologyPtr meshTopoGathered = mesh->getTopology()->getGatheredCopy();
+    if (rank == 0)
+    {
+      mesh = MeshFactory::minRuleMesh(meshTopoGathered, mesh->bilinearForm(),
+                                      mesh->globalDofAssignment()->getInitialH1Order(),
+                                      mesh->globalDofAssignment()->getTestOrderEnrichment(),
+                                      MPIWrapper::CommSerial());
+    }
+    else
+    {
+      mesh = Teuchos::null;
+    }
+  }
+  return mesh;
+}
 
 FieldContainer<double> GnuPlotUtil::cellCentroids(MeshTopology* meshTopo)
 {
@@ -65,329 +89,358 @@ void GnuPlotUtil::writeComputationalMeshSkeleton(const string &filePath, MeshPtr
     return;
   }
 
+  int rank = mesh->Comm()->MyPID();
   int spaceDim = mesh->getDimension(); // not that this will really work in 3D...
 
-  ofstream fout(filePath.c_str());
-  fout << setprecision(15);
+  // check whether all cells are available on rank 0; if not, gather to rank 0
+  mesh = gatherMeshToRankZeroIfDistributed(mesh);
 
-  fout << "# Camellia GnuPlotUtil Mesh Points\n";
-  fout << "# x                  y\n";
-
-  int numActiveElements = mesh->numActiveElements();
-
-  double minX = 1e10, minY = 1e10, maxX = -1e10, maxY = -1e10;
-
-  FieldContainer<double> cellCentroids;
-  set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
-  vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
-
-  for (GlobalIndexType cellID : cellIDs)
+  if (rank == 0)
   {
-    CellPtr cell = mesh->getTopology()->getCell(cellID);
-    ElementTypePtr elemType = mesh->getElementType(cellID);
-    
-    vector< ParametricCurvePtr > edgeLines = ParametricCurve::referenceCellEdges(cell->topology()->getKey());
-    int numEdges = edgeLines.size();
-    int numPointsPerEdge = max(10,elemType->testOrderPtr->maxBasisDegree() * 2); // 2 points for linear, 4 for quadratic, etc.
-    // to start, compute edgePoints on the reference cell
-    int numPointsTotal = numEdges*(numPointsPerEdge-1)+1; // -1 because edges share vertices, +1 because we repeat first vertex...
-    FieldContainer<double> edgePoints(numPointsTotal,spaceDim);
+    ofstream fout(filePath.c_str());
+    fout << setprecision(15);
 
-    int ptIndex = 0;
-    for (int edgeIndex=0; edgeIndex < edgeLines.size(); edgeIndex++)
+    fout << "# Camellia GnuPlotUtil Mesh Points\n";
+    fout << "# x                  y\n";
+
+    double minX = 1e10, minY = 1e10, maxX = -1e10, maxY = -1e10;
+
+    FieldContainer<double> cellCentroids;
+    set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
+    vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
+
+    for (GlobalIndexType cellID : cellIDs)
     {
-      ParametricCurvePtr edge = edgeLines[edgeIndex];
-      double t = 0;
-      double increment = 1.0 / (numPointsPerEdge - 1);
-      // last edge gets one extra point (to connect to first edge):
-      int thisEdgePoints = (edgeIndex < edgeLines.size()-1) ? numPointsPerEdge-1 : numPointsPerEdge;
-      for (int i=0; i<thisEdgePoints; i++)
+      CellPtr cell = mesh->getTopology()->getCell(cellID);
+      ElementTypePtr elemType = mesh->getElementType(cellID);
+      
+      vector< ParametricCurvePtr > edgeLines = ParametricCurve::referenceCellEdges(cell->topology()->getKey());
+      int numEdges = edgeLines.size();
+      int numPointsPerEdge = max(10,elemType->testOrderPtr->maxBasisDegree() * 2); // 2 points for linear, 4 for quadratic, etc.
+      // to start, compute edgePoints on the reference cell
+      int numPointsTotal = numEdges*(numPointsPerEdge-1)+1; // -1 because edges share vertices, +1 because we repeat first vertex...
+      FieldContainer<double> edgePoints(numPointsTotal,spaceDim);
+
+      int ptIndex = 0;
+      for (int edgeIndex=0; edgeIndex < edgeLines.size(); edgeIndex++)
       {
-        double x, y;
-        edge->value(t,x,y);
-        edgePoints(ptIndex,0) = x;
-        edgePoints(ptIndex,1) = y;
-        ptIndex++;
-        t += increment;
+        ParametricCurvePtr edge = edgeLines[edgeIndex];
+        double t = 0;
+        double increment = 1.0 / (numPointsPerEdge - 1);
+        // last edge gets one extra point (to connect to first edge):
+        int thisEdgePoints = (edgeIndex < edgeLines.size()-1) ? numPointsPerEdge-1 : numPointsPerEdge;
+        for (int i=0; i<thisEdgePoints; i++)
+        {
+          double x, y;
+          edge->value(t,x,y);
+          edgePoints(ptIndex,0) = x;
+          edgePoints(ptIndex,1) = y;
+          ptIndex++;
+          t += increment;
+        }
+      }
+      // make a one-cell BasisCache initialized with the edgePoints on the ref cell:
+      BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+      basisCache->setRefCellPoints(edgePoints);
+
+      //      cout << "--- cellID " << cell->cellID() << " ---\n";
+      //      cout << "edgePoints:\n" << edgePoints;
+
+      FieldContainer<double> transformedPoints(1,numPointsTotal,spaceDim);
+      // compute the transformed points:
+      transformationFunction->values(transformedPoints,basisCache);
+
+      //      cout << "transformedPoints:\n" << transformedPoints;
+
+      ptIndex = 0;
+      for (int i=0; i<numEdges; i++)
+      {
+        int thisEdgePoints = (i < edgeLines.size()-1) ? numPointsPerEdge-1 : numPointsPerEdge;
+        for (int j=0; j<thisEdgePoints; j++)
+        {
+          double x = transformedPoints(0,ptIndex,0);
+          double y = transformedPoints(0,ptIndex,1);
+          fout << x << "   " << y << endl;
+          ptIndex++;
+          minX = min(x,minX);
+          minY = min(y,minY);
+          maxX = max(x,maxX);
+          maxY = max(y,maxY);
+        }
+      }
+
+      fout << endl; // line break to separate elements
+
+      if (labelCells)
+      {
+        // this only works on quads right now
+        cellCentroids = GnuPlotUtil::cellCentroids(mesh);
       }
     }
-    // make a one-cell BasisCache initialized with the edgePoints on the ref cell:
-    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
-    basisCache->setRefCellPoints(edgePoints);
 
-    //      cout << "--- cellID " << cell->cellID() << " ---\n";
-    //      cout << "edgePoints:\n" << edgePoints;
+    double xDiff = maxX - minX;
+    double yDiff = maxY - minY;
 
-    FieldContainer<double> transformedPoints(1,numPointsTotal,spaceDim);
-    // compute the transformed points:
-    transformationFunction->values(transformedPoints,basisCache);
-
-    //      cout << "transformedPoints:\n" << transformedPoints;
-
-    ptIndex = 0;
-    for (int i=0; i<numEdges; i++)
-    {
-      int thisEdgePoints = (i < edgeLines.size()-1) ? numPointsPerEdge-1 : numPointsPerEdge;
-      for (int j=0; j<thisEdgePoints; j++)
-      {
-        double x = transformedPoints(0,ptIndex,0);
-        double y = transformedPoints(0,ptIndex,1);
-        fout << x << "   " << y << endl;
-        ptIndex++;
-        minX = min(x,minX);
-        minY = min(y,minY);
-        maxX = max(x,maxX);
-        maxY = max(y,maxY);
-      }
-    }
-
-    fout << endl; // line break to separate elements
-
+    fout << "# Plot with:\n";
+    fout << setprecision(2);
+    fout << "# set size ratio -1\n";
+    fout << "# set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
+    fout << "# set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
+    fout << "# plot \"" << filePath << "\" using 1:2 title 'mesh' with lines lc rgb \"" << rgbColor << "\"\n";
     if (labelCells)
     {
-      // this only works on quads right now
-      cellCentroids = GnuPlotUtil::cellCentroids(mesh);
-    }
-  }
-
-  double xDiff = maxX - minX;
-  double yDiff = maxY - minY;
-
-  fout << "# Plot with:\n";
-  fout << setprecision(2);
-  fout << "# set size ratio -1\n";
-  fout << "# set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
-  fout << "# set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
-  fout << "# plot \"" << filePath << "\" using 1:2 title 'mesh' with lines lc rgb \"" << rgbColor << "\"\n";
-  if (labelCells)
-  {
-    bool tinyFont = true;
-    for (int i=0; i<cellIDs.size(); i++)
-    {
-      int cellID = cellIDs[i];
-      fout << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
-      fout << cellCentroids(i,1) << " center ";
-      if (tinyFont) {
-        fout << "font \",1\"";
+      bool tinyFont = true;
+      for (int i=0; i<cellIDs.size(); i++)
+      {
+        int cellID = cellIDs[i];
+        fout << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
+        fout << cellCentroids(i,1) << " center ";
+        if (tinyFont) {
+          fout << "font \",1\"";
+        }
+        fout << endl;
       }
-      fout << endl;
     }
-  }
-  fout << "# set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
-  fout << "# set out '" << filePath << ".eps'\n";
-  fout << "# replot\n";
-  fout << "# set term pop\n";
-  fout.close();
+    fout << "# set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
+    fout << "# set out '" << filePath << ".eps'\n";
+    fout << "# replot\n";
+    fout << "# set term pop\n";
+    fout.close();
 
-  ofstream scriptOut((filePath + ".p").c_str());
-  scriptOut << "set size ratio -1\n";
-  scriptOut << "set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
-  scriptOut << "set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
-  scriptOut << "plot \"" << filePath << "\" using 1:2 title 'mesh' with lines lc rgb \"" << rgbColor << "\"\n";
-  if (labelCells)
-  {
-    bool tinyFont = true;
-    for (int i=0; i<cellIDs.size(); i++)
+    ofstream scriptOut((filePath + ".p").c_str());
+    scriptOut << "set size ratio -1\n";
+    scriptOut << "set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
+    scriptOut << "set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
+    scriptOut << "plot \"" << filePath << "\" using 1:2 title 'mesh' with lines lc rgb \"" << rgbColor << "\"\n";
+    if (labelCells)
     {
-      int cellID = cellIDs[i];
-      scriptOut << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
-      scriptOut << cellCentroids(i,1) << " center ";
-      if (tinyFont) {
-        scriptOut << "font \",1\"";
+      bool tinyFont = true;
+      for (int i=0; i<cellIDs.size(); i++)
+      {
+        int cellID = cellIDs[i];
+        scriptOut << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
+        scriptOut << cellCentroids(i,1) << " center ";
+        if (tinyFont) {
+          scriptOut << "font \",1\"";
+        }
+        scriptOut << endl;
       }
-      scriptOut << endl;
     }
+    
+    scriptOut << "set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
+    scriptOut << "set out '" << filePath << ".eps'\n";
+    //    scriptOut << "replot\n";
+    //    scriptOut << "set terminal png\n";
+    //    scriptOut << "set out '" << filePath << ".png'\n";
+    scriptOut << "replot\n";
+    scriptOut << "set term pop\n";
+    scriptOut << "replot\n";
+    scriptOut.close();
   }
-  
-  scriptOut << "set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
-  scriptOut << "set out '" << filePath << ".eps'\n";
-  //    scriptOut << "replot\n";
-  //    scriptOut << "set terminal png\n";
-  //    scriptOut << "set out '" << filePath << ".png'\n";
-  scriptOut << "replot\n";
-  scriptOut << "set term pop\n";
-  scriptOut << "replot\n";
-  scriptOut.close();
 }
 
 void GnuPlotUtil::writeExactMeshSkeleton(const string &filePath, MeshTopology* meshTopo, int numPointsPerEdge,
     bool labelCells, string rgbColor, string title)
 {
-  ofstream fout(filePath.c_str());
-  fout << setprecision(15);
-
-  fout << "# Camellia GnuPlotUtil Mesh Points\n";
-  fout << "# x                  y\n";
-
-  int numActiveElements = meshTopo->activeCellCount();
-  FieldContainer<double> cellCentroids;
-  if (labelCells)
+  MeshTopologyPtr meshTopoCopy;
+  
+  int rank = 0;
+  if (meshTopo->isDistributed())
   {
-    cellCentroids = GnuPlotUtil::cellCentroids(meshTopo);
+    rank = meshTopo->Comm()->MyPID();
+    meshTopoCopy = meshTopo->getGatheredCopy();
   }
-
-  double minX = 1e10, minY = 1e10, maxX = -1e10, maxY = -1e10;
-
-  vector<IndexType> cellIDs = meshTopo->getActiveCellIndicesGlobal();
-
-  for (int cellIndex=0; cellIndex<numActiveElements; cellIndex++)
+  else
   {
-    CellPtr cell = meshTopo->getCell(cellIDs[cellIndex]);
-    cellIDs.push_back(cell->cellIndex());
-    vector< ParametricCurvePtr > edgeCurves = meshTopo->parametricEdgesForCell(cell->cellIndex(), false);
-    for (int edgeIndex=0; edgeIndex < edgeCurves.size(); edgeIndex++)
+    meshTopoCopy = Teuchos::rcp(meshTopo,false);
+  }
+  
+  if (rank == 0)
+  {
+    ofstream fout(filePath.c_str());
+    fout << setprecision(15);
+
+    fout << "# Camellia GnuPlotUtil Mesh Points\n";
+    fout << "# x                  y\n";
+
+    int numActiveElements = meshTopo->activeCellCount();
+    FieldContainer<double> cellCentroids;
+    if (labelCells)
     {
-      ParametricCurvePtr edge = edgeCurves[edgeIndex];
-      double t = 0;
-      double increment = 1.0 / (numPointsPerEdge - 1);
-      // last edge gets one extra point (to connect to first edge):
-      int thisEdgePoints = (edgeIndex < edgeCurves.size()-1) ? numPointsPerEdge-1 : numPointsPerEdge;
-      for (int i=0; i<thisEdgePoints; i++)
+      cellCentroids = GnuPlotUtil::cellCentroids(meshTopo);
+    }
+
+    double minX = 1e10, minY = 1e10, maxX = -1e10, maxY = -1e10;
+
+    vector<IndexType> cellIDs = meshTopo->getActiveCellIndicesGlobal();
+
+    for (int cellIndex=0; cellIndex<numActiveElements; cellIndex++)
+    {
+      CellPtr cell = meshTopo->getCell(cellIDs[cellIndex]);
+      cellIDs.push_back(cell->cellIndex());
+      vector< ParametricCurvePtr > edgeCurves = meshTopo->parametricEdgesForCell(cell->cellIndex(), false);
+      for (int edgeIndex=0; edgeIndex < edgeCurves.size(); edgeIndex++)
       {
-        double x, y;
-        edge->value(t,x,y);
-        fout << x << "   " << y << endl;
-        t += increment;
-        minX = min(x,minX);
-        minY = min(y,minY);
-        maxX = max(x,maxX);
-        maxY = max(y,maxY);
+        ParametricCurvePtr edge = edgeCurves[edgeIndex];
+        double t = 0;
+        double increment = 1.0 / (numPointsPerEdge - 1);
+        // last edge gets one extra point (to connect to first edge):
+        int thisEdgePoints = (edgeIndex < edgeCurves.size()-1) ? numPointsPerEdge-1 : numPointsPerEdge;
+        for (int i=0; i<thisEdgePoints; i++)
+        {
+          double x, y;
+          edge->value(t,x,y);
+          fout << x << "   " << y << endl;
+          t += increment;
+          minX = min(x,minX);
+          minY = min(y,minY);
+          maxX = max(x,maxX);
+          maxY = max(y,maxY);
+        }
+      }
+      fout << endl; // line break to separate elements
+    }
+
+    double xDiff = maxX - minX;
+    double yDiff = maxY - minY;
+
+    fout << "# Plot with:\n";
+    fout << setprecision(2);
+    fout << "# set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
+    fout << "# set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
+    fout << "# plot \"" << filePath << "\" using 1:2 title '" << title << "' with lines lc rgb \"" << rgbColor << "\"\n";
+    if (labelCells)
+    {
+      for (int i=0; i<numActiveElements; i++)
+      {
+        int cellID = cellIDs[i];
+        fout << "# set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
+        fout << cellCentroids(i,1) << " center " << endl;
       }
     }
-    fout << endl; // line break to separate elements
-  }
+    fout.close();
 
-  double xDiff = maxX - minX;
-  double yDiff = maxY - minY;
-
-  fout << "# Plot with:\n";
-  fout << setprecision(2);
-  fout << "# set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
-  fout << "# set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
-  fout << "# plot \"" << filePath << "\" using 1:2 title '" << title << "' with lines lc rgb \"" << rgbColor << "\"\n";
-  if (labelCells)
-  {
-    for (int i=0; i<numActiveElements; i++)
+    ofstream scriptOut((filePath + ".p").c_str());
+    scriptOut << "set size ratio -1\n";
+    scriptOut << "set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
+    scriptOut << "set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
+    scriptOut << "plot \"" << filePath << "\" using 1:2 title '" << title << "' with lines lc rgb \"" << rgbColor << "\"\n";
+    if (labelCells)
     {
-      int cellID = cellIDs[i];
-      fout << "# set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
-      fout << cellCentroids(i,1) << " center " << endl;
+      for (int i=0; i<numActiveElements; i++)
+      {
+        int cellID = cellIDs[i];
+        scriptOut << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
+        scriptOut << cellCentroids(i,1) << " center " << endl;
+      }
     }
+    scriptOut << "set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
+    scriptOut << "set out '" << filePath << ".eps'\n";
+    //    scriptOut << "replot\n";
+    //    scriptOut << "set terminal png\n";
+    //    scriptOut << "set out '" << filePath << ".png'\n";
+    scriptOut << "replot\n";
+    scriptOut << "set term pop\n";
+    scriptOut << "replot\n";
+    scriptOut.close();
   }
-  fout.close();
-
-  ofstream scriptOut((filePath + ".p").c_str());
-  scriptOut << "set size ratio -1\n";
-  scriptOut << "set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
-  scriptOut << "set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
-  scriptOut << "plot \"" << filePath << "\" using 1:2 title '" << title << "' with lines lc rgb \"" << rgbColor << "\"\n";
-  if (labelCells)
-  {
-    for (int i=0; i<numActiveElements; i++)
-    {
-      int cellID = cellIDs[i];
-      scriptOut << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
-      scriptOut << cellCentroids(i,1) << " center " << endl;
-    }
-  }
-  scriptOut << "set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
-  scriptOut << "set out '" << filePath << ".eps'\n";
-  //    scriptOut << "replot\n";
-  //    scriptOut << "set terminal png\n";
-  //    scriptOut << "set out '" << filePath << ".png'\n";
-  scriptOut << "replot\n";
-  scriptOut << "set term pop\n";
-  scriptOut << "replot\n";
-  scriptOut.close();
 }
 
 void GnuPlotUtil::writeExactMeshSkeleton(const string &filePath, MeshPtr mesh, int numPointsPerEdge, bool labelCells, string rgbColor, string title)
 {
-  ofstream fout(filePath.c_str());
-  fout << setprecision(15);
-
-  fout << "# Camellia GnuPlotUtil Mesh Points\n";
-  fout << "# x                  y\n";
-
-  int numActiveElements = mesh->numActiveElements();
-  FieldContainer<double> cellCentroids;
-  if (labelCells)
+  int rank = mesh->Comm()->MyPID();
+  
+  // check whether all cells are available on rank 0; if not, gather to rank 0
+  mesh = gatherMeshToRankZeroIfDistributed(mesh);
+  
+  if (rank == 0)
   {
-    cellCentroids = GnuPlotUtil::cellCentroids(mesh);
-  }
+    ofstream fout(filePath.c_str());
+    fout << setprecision(15);
 
-  double minX = 1e10, minY = 1e10, maxX = -1e10, maxY = -1e10;
+    fout << "# Camellia GnuPlotUtil Mesh Points\n";
+    fout << "# x                  y\n";
 
-  set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
-  vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
-
-  for (GlobalIndexType cellID : cellIDs)
-  {
-    vector< ParametricCurvePtr > edgeCurves = mesh->parametricEdgesForCell(cellID);
-    for (int edgeIndex=0; edgeIndex < edgeCurves.size(); edgeIndex++)
+    int numActiveElements = mesh->numActiveElements();
+    FieldContainer<double> cellCentroids;
+    if (labelCells)
     {
-      ParametricCurvePtr edge = edgeCurves[edgeIndex];
-      double t = 0;
-      double increment = 1.0 / (numPointsPerEdge - 1);
-      // last edge gets one extra point (to connect to first edge):
-      int thisEdgePoints = (edgeIndex < edgeCurves.size()-1) ? numPointsPerEdge-1 : numPointsPerEdge;
-      for (int i=0; i<thisEdgePoints; i++)
+      cellCentroids = GnuPlotUtil::cellCentroids(mesh);
+    }
+
+    double minX = 1e10, minY = 1e10, maxX = -1e10, maxY = -1e10;
+
+    set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
+    vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
+
+    for (GlobalIndexType cellID : cellIDs)
+    {
+      vector< ParametricCurvePtr > edgeCurves = mesh->parametricEdgesForCell(cellID);
+      for (int edgeIndex=0; edgeIndex < edgeCurves.size(); edgeIndex++)
       {
-        double x, y;
-        edge->value(t,x,y);
-        fout << x << "   " << y << endl;
-        t += increment;
-        minX = min(x,minX);
-        minY = min(y,minY);
-        maxX = max(x,maxX);
-        maxY = max(y,maxY);
+        ParametricCurvePtr edge = edgeCurves[edgeIndex];
+        double t = 0;
+        double increment = 1.0 / (numPointsPerEdge - 1);
+        // last edge gets one extra point (to connect to first edge):
+        int thisEdgePoints = (edgeIndex < edgeCurves.size()-1) ? numPointsPerEdge-1 : numPointsPerEdge;
+        for (int i=0; i<thisEdgePoints; i++)
+        {
+          double x, y;
+          edge->value(t,x,y);
+          fout << x << "   " << y << endl;
+          t += increment;
+          minX = min(x,minX);
+          minY = min(y,minY);
+          maxX = max(x,maxX);
+          maxY = max(y,maxY);
+        }
+      }
+      fout << endl; // line break to separate elements
+    }
+
+    double xDiff = maxX - minX;
+    double yDiff = maxY - minY;
+
+    fout << "# Plot with:\n";
+    fout << setprecision(2);
+    fout << "# set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
+    fout << "# set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
+    fout << "# plot \"" << filePath << "\" using 1:2 title '" << title << "' with lines lc rgb \"" << rgbColor << "\"\n";
+    if (labelCells)
+    {
+      for (int i=0; i<numActiveElements; i++)
+      {
+        int cellID = cellIDs[i];
+        fout << "# set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
+        fout << cellCentroids(i,1) << " center " << endl;
       }
     }
-    fout << endl; // line break to separate elements
-  }
+    fout.close();
 
-  double xDiff = maxX - minX;
-  double yDiff = maxY - minY;
-
-  fout << "# Plot with:\n";
-  fout << setprecision(2);
-  fout << "# set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
-  fout << "# set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
-  fout << "# plot \"" << filePath << "\" using 1:2 title '" << title << "' with lines lc rgb \"" << rgbColor << "\"\n";
-  if (labelCells)
-  {
-    for (int i=0; i<numActiveElements; i++)
+    ofstream scriptOut((filePath + ".p").c_str());
+    scriptOut << "set size ratio -1\n";
+    scriptOut << "set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
+    scriptOut << "set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
+    scriptOut << "plot \"" << filePath << "\" using 1:2 title '" << title << "' with lines lc rgb \"" << rgbColor << "\"\n";
+    if (labelCells)
     {
-      int cellID = cellIDs[i];
-      fout << "# set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
-      fout << cellCentroids(i,1) << " center " << endl;
+      for (int i=0; i<numActiveElements; i++)
+      {
+        int cellID = cellIDs[i];
+        scriptOut << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
+        scriptOut << cellCentroids(i,1) << " center " << endl;
+      }
     }
+    scriptOut << "set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
+    scriptOut << "set out '" << filePath << ".eps'\n";
+    //    scriptOut << "replot\n";
+    //    scriptOut << "set terminal png\n";
+    //    scriptOut << "set out '" << filePath << ".png'\n";
+    scriptOut << "replot\n";
+    scriptOut << "set term pop\n";
+    scriptOut << "replot\n";
+    scriptOut.close();
   }
-  fout.close();
-
-  ofstream scriptOut((filePath + ".p").c_str());
-  scriptOut << "set size ratio -1\n";
-  scriptOut << "set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
-  scriptOut << "set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
-  scriptOut << "plot \"" << filePath << "\" using 1:2 title '" << title << "' with lines lc rgb \"" << rgbColor << "\"\n";
-  if (labelCells)
-  {
-    for (int i=0; i<numActiveElements; i++)
-    {
-      int cellID = cellIDs[i];
-      scriptOut << "set label \"" << cellID << "\" at " << cellCentroids(i,0) << ",";
-      scriptOut << cellCentroids(i,1) << " center " << endl;
-    }
-  }
-  scriptOut << "set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
-  scriptOut << "set out '" << filePath << ".eps'\n";
-  //    scriptOut << "replot\n";
-  //    scriptOut << "set terminal png\n";
-  //    scriptOut << "set out '" << filePath << ".png'\n";
-  scriptOut << "replot\n";
-  scriptOut << "set term pop\n";
-  scriptOut << "replot\n";
-  scriptOut.close();
 }
 
 // badly named, maybe: we support arbitrary space dimension...
