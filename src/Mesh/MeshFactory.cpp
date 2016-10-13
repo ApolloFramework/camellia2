@@ -1551,6 +1551,430 @@ MeshGeometryPtr MeshFactory::halfHemkerGeometry(double xLeft, double xRight, dou
   return Teuchos::rcp( new MeshGeometry(vertices, elementVertices, edgeToCurveMap) );
 }
 
+MeshGeometryPtr MeshFactory::halfConfinedCylinderGeometry(double cylinderRadius)
+{
+  double yMax = 2.0*cylinderRadius;
+
+  // first, set up an 5-element mesh, centered at the origin
+  ParametricCurvePtr innerCircle = ParametricCurve::circle(cylinderRadius, 0, 0);
+  double rOuter = sqrt(2 + 2 / sqrt(5))*cylinderRadius;
+  ParametricCurvePtr outerCircle = ParametricCurve::circle(rOuter, 0, 0);
+
+  int numPoints = 6; // 6 on circles
+  int numElements = numPoints - 1;
+  int spaceDim = 2;
+  vector< vector<double> > vertices;
+  vector<double> innerVertex(spaceDim), outerVertex(spaceDim);
+  FieldContainer<double> innerVertices(numPoints,spaceDim), outerVertices(numPoints,spaceDim); // these are just for easy debugging output
+
+  vector<IndexType> innerVertexIndices;
+  vector<IndexType> outerVertexIndices;
+
+  double t = 0;
+  for (int i=0; i<numPoints; i++)
+  {
+    innerCircle->value(t, innerVertices(i,0), innerVertices(i,1));
+    outerCircle->value(t, outerVertices(i,0), outerVertices(i,1));
+    innerCircle->value(t, innerVertex[0], innerVertex[1]);
+    outerCircle->value(t, outerVertex[0], outerVertex[1]);
+    innerVertexIndices.push_back(vertices.size());
+    vertices.push_back(innerVertex);
+    outerVertexIndices.push_back(vertices.size());
+    vertices.push_back(outerVertex);
+    t += 0.5 / numElements;
+  }
+
+   // cout << "innerVertices:\n" << innerVertices;
+   // cout << "outerVertices:\n" << outerVertices;
+
+//  GnuPlotUtil::writeXYPoints("/tmp/innerVertices.dat", innerVertices);
+//  GnuPlotUtil::writeXYPoints("/tmp/outerVertices.dat", outerVertices);
+
+  vector< vector<IndexType> > elementVertices;
+
+  int totalVertices = vertices.size();
+
+  t = 0;
+
+  map< pair<IndexType, IndexType>, ParametricCurvePtr > edgeToCurveMap;
+  for (int i=0; i<numElements; i++)
+  {
+    vector<IndexType> vertexIndices;
+    int innerIndex0 = (i * 2) % totalVertices;
+    int innerIndex1 = ((i+1) * 2) % totalVertices;
+    int outerIndex0 = (i * 2 + 1) % totalVertices;
+    int outerIndex1 = ((i+1) * 2 + 1) % totalVertices;
+    vertexIndices.push_back(innerIndex0);
+    vertexIndices.push_back(outerIndex0);
+    vertexIndices.push_back(outerIndex1);
+    vertexIndices.push_back(innerIndex1);
+    elementVertices.push_back(vertexIndices);
+
+       // cout << "innerIndex0: " << innerIndex0 << endl;
+       // cout << "innerIndex1: " << innerIndex1 << endl;
+       // cout << "outerIndex0: " << outerIndex0 << endl;
+       // cout << "outerIndex1: " << outerIndex1 << endl;
+
+    pair<int, int> innerEdge = make_pair(innerIndex1, innerIndex0); // order matters
+    edgeToCurveMap[innerEdge] = ParametricCurve::subCurve(innerCircle, t+0.5/numElements, t);
+    t += 0.5 / numElements;
+  }
+
+  // make some new vertices, going counter-clockwise in the mesh near the cylinder
+
+  vector<double> nearCylinderVertex(spaceDim);
+  double rCosTheta = sqrt(1 + 2 / sqrt(5));
+  double rCosTwoTheta = sqrt((5 - sqrt(5))/10);
+
+  nearCylinderVertex[0] = 3.0*cylinderRadius;
+  nearCylinderVertex[1] = 0;
+  vertices.push_back(nearCylinderVertex);
+
+  nearCylinderVertex[1] = cylinderRadius;
+  vertices.push_back(nearCylinderVertex);
+
+  nearCylinderVertex[1] = 2.0*cylinderRadius;
+  vertices.push_back(nearCylinderVertex);
+
+  nearCylinderVertex[0] = rCosTheta;
+  vertices.push_back(nearCylinderVertex);
+
+  nearCylinderVertex[0] = rCosTwoTheta;
+  vertices.push_back(nearCylinderVertex);
+
+  nearCylinderVertex[0] =-rCosTwoTheta;
+  vertices.push_back(nearCylinderVertex);
+
+  nearCylinderVertex[0] =-rCosTheta;
+  vertices.push_back(nearCylinderVertex);
+
+  nearCylinderVertex[0] =-3.0*cylinderRadius;
+  vertices.push_back(nearCylinderVertex);
+
+  nearCylinderVertex[1] = cylinderRadius;
+  vertices.push_back(nearCylinderVertex);
+
+  nearCylinderVertex[1] = 0.0;
+  vertices.push_back(nearCylinderVertex);
+
+  // add the new elements to the mesh
+
+  vector<IndexType> vertexIndices(4);
+  vertexIndices[0] = 12;
+  vertexIndices[1] = 13;
+  vertexIndices[2] = 3;
+  vertexIndices[3] = 1;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = 13;
+  vertexIndices[1] = 14;
+  vertexIndices[2] = 15;
+  vertexIndices[3] = 3;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = 3;
+  vertexIndices[1] = 15;
+  vertexIndices[2] = 16;
+  vertexIndices[3] = 5;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = 5;
+  vertexIndices[1] = 16;
+  vertexIndices[2] = 17;
+  vertexIndices[3] = 7;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = 7;
+  vertexIndices[1] = 17;
+  vertexIndices[2] = 18;
+  vertexIndices[3] = 9;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = 9;
+  vertexIndices[1] = 18;
+  vertexIndices[2] = 19;
+  vertexIndices[3] = 20;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = 11;
+  vertexIndices[1] = 9;
+  vertexIndices[2] = 20;
+  vertexIndices[3] = 21;
+  elementVertices.push_back(vertexIndices);
+
+  int nearCylinderVertexOffset = vertices.size();
+
+  vector<double> inflowVertex(spaceDim);
+
+  inflowVertex[0] =-15.0;
+  inflowVertex[1] = 2.0*cylinderRadius;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-13.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-11.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-9.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-7.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-5.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-15.0;
+  inflowVertex[1] = cylinderRadius;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-13.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-11.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-9.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-7.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-5.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-15.0;
+  inflowVertex[1] = 0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-13.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-11.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-9.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-7.0;
+  vertices.push_back(inflowVertex);
+
+  inflowVertex[0] =-5.0;
+  vertices.push_back(inflowVertex);
+
+  // add inflow elements
+
+  vertexIndices[0] = nearCylinderVertexOffset + 7;
+  vertexIndices[1] = nearCylinderVertexOffset + 1;
+  vertexIndices[2] = nearCylinderVertexOffset;
+  vertexIndices[3] = nearCylinderVertexOffset + 6;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = nearCylinderVertexOffset + 8;
+  vertexIndices[1] = nearCylinderVertexOffset + 2;
+  vertexIndices[2] = nearCylinderVertexOffset + 1;
+  vertexIndices[3] = nearCylinderVertexOffset + 7;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = nearCylinderVertexOffset + 9;
+  vertexIndices[1] = nearCylinderVertexOffset + 3;
+  vertexIndices[2] = nearCylinderVertexOffset + 2;
+  vertexIndices[3] = nearCylinderVertexOffset + 8;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = nearCylinderVertexOffset + 10;
+  vertexIndices[1] = nearCylinderVertexOffset + 4;
+  vertexIndices[2] = nearCylinderVertexOffset + 3;
+  vertexIndices[3] = nearCylinderVertexOffset + 9;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = nearCylinderVertexOffset + 11;
+  vertexIndices[1] = nearCylinderVertexOffset + 5;
+  vertexIndices[2] = nearCylinderVertexOffset + 4;
+  vertexIndices[3] = nearCylinderVertexOffset + 10;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = 20;
+  vertexIndices[1] = 19;
+  vertexIndices[2] = nearCylinderVertexOffset + 5;
+  vertexIndices[3] = nearCylinderVertexOffset + 11;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = nearCylinderVertexOffset + 13;
+  vertexIndices[1] = nearCylinderVertexOffset + 7;
+  vertexIndices[2] = nearCylinderVertexOffset + 6;
+  vertexIndices[3] = nearCylinderVertexOffset + 12;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = nearCylinderVertexOffset + 14;
+  vertexIndices[1] = nearCylinderVertexOffset + 8;
+  vertexIndices[2] = nearCylinderVertexOffset + 7;
+  vertexIndices[3] = nearCylinderVertexOffset + 13;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = nearCylinderVertexOffset + 15;
+  vertexIndices[1] = nearCylinderVertexOffset + 9;
+  vertexIndices[2] = nearCylinderVertexOffset + 8;
+  vertexIndices[3] = nearCylinderVertexOffset + 14;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = nearCylinderVertexOffset + 16;
+  vertexIndices[1] = nearCylinderVertexOffset + 10;
+  vertexIndices[2] = nearCylinderVertexOffset + 9;
+  vertexIndices[3] = nearCylinderVertexOffset + 15;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = nearCylinderVertexOffset + 17;
+  vertexIndices[1] = nearCylinderVertexOffset + 11;
+  vertexIndices[2] = nearCylinderVertexOffset + 10;
+  vertexIndices[3] = nearCylinderVertexOffset + 16;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = 21;
+  vertexIndices[1] = 20;
+  vertexIndices[2] = nearCylinderVertexOffset + 11;
+  vertexIndices[3] = nearCylinderVertexOffset + 17;
+  elementVertices.push_back(vertexIndices);
+
+  int inflowVertexOffset = vertices.size();
+
+  vector<double> outflowVertex(spaceDim);
+
+  outflowVertex[0] = 5.0;
+  outflowVertex[1] = 2.0*cylinderRadius;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 7.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 9.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 11.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 13.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 15.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 5.0;
+  outflowVertex[1] = cylinderRadius;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 7.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 9.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 11.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 13.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 15.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 5.0;
+  outflowVertex[1] = 0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 7.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 9.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 11.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 13.0;
+  vertices.push_back(outflowVertex);
+
+  outflowVertex[0] = 15.0;
+  vertices.push_back(outflowVertex);
+
+  // add inflow elements
+
+  vertexIndices[0] = inflowVertexOffset + 6;
+  vertexIndices[1] = inflowVertexOffset;
+  vertexIndices[2] = 14;
+  vertexIndices[3] = 13;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 7;
+  vertexIndices[1] = inflowVertexOffset + 1;
+  vertexIndices[2] = inflowVertexOffset;
+  vertexIndices[3] = inflowVertexOffset + 6;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 8;
+  vertexIndices[1] = inflowVertexOffset + 2;
+  vertexIndices[2] = inflowVertexOffset + 1;
+  vertexIndices[3] = inflowVertexOffset + 7;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 9;
+  vertexIndices[1] = inflowVertexOffset + 3;
+  vertexIndices[2] = inflowVertexOffset + 2;
+  vertexIndices[3] = inflowVertexOffset + 8;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 10;
+  vertexIndices[1] = inflowVertexOffset + 4;
+  vertexIndices[2] = inflowVertexOffset + 3;
+  vertexIndices[3] = inflowVertexOffset + 9;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 11;
+  vertexIndices[1] = inflowVertexOffset + 5;
+  vertexIndices[2] = inflowVertexOffset + 4;
+  vertexIndices[3] = inflowVertexOffset + 10;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 12;
+  vertexIndices[1] = inflowVertexOffset + 6;
+  vertexIndices[2] = 13;
+  vertexIndices[3] = 12;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 13;
+  vertexIndices[1] = inflowVertexOffset + 7;
+  vertexIndices[2] = inflowVertexOffset + 6;
+  vertexIndices[3] = inflowVertexOffset + 12;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 14;
+  vertexIndices[1] = inflowVertexOffset + 8;
+  vertexIndices[2] = inflowVertexOffset + 7;
+  vertexIndices[3] = inflowVertexOffset + 13;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 15;
+  vertexIndices[1] = inflowVertexOffset + 9;
+  vertexIndices[2] = inflowVertexOffset + 8;
+  vertexIndices[3] = inflowVertexOffset + 14;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 16;
+  vertexIndices[1] = inflowVertexOffset + 10;
+  vertexIndices[2] = inflowVertexOffset + 9;
+  vertexIndices[3] = inflowVertexOffset + 15;
+  elementVertices.push_back(vertexIndices);
+
+  vertexIndices[0] = inflowVertexOffset + 17;
+  vertexIndices[1] = inflowVertexOffset + 11;
+  vertexIndices[2] = inflowVertexOffset + 10;
+  vertexIndices[3] = inflowVertexOffset + 16;
+  elementVertices.push_back(vertexIndices);
+
+  return Teuchos::rcp( new MeshGeometry(vertices, elementVertices, edgeToCurveMap) );
+}
+
 MeshGeometryPtr MeshFactory::confinedCylinderGeometry(double cylinderRadius)
 {
   double yMax = 2.0*cylinderRadius;
