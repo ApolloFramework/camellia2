@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
   
   SolutionPtr soln = Solution::solution(mesh);
   
-  VarPtr phi = form.phi();
+  VarPtr phi = form.u();
   map<int, FunctionPtr> exactMap;
   exactMap[phi->ID()] = phi_exact;
   
