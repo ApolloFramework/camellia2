@@ -30,6 +30,10 @@
 #include "EpetraExt_HDF5.h"
 #include "Intrepid_FieldContainer.hpp"
 
+#ifndef HAVE_EPETRAEXT_HDF5
+#warning "HAVE_EPETRAEXT_HDF5 is not defined."
+#endif
+
 namespace Camellia {
   
   class MeshTransformationFunction;
