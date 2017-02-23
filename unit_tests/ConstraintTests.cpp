@@ -139,7 +139,7 @@ namespace
     PoissonFormulation form(spaceDim, useConformingTraces);
     MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {3});
     
-    MeshPtr mesh = MeshFactory::minRuleMesh(meshTopo, form.bf(), {H1Order}, delta_k);
+    MeshPtr mesh = MeshFactory::minRuleMesh(meshTopo, form.bf(), vector<int>{H1Order}, delta_k);
     BCPtr bc = BC::bc();
     RHSPtr rhs = RHS::rhs();
     SolutionPtr soln = Solution::solution(mesh,bc,rhs,form.bf()->graphNorm());
