@@ -10,6 +10,68 @@ using namespace Camellia;
 using namespace Intrepid;
 using namespace std;
 
+// explicitly instantiate double constructor and member functions
+template Exp<double>::Exp(TFunctionPtr<double> power);
+template TFunctionPtr<double> Exp<double>::dx();
+template TFunctionPtr<double> Exp<double>::dy();
+template TFunctionPtr<double> Exp<double>::dz();
+template string Exp<double>::displayString();
+template void Exp<double>::values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache);
+
+template<class Scalar>
+Exp<Scalar>::Exp(TFunctionPtr<Scalar> power) : _power(power)
+{}
+
+template<class Scalar>
+void Exp<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
+{
+  // first, fill values container with _power values:
+  _power->values(values,basisCache);
+  int numCells = values.dimension(0);
+  int numPoints = values.dimension(1);
+  for (int cellOrdinal=0; cellOrdinal<numCells; cellOrdinal++)
+  {
+    for (int pointOrdinal=0; pointOrdinal<numPoints; pointOrdinal++)
+    {
+      values(cellOrdinal,pointOrdinal) = exp(values(cellOrdinal,pointOrdinal));
+    }
+  }
+}
+
+/*
+ d/dx (e^(f)) = e^(f) * d/dx(f)
+ */
+
+template<class Scalar>
+TFunctionPtr<Scalar> Exp<Scalar>::dx()
+{
+  TFunctionPtr<Scalar> thisPtr = Teuchos::rcp( new Exp(_power) );
+  return thisPtr * _power->dx();
+}
+
+template<class Scalar>
+TFunctionPtr<Scalar> Exp<Scalar>::dy()
+{
+  TFunctionPtr<Scalar> thisPtr = Teuchos::rcp( new Exp(_power) );
+  return thisPtr * _power->dy();
+}
+
+
+template<class Scalar>
+TFunctionPtr<Scalar> Exp<Scalar>::dz()
+{
+  TFunctionPtr<Scalar> thisPtr = Teuchos::rcp( new Exp(_power) );
+  return thisPtr * _power->dz();
+}
+
+template<class Scalar>
+std::string Exp<Scalar>::displayString()
+{
+  ostringstream str;
+  str << "e^{" << _power->displayString() << "}";
+  return str.str();
+}
+
 string Exp_x::displayString()
 {
   return "e^x";

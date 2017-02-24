@@ -51,24 +51,27 @@ enum ExactSolutionChoice {
 const static int INFLOW_TAG_ID  = 0; // arbitrary, just an identifier
 const static int OUTFLOW_TAG_ID = 1;
 
+using namespace Teuchos;
+FunctionPtr exp(FunctionPtr power)
+{
+  return rcp(new Exp<double>(power));
+}
+
+template<class WeightType> // WeightType can be FunctionPtr or double
 class ExpTerm : public SimpleFunction<double>
 {
-  double _weight; // beta_1 / epsilon or beta_2 / epsilon
+  WeightType _weight; // beta_1 / epsilon or beta_2 / epsilon
   bool _xTerm; // alternative is y-term; determines which of x or y enters the exponent
-  double _denominator;
+  WeightType _denominator;
 public:
-  ExpTerm(double weight, bool xTerm)
+  ExpTerm(WeightType weight, bool xTerm)
   {
     _weight = weight;
     _xTerm = xTerm;
     _denominator = exp(-weight) - 1.0;
   }
   
-  double value(double x, double y)
-  {
-    double arg = _xTerm ? x : y;
-    return (exp(_weight * (arg - 1)) - exp(-_weight)) / _denominator;
-  }
+  double value(double x, double y);
   
   FunctionPtr dx()
   {
@@ -77,7 +80,7 @@ public:
       // derivative will be this function times _weight without the constant
       //  - exp(-_weight)) / _denominator
       FunctionPtr thisFxn = Teuchos::rcp( new ExpTerm(_weight,_xTerm));
-      double constPart = - exp(-_weight) / _denominator;
+      WeightType constPart = - exp(-_weight) / _denominator;
       return _weight * (thisFxn - constPart);
     }
     else
@@ -93,7 +96,7 @@ public:
       // derivative will be this function times _weight without the constant
       //  - exp(-_weight)) / _denominator
       FunctionPtr thisFxn = Teuchos::rcp( new ExpTerm(_weight,_xTerm));
-      double constPart = - exp(-_weight) / _denominator;
+      WeightType constPart = - exp(-_weight) / _denominator;
       return _weight * (thisFxn - constPart);
     }
     else
@@ -102,6 +105,21 @@ public:
     }
   }
 };
+
+template<> // WeightType can be FunctionPtr or double
+double ExpTerm<double>::value(double x, double y)
+{
+  double arg = _xTerm ? x : y;
+  return (exp(_weight * (arg - 1)) - exp(-_weight)) / _denominator;
+}
+
+template<> // WeightType can be FunctionPtr or double
+double ExpTerm<FunctionPtr>::value(double x, double y)
+{
+  double arg = _xTerm ? x : y;
+  FunctionPtr valueFxn = (exp(_weight * (arg - 1)) - exp(-_weight)) / _denominator;
+  return valueFxn->evaluate(x,y);
+}
 
 class CheckerboardFunction : public SimpleFunction<double>
 {
@@ -133,9 +151,24 @@ public:
       return _otherValue;
     }
   }
+  
+  // zero derivative everywhere *except* at the checkerboard interfaces
+  // but I'm unclear on whether we should allow derivatives to be taken, so for
+  // now we leave these undefined (with the effect that BroersenStevenson is not allowed
+  // as an exact solution)
+//  FunctionPtr dx()
+//  {
+//    return Function::zero();
+//  }
+//  
+//  FunctionPtr dy()
+//  {
+//    return Function::zero();
+//  }
 };
 
-FunctionPtr exactSolution(ExactSolutionChoice solnChoice, double epsilon, double beta_1, double beta_2)
+template<class EpsilonType>
+FunctionPtr exactSolution(ExactSolutionChoice solnChoice, EpsilonType epsilon, double beta_1, double beta_2)
 {
   switch (solnChoice)
   {
@@ -146,14 +179,14 @@ FunctionPtr exactSolution(ExactSolutionChoice solnChoice, double epsilon, double
       FunctionPtr x = Function::xn(1);
       FunctionPtr y = Function::yn(1);
       
-      double x_beta_epsilon = beta_1 / epsilon;
-      double y_beta_epsilon = beta_2 / epsilon;
+      EpsilonType x_beta_epsilon = beta_1 / epsilon;
+      EpsilonType y_beta_epsilon = beta_2 / epsilon;
       
       FunctionPtr xTerm, yTerm;
       
       if (beta_1 != 0)
       {
-        xTerm = x + (FunctionPtr) Teuchos::rcp( new ExpTerm(x_beta_epsilon, true));
+        xTerm = x + (FunctionPtr) Teuchos::rcp( new ExpTerm<EpsilonType>(x_beta_epsilon, true));
       }
       else
       {
@@ -161,7 +194,7 @@ FunctionPtr exactSolution(ExactSolutionChoice solnChoice, double epsilon, double
       }
       if (beta_2 != 0)
       {
-        yTerm = y + (FunctionPtr) Teuchos::rcp( new ExpTerm(y_beta_epsilon, false));
+        yTerm = y + (FunctionPtr) Teuchos::rcp( new ExpTerm<EpsilonType>(y_beta_epsilon, false));
       }
       else
       {
@@ -535,7 +568,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("beta_2", &beta_2);
   cmdp.setOption("exactSolution",&exactSolnChoiceString,"which exact solution to use; supported values are 'BroersenStevenson', 'Linear','Quadratic','Cubic'");
   
-  cmdp.setOption("useCheckerboardEpsilon", &useCheckerboardEpsilon, "use discontinuous, checkerboarded epsilon values.  See options checkerboardLargeEpsilon and checkerboardAlternationInterval");
+  cmdp.setOption("useCheckerboardEpsilon", "useConstantEpsilon", &useCheckerboardEpsilon, "use discontinuous, checkerboarded epsilon values.  See options checkerboardLargeEpsilon and checkerboardAlternationInterval");
   cmdp.setOption("checkerboardLargeEpsilon", &checkerboardLargeEpsilon, "The second epsilon to use in a checkerboard pattern (the standard epsilon will be used in the lower left corner; the 'large' value will be used in orthogonally adjacent regions).  See options useCheckerboardEpsilon and checkerboardAlternationInterval");
   cmdp.setOption("checkerboardAlternationInterval", &checkerboardAlternationInterval, "The x and y alternation interval for the checkerboard pattern;.  See options useCheckerboardEpsilon and checkerboardLargeEpsilon");
   
@@ -633,24 +666,35 @@ int main(int argc, char *argv[])
   
   bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL);
   
-  FunctionPtr epsilonFunction;
+  FunctionPtr epsilonFunction, sqrtEpsilon;
   
   ostringstream thisRunPrefix;
   if (useCheckerboardEpsilon)
   {
-    cout << "useCheckerboardEpsilon is not yet complete!\n";
     epsilonFunction = rcp( new CheckerboardFunction(checkerboardAlternationInterval,
                                                     epsilon, checkerboardLargeEpsilon) );
+    sqrtEpsilon     = rcp( new CheckerboardFunction(checkerboardAlternationInterval,
+                                                    sqrt(epsilon), sqrt(checkerboardLargeEpsilon)) );
     thisRunPrefix << formulationChoice << "_checkerboardInterval" << checkerboardAlternationInterval << "_epsLowerLeft" << epsilon << "_epsOther" << checkerboardLargeEpsilon << "_k" << polyOrder << "_";
   }
   else
   {
     epsilonFunction = Function::constant(epsilon);
+    sqrtEpsilon = Function::constant(sqrt(epsilon));
     thisRunPrefix << formulationChoice << "_eps" << epsilon << "_k" << polyOrder << "_";
   }
   
-  FunctionPtr u_exact = exactSolution(ExactSolutionChoice, epsilonFunction, beta_1, beta_2);
-
+  FunctionPtr u_exact;
+  if (!useCheckerboardEpsilon)
+  {
+    // then prefer using double argument, for performance reasons
+    u_exact = exactSolution(exactSolnChoice, epsilon, beta_1, beta_2);
+  }
+  else
+  {
+    u_exact = exactSolution(exactSolnChoice, epsilonFunction, beta_1, beta_2);
+  }
+  
   if (!refineUniformly)
   {
     thisRunPrefix << "AMR_";
@@ -666,7 +710,7 @@ int main(int argc, char *argv[])
   thisRunPrefix << "meshWidth" << meshWidth << "_" << numRefinements << "refs_";
   
   FunctionPtr beta = Function::constant({beta_1,beta_2});
-  ConvectionDiffusionReactionFormulation form(formulation, spaceDim, beta, epsilonFunction, alpha);
+  ConvectionDiffusionReactionFormulation form(formulation, spaceDim, beta, epsilonFunction, sqrtEpsilon, alpha);
   
   // determine forcing function and RHS
   FunctionPtr f = form.forcingFunction(u_exact);
@@ -693,7 +737,7 @@ int main(int argc, char *argv[])
     delta_k = 0;
     H1Order = polyOrder;
     ConvectionDiffusionReactionFormulation primalForm(ConvectionDiffusionReactionFormulation::PRIMAL, spaceDim, beta,
-                                                      epsilonFunction, alpha);
+                                                      epsilonFunction, sqrtEpsilon, alpha);
     ipForResidual = primalForm.bf()->naiveNorm(spaceDim);
   }
   
@@ -731,7 +775,7 @@ int main(int argc, char *argv[])
 
   // we assume that we're loading from ultraweak meshes if we're loading meshes from file
   ConvectionDiffusionReactionFormulation ultraweakForm(ConvectionDiffusionReactionFormulation::ULTRAWEAK, spaceDim, beta,
-                                                       epsilonFunction, alpha);
+                                                       epsilonFunction, sqrtEpsilon, alpha);
   BFPtr ultraweakBF = ultraweakForm.bf();
   
   MeshPtr mesh, ultraweakMesh;

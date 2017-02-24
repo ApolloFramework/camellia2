@@ -14,11 +14,29 @@
 #ifndef Camellia_ExpFunction_h
 #define Camellia_ExpFunction_h
 
+#include "Function.h"
 #include "SimpleFunction.h"
 #include "TypeDefs.h"
 
 namespace Camellia
 {
+  template<class Scalar>
+  class Exp : public TFunction<Scalar>
+  {
+  private:
+    TFunctionPtr<Scalar> _power;
+  public:
+    Exp(TFunctionPtr<Scalar> power);
+    void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
+    TFunctionPtr<Scalar> dx();
+    TFunctionPtr<Scalar> dy();
+    TFunctionPtr<Scalar> dz();
+    std::string displayString();
+  };
+  
+  // explicitly instantiate Exp<double> class:
+  template class Exp<double>;
+  
 class Exp_x : public SimpleFunction<double>
 {
 public:
