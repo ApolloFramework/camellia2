@@ -35,7 +35,8 @@ namespace Camellia
     FormulationChoice _formulationChoice;
     
     int _spaceDim;
-    double _epsilon, _alpha; // _alpha: weight on the reaction term
+    double _alpha; // _alpha: weight on the reaction term
+    FunctionPtr _epsilon; // diffusion parameter
     FunctionPtr _beta;
     
     Teuchos::RCP<ParameterFunction> _stabilizationWeight; // for SUPG
@@ -51,8 +52,16 @@ namespace Camellia
     
     static const string S_V;
     static const string S_TAU;
+    
+    void init(FormulationChoice formulation, int spaceDim,
+              FunctionPtr beta, FunctionPtr epsilon, FunctionPtr sqrt_epsilon, double alpha);
   public:
-    ConvectionDiffusionReactionFormulation(FormulationChoice formulation, int spaceDim, FunctionPtr beta, double epsilon, double alpha);
+    ConvectionDiffusionReactionFormulation(FormulationChoice formulation, int spaceDim,
+                                           FunctionPtr beta, double epsilon, double alpha);
+    
+    ConvectionDiffusionReactionFormulation(FormulationChoice formulation, int spaceDim,
+                                           FunctionPtr beta, FunctionPtr epsilon,
+                                           FunctionPtr sqrt_epsilon, double alpha);
     
     VarFactoryPtr vf();
     BFPtr bf();

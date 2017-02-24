@@ -26,33 +26,46 @@ const string ConvectionDiffusionReactionFormulation::S_TAU = "tau";
 ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(FormulationChoice formulation, int spaceDim,
                                                                                FunctionPtr beta, double epsilon, double alpha)
 {
+  FunctionPtr epsilonFxn = Function::constant(epsilon);
+  FunctionPtr sqrt_epsilonFxn = Function::constant(sqrt(epsilon));
+  init(formulation,spaceDim,beta,epsilonFxn,sqrt_epsilonFxn,alpha);
+}
+
+ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(FormulationChoice formulation, int spaceDim, FunctionPtr beta,
+                                                                               FunctionPtr epsilon, FunctionPtr sqrt_epsilon, double alpha)
+{
+  init(formulation,spaceDim,beta,epsilon,sqrt_epsilon,alpha);
+}
+
+void ConvectionDiffusionReactionFormulation::init(FormulationChoice formulation, int spaceDim, FunctionPtr beta,
+                                                  FunctionPtr epsilon, FunctionPtr sqrt_epsilon, double alpha)
+{
   _formulationChoice = formulation;
   _spaceDim = spaceDim;
   _beta = beta;
   _epsilon = epsilon;
   _alpha = alpha;
-
+  
   Space tauSpace = (spaceDim > 1) ? HDIV : HGRAD;
   Space uhat_space = HGRAD;
   Space sigmaSpace;
-
+  
   // fields
   VarPtr u;
   VarPtr sigma;
-
+  
   // traces
   VarPtr uhat, sigma_n; // sigma_n is the normal trace of the whole thing under the divergence operator, not just sigma
-
+  
   // tests
   VarPtr v;
   VarPtr tau;
-
+  
   _vf = VarFactory::varFactory();
-
+  
   TFunctionPtr<double> n = TFunction<double>::normal();
   TFunctionPtr<double> parity = TFunction<double>::sideParity();
-
-  double sqrt_epsilon = sqrt(_epsilon);
+  
   switch (_formulationChoice)
   {
     case ULTRAWEAK:
@@ -178,27 +191,27 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
       break;
     case LEAST_SQUARES:
       sigmaSpace = (spaceDim > 1) ? HDIV : HGRAD;
-
+      
       u     = _vf->fieldVar(S_U, HGRAD);
       sigma = _vf->fieldVar(S_SIGMA, sigmaSpace);
       v   = _vf->testVar(S_V, HGRAD);
       tau = _vf->testVar(S_TAU, tauSpace);
-
+      
       _bf = Teuchos::rcp( new BF(_vf) );
-
+      
       if (spaceDim==1)
       {
         _bf->addTerm( sigma - _epsilon * u->dx(),
-                      tau   - _epsilon * v->dx() );
+                     tau   - _epsilon * v->dx() );
         _bf->addTerm( -sigma->dx() + _beta * u->dx() + _alpha * u,
-                      -tau->dx()   + _beta * v->dx() + _alpha * v);
+                     -tau->dx()   + _beta * v->dx() + _alpha * v);
       }
       else
       {
         _bf->addTerm( sigma - _epsilon * u->grad(),
-                      tau   - _epsilon * v->grad() );
+                     tau   - _epsilon * v->grad() );
         _bf->addTerm( - sigma->div() + _beta * u->grad() + _alpha * u,
-                      - tau->div()   + _beta * v->grad() + _alpha * v);
+                     - tau->div()   + _beta * v->grad() + _alpha * v);
       }
   }
 }

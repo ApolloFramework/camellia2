@@ -24,6 +24,13 @@
 using namespace Camellia;
 using namespace std;
 
+enum ExactSolutionChoice {
+  BroersenStevensonExample4_2,
+  LinearPolynomial,
+  QuadraticPolynomial,
+  CubicPolynomial
+};
+
 /*
  Example 4.2 from Broersen and Stevenson:
  
@@ -96,36 +103,101 @@ public:
   }
 };
 
-FunctionPtr exactSolution(double epsilon, double beta_1, double beta_2)
+class CheckerboardFunction : public SimpleFunction<double>
 {
-  // example 4.2
+  double _interval; // beta_1 / epsilon or beta_2 / epsilon
+  double _lowerLeftValue;
+  double _otherValue;
+public:
+  CheckerboardFunction(double interval, double lowerLeftValue, double otherValue)
+  : _interval(interval), _lowerLeftValue(lowerLeftValue), _otherValue(otherValue)
+  {}
   
-  FunctionPtr x = Function::xn(1);
-  FunctionPtr y = Function::yn(1);
-  
-  double x_beta_epsilon = beta_1 / epsilon;
-  double y_beta_epsilon = beta_2 / epsilon;
+  double value(double x, double y)
+  {
+    // how many intervals are we from 0 in x,y? (rounding down)
+    int intervalCount_x = (int) x / _interval;
+    int intervalCount_y = (int) y / _interval;
+    // if counts are positive, then the parity tells us whether we're at the lower-left value (even in x, even in y: yes, etc.)
+    // each negative count has exactly the opposite value: so we add 1 if counts are negative
+    if (intervalCount_x < 0) intervalCount_x++;
+    if (intervalCount_y < 0) intervalCount_y++;
+    int totalCount = intervalCount_x + intervalCount_y;
+    bool useLowerLeftValue = (totalCount % 2 == 0);
+    if (useLowerLeftValue)
+    {
+      return _lowerLeftValue;
+    }
+    else
+    {
+      return _otherValue;
+    }
+  }
+};
 
-  FunctionPtr xTerm, yTerm;
-  
-  if (beta_1 != 0)
+FunctionPtr exactSolution(ExactSolutionChoice solnChoice, double epsilon, double beta_1, double beta_2)
+{
+  switch (solnChoice)
   {
-    xTerm = x + (FunctionPtr) Teuchos::rcp( new ExpTerm(x_beta_epsilon, true));
+    case BroersenStevensonExample4_2:
+    {
+      // example 4.2
+      
+      FunctionPtr x = Function::xn(1);
+      FunctionPtr y = Function::yn(1);
+      
+      double x_beta_epsilon = beta_1 / epsilon;
+      double y_beta_epsilon = beta_2 / epsilon;
+      
+      FunctionPtr xTerm, yTerm;
+      
+      if (beta_1 != 0)
+      {
+        xTerm = x + (FunctionPtr) Teuchos::rcp( new ExpTerm(x_beta_epsilon, true));
+      }
+      else
+      {
+        xTerm = x;
+      }
+      if (beta_2 != 0)
+      {
+        yTerm = y + (FunctionPtr) Teuchos::rcp( new ExpTerm(y_beta_epsilon, false));
+      }
+      else
+      {
+        yTerm = y;
+      }
+      
+      return xTerm * yTerm;
+    }
+      break;
+    case LinearPolynomial:
+    {
+      FunctionPtr x = Function::xn(1);
+      FunctionPtr y = Function::yn(1);
+      
+      return x + 3 * y;
+    }
+      break;
+    case QuadraticPolynomial:
+    {
+      FunctionPtr x = Function::xn(1);
+      FunctionPtr y = Function::yn(1);
+      
+      return x + x * y + 3 * y * y;
+    }
+      break;
+    case CubicPolynomial:
+    {
+      FunctionPtr x = Function::xn(1);
+      FunctionPtr y = Function::yn(1);
+      
+      return x * x * x + x * y + 3 * y * y;
+    }
+    break;
+    default:
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported case");
   }
-  else
-  {
-    xTerm = x;
-  }
-  if (beta_2 != 0)
-  {
-    yTerm = y + (FunctionPtr) Teuchos::rcp( new ExpTerm(y_beta_epsilon, false));
-  }
-  else
-  {
-    yTerm = y;
-  }
-  
-  return xTerm * yTerm;
 }
 
 class CellIndicatorFunction : public TFunction<double>
@@ -433,6 +505,9 @@ int main(int argc, char *argv[])
   bool useGMRESForDPG = false;
   bool usePointSymmetricGSForDPG = false;
   bool useCustomMeshRefinement = false;
+  bool useCheckerboardEpsilon = false;
+  double checkerboardLargeEpsilon = 1.0;
+  double checkerboardAlternationInterval = 0.5;
   double refErrThreshold = 0; // when error is below threshold, stop refinements
   string meshSavePrefix = "";
   string meshLoadPrefix = "";
@@ -447,6 +522,7 @@ int main(int argc, char *argv[])
   vector<int> dofCounts;
   vector<double> assemblyTimes;
   vector<double> solveTimes;
+  string exactSolnChoiceString = "BroersenStevenson";
   
   cmdp.setOption("meshWidth", &meshWidth );
   cmdp.setOption("polyOrder", &polyOrder );
@@ -457,6 +533,12 @@ int main(int argc, char *argv[])
   cmdp.setOption("exportMatrix", "dontExportMatrix", &exportMatrix);
   cmdp.setOption("beta_1", &beta_1);
   cmdp.setOption("beta_2", &beta_2);
+  cmdp.setOption("exactSolution",&exactSolnChoiceString,"which exact solution to use; supported values are 'BroersenStevenson', 'Linear','Quadratic','Cubic'");
+  
+  cmdp.setOption("useCheckerboardEpsilon", &useCheckerboardEpsilon, "use discontinuous, checkerboarded epsilon values.  See options checkerboardLargeEpsilon and checkerboardAlternationInterval");
+  cmdp.setOption("checkerboardLargeEpsilon", &checkerboardLargeEpsilon, "The second epsilon to use in a checkerboard pattern (the standard epsilon will be used in the lower left corner; the 'large' value will be used in orthogonally adjacent regions).  See options useCheckerboardEpsilon and checkerboardAlternationInterval");
+  cmdp.setOption("checkerboardAlternationInterval", &checkerboardAlternationInterval, "The x and y alternation interval for the checkerboard pattern;.  See options useCheckerboardEpsilon and checkerboardLargeEpsilon");
+  
 //  cmdp.setOption("useHWeightedTraces", "useUnweightedTraces", &useHWeightedTraces);
   cmdp.setOption("useTriangles", "useQuads", &useTriangles);
   cmdp.setOption("useNodalBasis", "useHierarchicalBasis", &useNodalBasis);
@@ -496,6 +578,29 @@ int main(int argc, char *argv[])
     return -1;
   }
   
+  ExactSolutionChoice exactSolnChoice = BroersenStevensonExample4_2;
+  if (exactSolnChoiceString == "BroersenStevenson")
+  {
+    exactSolnChoice = BroersenStevensonExample4_2;
+  }
+  else if (exactSolnChoiceString == "Linear")
+  {
+    exactSolnChoice = LinearPolynomial;
+  }
+  else if (exactSolnChoiceString == "Quadratic")
+  {
+    exactSolnChoice = QuadraticPolynomial;
+  }
+  else if (exactSolnChoiceString == "Cubic")
+  {
+    exactSolnChoice = CubicPolynomial;
+  }
+  else
+  {
+    cout << "Exact solution string '" << exactSolnChoiceString << "' is not supported.\n";
+    exit(1);
+  }
+  
   if (!useNodalBasis)
   {
     BasisFactory::basisFactory()->setUseLegendreForQuadHVol(true);
@@ -528,10 +633,24 @@ int main(int argc, char *argv[])
   
   bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL);
   
-  FunctionPtr u_exact = exactSolution(epsilon, beta_1, beta_2);
-
+  FunctionPtr epsilonFunction;
+  
   ostringstream thisRunPrefix;
-  thisRunPrefix << formulationChoice << "_eps" << epsilon << "_k" << polyOrder << "_";
+  if (useCheckerboardEpsilon)
+  {
+    cout << "useCheckerboardEpsilon is not yet complete!\n";
+    epsilonFunction = rcp( new CheckerboardFunction(checkerboardAlternationInterval,
+                                                    epsilon, checkerboardLargeEpsilon) );
+    thisRunPrefix << formulationChoice << "_checkerboardInterval" << checkerboardAlternationInterval << "_epsLowerLeft" << epsilon << "_epsOther" << checkerboardLargeEpsilon << "_k" << polyOrder << "_";
+  }
+  else
+  {
+    epsilonFunction = Function::constant(epsilon);
+    thisRunPrefix << formulationChoice << "_eps" << epsilon << "_k" << polyOrder << "_";
+  }
+  
+  FunctionPtr u_exact = exactSolution(ExactSolutionChoice, epsilonFunction, beta_1, beta_2);
+
   if (!refineUniformly)
   {
     thisRunPrefix << "AMR_";
@@ -547,7 +666,7 @@ int main(int argc, char *argv[])
   thisRunPrefix << "meshWidth" << meshWidth << "_" << numRefinements << "refs_";
   
   FunctionPtr beta = Function::constant({beta_1,beta_2});
-  ConvectionDiffusionReactionFormulation form(formulation, spaceDim, beta, epsilon, alpha);
+  ConvectionDiffusionReactionFormulation form(formulation, spaceDim, beta, epsilonFunction, alpha);
   
   // determine forcing function and RHS
   FunctionPtr f = form.forcingFunction(u_exact);
@@ -573,7 +692,8 @@ int main(int argc, char *argv[])
   {
     delta_k = 0;
     H1Order = polyOrder;
-    ConvectionDiffusionReactionFormulation primalForm(ConvectionDiffusionReactionFormulation::PRIMAL, spaceDim, beta, epsilon, alpha);
+    ConvectionDiffusionReactionFormulation primalForm(ConvectionDiffusionReactionFormulation::PRIMAL, spaceDim, beta,
+                                                      epsilonFunction, alpha);
     ipForResidual = primalForm.bf()->naiveNorm(spaceDim);
   }
   
@@ -610,7 +730,8 @@ int main(int argc, char *argv[])
   vector<int> elementCounts = {meshWidth,meshWidth};
 
   // we assume that we're loading from ultraweak meshes if we're loading meshes from file
-  ConvectionDiffusionReactionFormulation ultraweakForm(ConvectionDiffusionReactionFormulation::ULTRAWEAK, spaceDim, beta, epsilon, alpha);
+  ConvectionDiffusionReactionFormulation ultraweakForm(ConvectionDiffusionReactionFormulation::ULTRAWEAK, spaceDim, beta,
+                                                       epsilonFunction, alpha);
   BFPtr ultraweakBF = ultraweakForm.bf();
   
   MeshPtr mesh, ultraweakMesh;
