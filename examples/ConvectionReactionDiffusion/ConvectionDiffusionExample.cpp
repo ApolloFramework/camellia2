@@ -683,17 +683,17 @@ int main(int argc, char *argv[])
     sqrtEpsilon = Function::constant(sqrt(epsilon));
     thisRunPrefix << formulationChoice << "_eps" << epsilon << "_k" << polyOrder << "_";
   }
-  
-  FunctionPtr u_exact;
-  if (!useCheckerboardEpsilon)
-  {
-    // then prefer using double argument, for performance reasons
-    u_exact = exactSolution(exactSolnChoice, epsilon, beta_1, beta_2);
-  }
-  else
-  {
-    u_exact = exactSolution(exactSolnChoice, epsilonFunction, beta_1, beta_2);
-  }
+
+  FunctionPtr u_exact = exactSolution(exactSolnChoice, epsilon, beta_1, beta_2);
+//  if (!useCheckerboardEpsilon)
+//  {
+//    // then prefer using double argument, for performance reasons
+//    u_exact = exactSolution(exactSolnChoice, epsilon, beta_1, beta_2);
+//  }
+//  else
+//  {
+//    u_exact = exactSolution(exactSolnChoice, epsilonFunction, beta_1, beta_2);
+//  }
   
   if (!refineUniformly)
   {
