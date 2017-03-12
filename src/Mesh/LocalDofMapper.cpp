@@ -652,6 +652,47 @@ const vector<GlobalIndexType>& LocalDofMapper::fittableGlobalIndices()
   return _fittableGlobalIndices;
 }
 
+// whichDim: the trial-space dimension which will be compressed
+// localData has dimensions (D1,D2)
+// if _globalIndexToOrdinal has size GD, then
+// mappedData has dimensions (DG,GD) or (D1,GD) if whichDim==0 or 1, respectively
+void LocalDofMapper::mapLocalDataMatrix(const Intrepid::FieldContainer<double> &localData, bool fittableGlobalDofsOnly,
+                                        Intrepid::FieldContainer<double> &mappedData, int whichDim)
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(localData.rank() != 2, std::invalid_argument, "localData must be rank 2!");
+  TEUCHOS_TEST_FOR_EXCEPTION((whichDim != 0) && (whichDim != 1), std::invalid_argument, "whichDim must be 0 or 1");
+  int dataSize = localData.dimension(whichDim);
+  int mappedDataSize = _globalIndexToOrdinal.size();
+  Teuchos::Array<int> dim(localData.rank());
+  localData.dimensions(dim);
+//  cout << "localData dimensions are " << localData.dimension(0) << " x " << localData.dimension(1);
+//  cout << "; whichDim is " << whichDim << "; dim.size() is " << dim.size() << endl;
+  Teuchos::Array<int> coords(2);
+  int otherDim = 1 - whichDim;
+  
+  FieldContainer<double> dataVector(dataSize);
+  FieldContainer<double> mappedDataVector(mappedDataSize);
+  
+  dim[whichDim] = mappedDataSize;
+  mappedData.resize(dim);
+  
+  for (int i=0; i<dim[otherDim]; i++)
+  {
+    coords[otherDim] = i;
+    for (int j=0; j<dataSize; j++)
+    {
+      coords[whichDim] = j;
+      dataVector(j) = localData.getValue(coords);
+    }
+    mapLocalDataVector(dataVector, fittableGlobalDofsOnly, mappedDataVector);
+    for (int j=0; j<mappedDataSize; j++)
+    {
+      coords[whichDim] = j;
+      mappedData.setValue(mappedDataVector(j), coords);
+    }
+  }
+}
+
 FieldContainer<double> LocalDofMapper::mapLocalDataMatrix(const FieldContainer<double> &localData, bool fittableGlobalDofsOnly)
 {
   int dataSize = localData.dimension(0);
@@ -660,38 +701,15 @@ FieldContainer<double> LocalDofMapper::mapLocalDataMatrix(const FieldContainer<d
     cout << "Error: localData matrix must be square.\n";
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "localData matrix must be square");
   }
-  FieldContainer<double> dataVector(dataSize);
+//  FieldContainer<double> dataVector(dataSize);
   int mappedDataSize = _globalIndexToOrdinal.size();
   FieldContainer<double> intermediateDataMatrix(dataSize,mappedDataSize);
   
-  for (int i=0; i<dataSize; i++)
-  {
-    FieldContainer<double> mappedDataVector(mappedDataSize);
-    for (int j=0; j<dataSize; j++)
-    {
-      dataVector(j) = localData(i,j);
-    }
-    mapLocalDataVector(dataVector, fittableGlobalDofsOnly, mappedDataVector);
-    for (int j=0; j<mappedDataSize; j++)
-    {
-      intermediateDataMatrix(i,j) = mappedDataVector(j);
-    }
-  }
-  
+  mapLocalDataMatrix(localData, fittableGlobalDofsOnly, intermediateDataMatrix, 1);
   FieldContainer<double> globalData(mappedDataSize,mappedDataSize);
-  for (int j=0; j<mappedDataSize; j++)
-  {
-    FieldContainer<double> mappedDataVector(mappedDataSize);
-    for (int i=0; i<dataSize; i++)
-    {
-      dataVector(i) = intermediateDataMatrix(i,j);
-    }
-    mapLocalDataVector(dataVector, fittableGlobalDofsOnly, mappedDataVector);
-    for (int i=0; i<mappedDataSize; i++)
-    {
-      globalData(i,j) = mappedDataVector(i);
-    }
-  }
+
+  mapLocalDataMatrix(intermediateDataMatrix, fittableGlobalDofsOnly, globalData, 0);
+  
   return globalData;
 }
 
@@ -944,7 +962,7 @@ void LocalDofMapper::mapLocalDataVector(const FieldContainer<double> &localData,
   TEUCHOS_TEST_FOR_EXCEPTION(localData.rank() != 1, std::invalid_argument, "localData must have rank 1");
   if (localData.dimension(0) != dofCount)
   {
-    cout << "data's dimension 0 must match dofCount.\n";
+    cout << "data's dimension 0 (which is " << localData.dimension(0) << ") must match dofCount = " << dofCount << ".\n";
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "localData dimension 0 must match dofCount.");
   }
   

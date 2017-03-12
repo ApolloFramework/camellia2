@@ -109,7 +109,14 @@ public:
                                    Intrepid::FieldContainer<Scalar> &rhsEnriched, Intrepid::FieldContainer<Scalar> &stiffness,
                                    Intrepid::FieldContainer<Scalar> &rhs);
   
-  virtual void localStiffnessMatrixAndRHS(Intrepid::FieldContainer<Scalar> &localStiffness, Intrepid::FieldContainer<Scalar> &rhsVector,
+  // computes local stiffness matrix and RHS for the discrete least squares formulation.
+  virtual void localStiffnessMatrixAndRHS_DLS(Intrepid::FieldContainer<Scalar> &stiffnessEnriched,
+                                              Intrepid::FieldContainer<Scalar> &rhsEnriched,
+                                              TIPPtr<Scalar> ip, BasisCachePtr ipBasisCache,
+                                              TRHSPtr<Scalar> rhs, BasisCachePtr basisCache);
+  
+  virtual void localStiffnessMatrixAndRHS(Intrepid::FieldContainer<Scalar> &localStiffness,
+                                          Intrepid::FieldContainer<Scalar> &rhsVector,
                                           TIPPtr<Scalar> ip, BasisCachePtr ipBasisCache,
                                           TRHSPtr<Scalar> rhs,  BasisCachePtr basisCache);
 

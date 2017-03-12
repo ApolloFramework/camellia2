@@ -1398,8 +1398,6 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
 
   _rhsVector->GlobalAssemble();
 
-  Epetra_FEVector lhsVector(partMap, true);
-
   if (_writeRHSToMatrixMarketFile)
   {
     if (rank==0)
@@ -1412,9 +1410,7 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
   // Dump matrices to disk
   if (_writeMatrixToMatlabFile)
   {
-    //    EpetraExt::MultiVectorToMatrixMarketFile("rhs_vector.dat",rhsVector,0,0,false);
     EpetraExt::RowMatrixToMatlabFile(_matrixFilePath.c_str(),*_globalStiffMatrix);
-    //    EpetraExt::MultiVectorToMatrixMarketFile("lhs_vector.dat",lhsVector,0,0,false);
   }
   if (_writeMatrixToMatrixMarketFile)
   {

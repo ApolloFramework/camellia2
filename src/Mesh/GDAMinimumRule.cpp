@@ -699,6 +699,46 @@ template void GDAMinimumRule::interpretGlobalCoefficients2(GlobalIndexType cellI
 void GDAMinimumRule::interpretLocalData(GlobalIndexType cellID, const Intrepid::FieldContainer<double> &localData,
                                         Intrepid::FieldContainer<double> &globalData, Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices)
 {
+  // we allow interpreting trial x trial, trial x other, or other x trial; the latter two involve only one mapping
+  
+  int numLocalTrialDofs = _mesh->getElementType(cellID)->trialOrderPtr->totalDofs();
+  bool isMatrixAndNotSquare = true;
+  int trialDim = -1;
+  if (localData.rank() == 1)
+  {
+    // vector
+    isMatrixAndNotSquare = false;
+  }
+  else
+  {
+    if (localData.dimension(0) == numLocalTrialDofs)
+    {
+      if (localData.dimension(1) == numLocalTrialDofs)
+        isMatrixAndNotSquare = false;
+      else
+        trialDim = 0;
+    }
+    else if (localData.dimension(1) == numLocalTrialDofs)
+    {
+      trialDim = 1;
+    }
+    else
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "One of the dimensions of localData must match the number of trial dofs on the cell");
+    }
+  }
+  
+//  { // DEBUGGING
+//    if (isMatrixAndNotSquare)
+//      cout << "isMatrixAndNotSquare is TRUE;";
+//    else
+//      cout << "isMatrixAndNotSquare is FALSE;";
+//    if (localData.rank() == 1)
+//      cout << " dimensions are " << localData.dimension(0) << " \n";
+//    else
+//      cout << " dimensions are " << localData.dimension(0) << " x " << localData.dimension(1) << " \n";
+//  }
+  
   LocalDofMapperPtr dofMapper = getDofMapper(cellID);
 
   // DEBUGGING
@@ -709,7 +749,15 @@ void GDAMinimumRule::interpretLocalData(GlobalIndexType cellID, const Intrepid::
 //    }
 //  }
 
-  globalData = dofMapper->mapLocalData(localData, false);
+  bool fittableDofsOnly = false;
+  if (!isMatrixAndNotSquare)
+  {
+    globalData = dofMapper->mapLocalData(localData, fittableDofsOnly);
+  }
+  else
+  {
+    dofMapper->mapLocalDataMatrix(localData, fittableDofsOnly, globalData, trialDim);
+  }
   vector<GlobalIndexType> globalIndexVector = dofMapper->globalIndices();
   globalDofIndices.resize(globalIndexVector.size());
   for (int i=0; i<globalIndexVector.size(); i++)

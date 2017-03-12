@@ -44,6 +44,7 @@ class LocalDofMapper   // maps a whole trial ordering
   void addSubBasisMapVectorContribution(int varID, int sideIndex, BasisMap &basisMap, const Intrepid::FieldContainer<double> &localData, Intrepid::FieldContainer<double> &globalData, bool fittableGlobalDofsOnly);
   void addReverseSubBasisMapVectorContribution(int varID, int sideOrdinal, BasisMap &basisMap, const Intrepid::FieldContainer<double> &globalData, Intrepid::FieldContainer<double> &localData);
   void addReverseSubBasisMapVectorContribution(int varID, int sideOrdinal, BasisMap &basisMap, const std::map<GlobalIndexType,double> &globalCoefficients, Intrepid::FieldContainer<double> &localCoefficients);
+  
   Intrepid::FieldContainer<double> mapLocalDataMatrix(const Intrepid::FieldContainer<double> &localData, bool fittableGlobalDofsOnly);
   
   void mapLocalDataVector(const Intrepid::FieldContainer<double> &localData, bool fittableGlobalDofsOnly,
@@ -78,6 +79,11 @@ public:
   void mapLocalDataSide(const Intrepid::FieldContainer<double> &localData, Intrepid::FieldContainer<double> &mappedData, bool fittableGlobalDofsOnly, int sideOrdinal);
   void mapLocalDataVolume(const Intrepid::FieldContainer<double> &localData, Intrepid::FieldContainer<double> &mappedData, bool fittableGlobalDofsOnly);
 
+  // Like the other mapLocalDataMatrix, but only applies the mapping in one of the two dimensions of localData
+  // whichDim may be 0 or 1
+  void mapLocalDataMatrix(const Intrepid::FieldContainer<double> &localData, bool fittableGlobalDofsOnly,
+                          Intrepid::FieldContainer<double> &mappedData, int whichDim);
+  
   //! Returns true if the action of the LocalDofMapper is equivalent to a relabeling of the local dofs as global dofs (i.e. it is one-to-one and all weights are unity.)
   bool isPermutation() const;
   
