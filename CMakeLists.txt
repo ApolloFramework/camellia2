@@ -48,8 +48,6 @@ if(MPI_DIR)
   link_directories(${MPI_DIR})
   link_libraries(mpi)
   link_libraries(mpi_mpifh)
-  link_libraries(-L/usr/local/lib/gfortran/lib -lgfortran)
-#  link_libraries(mpi_f77)
 endif()
 
 if(SCALAPACK_LIB)
@@ -123,8 +121,8 @@ IF(NOT CMAKE_CXX_FLAGS)
   SET(CMAKE_CXX_FLAGS ${Trilinos_CXX_COMPILER_FLAGS})
 ENDIF() 
 
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
-#MESSAGE("CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -g")
+MESSAGE("CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
 
 # If you haven't already set the C compiler, use the same compiler
 # that was used to build Trilinos on your machine.  
@@ -137,7 +135,7 @@ IF (NOT CMAKE_C_FLAGS)
   SET(CMAKE_C_FLAGS ${Trilinos_C_COMPILER_FLAGS})
 ENDIF()
 
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -g")
 #MESSAGE("CMAKE_C_FLAGS = ${CMAKE_C_FLAGS}")
 
 # If you haven't already set the Fortran compiler, use the same compiler
