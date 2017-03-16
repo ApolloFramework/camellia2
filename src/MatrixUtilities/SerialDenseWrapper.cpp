@@ -1266,8 +1266,8 @@ namespace Camellia {
       {
         //        std::cout << "maxSingularValue is zero for matrix:\n" << A;
       }
-      //      std::cout << "minSingularValue: " << minSingularValue << std::endl;
-      //      std::cout << "maxSingularValue: " << maxSingularValue << std::endl;
+      std::cout << "minSingularValue: " << minSingularValue << std::endl;
+      std::cout << "maxSingularValue: " << maxSingularValue << std::endl;
       return maxSingularValue / minSingularValue;
     }
     else

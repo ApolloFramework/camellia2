@@ -37,7 +37,7 @@ namespace Camellia
     TVectorPtr<Scalar> rhs(); // the "enriched" RHS vector (has length = # test dofs)
     TVectorPtr<Scalar> lhs(); // the solution vector (with all Dirichlet dofs eliminated); has been equilibriated by multiplying by D^-1/2 to get the true solution (i.e. due to scaling of matrix, it is not the solution to (matrix^T * matrix) \ rhs, but instead is D^-1/2 * ((matrix^T * matrix) \ rhs)
 
-    TVectorPtr<Scalar> normalDiagInverse(); // the
+    TVectorPtr<Scalar> normalDiagInverseSqrt(); // the diagonal of the inverse of the square root of the normal matrix
 
     TSolutionPtr<Scalar> solution();
     

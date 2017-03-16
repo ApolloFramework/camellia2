@@ -1155,7 +1155,7 @@ namespace Camellia
         timer.ResetStartTime();
         
         FieldContainer<Scalar> dummyStiffness(numTrialDofs,numTrialDofs); // computed in factoredCholeskySolve, but ignored
-        FieldContainer<Scalar> dummyRHS(numTrialDofs); // computed in factoredCholeskySolve, but ignored
+        FieldContainer<Scalar> dummyRHS(numTrialDofs,1); // computed in factoredCholeskySolve, but ignored
         for (int cellIndex=0; cellIndex < numCells; cellIndex++)
         {
           int result = 0;

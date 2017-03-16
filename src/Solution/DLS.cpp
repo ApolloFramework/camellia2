@@ -6,22 +6,57 @@
 //
 //
 
+#include "CamelliaDebugUtility.h"
 #include "DLS.h"
 #include "GlobalDofAssignment.h"
 #include "TimeLogger.h"
 
 #include "Tpetra_MultiVectorFiller.hpp"
 
+// explicit instantiations for double:
+namespace Camellia
+{
+  template class DLS<double>;
+  template DLS<double>::DLS(TSolutionPtr<double> solution);
+  template int DLS<double>::assemble();
+  template int DLS<double>::solveProblemLSQR(int maxIters, double tol);
+  template TMatrixPtr<double> DLS<double>::matrix();
+  template TVectorPtr<double> DLS<double>::rhs();
+  template TVectorPtr<double> DLS<double>::lhs();
+  template TVectorPtr<double> DLS<double>::normalDiagInverseSqrt();
+  template TSolutionPtr<double> DLS<double>::solution();
+  typedef Teuchos::RCP<Tpetra::Map<GlobalIndexType,GlobalIndexType>> SolutionMapPtr;
+  template SolutionMapPtr DLS<double>::solutionMapPtr();
+}
+
 static const int MAX_BATCH_SIZE_IN_BYTES = 3*1024*1024; // 3 MB
 static const int MIN_BATCH_SIZE_IN_CELLS = 1; // overrides the above, if it results in too-small batches
 
 using namespace Camellia;
 using namespace Intrepid;
+using namespace Teuchos;
+using namespace Tpetra;
 
 template<typename Scalar>
 DLS<Scalar>::DLS(TSolutionPtr<Scalar> solution)
 {
   _soln = solution;
+}
+
+template<typename Scalar>
+void inverseSquareRoot(RCP<Vector<Scalar,IndexType,GlobalIndexType>> vector)
+{
+  auto diagValues_2d = vector->template getLocalView<Kokkos::HostSpace> ();
+  // getLocalView returns a 2-D View by default.  We want a 1-D
+  // View, so we take a subview.
+  auto diagValues_1d = Kokkos::subview (diagValues_2d, Kokkos::ALL (), 0);
+  
+  int mySolnDofCount = vector->getMap()->getNodeNumElements();
+  for (IndexType localID=0; localID<mySolnDofCount; localID++)
+  {
+    Scalar squaredValue = diagValues_1d(localID);
+    diagValues_1d(localID) = 1.0 / sqrt(squaredValue);
+  }
 }
 
 template<typename Scalar>
@@ -102,7 +137,7 @@ int DLS<Scalar>::assemble()
             cout << "WARNING: inconsistent values for BC: " << firstValue << " and ";
             cout << secondValue << " prescribed for global dof index " << bcsToImposeThisRank[i].first;
             cout << " on rank " << rank << endl;
-            print("initialH1Order for inconsistent BC mesh",this->mesh()->globalDofAssignment()->getInitialH1Order());
+            print("initialH1Order for inconsistent BC mesh",mesh->globalDofAssignment()->getInitialH1Order());
           }
         }
       }
@@ -144,8 +179,9 @@ int DLS<Scalar>::assemble()
   
   GlobalIndexType indexBase = 0;
   GlobalIndexType invalid = OrdinalTraits<global_size_t>::invalid();
-  Map<IndexType,GlobalIndexType> bcMap(invalid, &bcGlobalIndices[0], bcGlobalIndices.size(),
-                                               indexBase, TeuchosComm);
+  typedef RCP<Map<IndexType,GlobalIndexType>> MapRCP;
+  MapRCP bcMap = rcp( new Map<IndexType,GlobalIndexType>(invalid, &bcGlobalIndices[0], bcGlobalIndices.size(),
+                                               indexBase, TeuchosComm));
   
   int localDofCountWithBCs = solnMap.NumMyElements();
   int localDofCountNoBCs = localDofCountWithBCs - numBCs;
@@ -161,14 +197,15 @@ int DLS<Scalar>::assemble()
     }
   }
   
-  TVector<Scalar> bcValues(bcMap);
+  TVector<Scalar> bcValues(bcMap,1);
+  size_t colZero=0;
   for (int i=0; i<bcGlobalValues.size(); i++)
   {
-    bcValues.replaceLocalValue(i,bcGlobalValues[i]);
+    bcValues.replaceLocalValue(i,colZero,bcGlobalValues[i]);
   }
   
-  Map<IndexType,GlobalIndexType> solnMapNoBCs(invalid, &myGlobalIndicesNoBCs[0], localDofCountNoBCs,
-                                                      indexBase, TeuchosComm);
+  MapRCP solnMapNoBCs = rcp( new Map<IndexType,GlobalIndexType>(invalid, &myGlobalIndicesNoBCs[0], localDofCountNoBCs,
+                                                                indexBase, TeuchosComm));
   
   /****** End BC determination ******/
   
@@ -203,11 +240,11 @@ int DLS<Scalar>::assemble()
   
   _dlsMatrix = rcp(new TMatrix<Scalar>(testMap,maxTrialCount,StaticProfile));
   CrsMatrix<Scalar,IndexType,GlobalIndexType> bcImpositionMatrix(testMap,numBCs,StaticProfile);
-  _rhsVector = rcp(new TVector<Scalar>(testMap,1));
-  _lhsVector = rcp(new TVector<Scalar>(solnMapNoBCs,1));
-  _diag_sqrt_inverse = rcp( new Vector<Scalar,IndexType,GlobalIndexType>(solnMapNoBCs) );
+  int numCols = 1;
+  _rhsVector = rcp(new TVector<Scalar>(testMap,numCols));
+  _lhsVector = rcp(new TVector<Scalar>(solnMapNoBCs,numCols));
   
-  MultiVectorFiller<Vector<Scalar,IndexType,GlobalIndexType>> diagFiller(solnMapNoBCs);
+  MultiVectorFiller<TVector<Scalar>> diagFiller(solnMapNoBCs, numCols);
   
   vector< ElementTypePtr > elementTypes = mesh->elementTypes(rank);
   
@@ -263,8 +300,8 @@ int DLS<Scalar>::assemble()
     {
       int cellsLeft = totalCellsForType - startCellIndexForBatch;
       int numCells = min(maxCellBatch,cellsLeft);
-      localStiffness.resize(numCells,numTrialDofs,numTrialDofs);
-      localRHSVector.resize(numCells,numTrialDofs);
+      localStiffness.resize(numCells,numTrialDofs,numTestDofs);
+      localRHSVector.resize(numCells,numTestDofs);
       
       vector<GlobalIndexType> cellIDs;
       for (int cellIndex=0; cellIndex<numCells; cellIndex++)
@@ -321,7 +358,7 @@ int DLS<Scalar>::assemble()
           testGlobalIndices[i] = i + elementTestOffset;
           // "replace" below because we know, a priori, that this test globalID is only on this element
           // (implied by the discontinuity of test functions)
-          _rhsVector->sumIntoGlobalValues(testGlobalIndices[i],cellRHS(i));
+          _rhsVector->sumIntoGlobalValue(testGlobalIndices[i],colZero,cellRHS(i));
         }
         
         dofInterpreter->interpretLocalData(cellID, cellStiffness, interpretedStiffness, globalDofIndicesFC);
@@ -353,7 +390,7 @@ int DLS<Scalar>::assemble()
 //              rowValues[i] = interpretedStiffness(i,j);
 //            }
 //            GlobalIndexType globalTestID = elementTestOffset + j;
-//            _dlsMatrix.InsertGlobalValues(globalTestID, numTrialValues, &rowValues[0], &globalDofIndices(0));
+//            _dlsMatrix->insertGlobalValues(globalTestID, numTrialValues, &rowValues[0], &globalDofIndices(0));
 //          }
 //        }
 //        else
@@ -401,13 +438,13 @@ int DLS<Scalar>::assemble()
           }
           
           GlobalIndexType globalTestID = elementTestOffset + j;
-          _dlsMatrix.InsertGlobalValues(globalTestID, globalDofIndicesNoBCs, rowValues);
+          _dlsMatrix->insertGlobalValues(globalTestID, globalDofIndicesNoBCs, rowValues);
           
           for (int i=0; i<rowValues.size(); i++)
           {
             rowValues[i] = rowValues[i] * rowValues[i];
           }
-          diagFiller.sumIntoGlobalValues (globalDofIndicesNoBCs, 0, rowValues);
+          diagFiller.sumIntoGlobalValues(globalDofIndicesNoBCs, 0, rowValues);
         }
         
         // insert into bcImpositionMatrix
@@ -420,7 +457,7 @@ int DLS<Scalar>::assemble()
           }
           
           GlobalIndexType globalTestID = elementTestOffset + j;
-          bcImpositionMatrix.InsertGlobalValues(globalTestID, globalDofIndicesBCs, rowValues);
+          bcImpositionMatrix.insertGlobalValues(globalTestID, globalDofIndicesBCs, rowValues);
         }
       }
       localStiffnessInterpretationTime += subTimer.ElapsedTime();
@@ -432,25 +469,22 @@ int DLS<Scalar>::assemble()
   // adjust RHS to account for the BCs we've eliminated
   // compute _rhsVector -= bcImposition * bcValues
   bcImpositionMatrix.fillComplete();
-  bcImpositionMatrix.apply(bcValues,_rhsVector,NO_TRANS,-1.0,1.0);
+  bcImpositionMatrix.apply(bcValues,*_rhsVector,NO_TRANS,-1.0,1.0);
   
-  _dlsMatrix.fillComplete();
+  _dlsMatrix->fillComplete();
   
-  diagFiller.globalAssemble(_diag_sqrt_inverse);
+  RCP<Vector<Scalar,IndexType,GlobalIndexType>> matrixScalingVector = rcp( new Vector<Scalar,IndexType,GlobalIndexType>(_dlsMatrix->getRangeMap()) );
+  diagFiller.globalAssemble(*matrixScalingVector);
   
-  auto diagValues_2d = _diag_sqrt_inverse->template getLocalView<Kokkos::HostSpace> ();
-  // getLocalView returns a 2-D View by default.  We want a 1-D
-  // View, so we take a subview.
-  auto diagValues_1d = Kokkos::subview (diagValues_2d, Kokkos::ALL (), 0);
+  inverseSquareRoot(matrixScalingVector);
   
-  int mySolnDofCount = solnMapNoBCs.getNodeNumElements();
-  for (IndexType localID=0; localID<mySolnDofCount; localID++)
-  {
-    Scalar squaredValue = diagValues_1d(localID);
-    diagValues_1d(localID) = 1.0 / sqrt(squaredValue);
-  }
+  _dlsMatrix->rightScale(*matrixScalingVector);
   
-  _dlsMatrix.rightScale(_diag_sqrt_inverse);
+  // now that we've scaled the DLS matrix, let's use diagFiller to export to _diag_sqrt_inverse constructed with
+  // the map we'll want to use to scale the solution:
+  _diag_sqrt_inverse = rcp( new Vector<Scalar,IndexType,GlobalIndexType>(solnMapNoBCs) );
+  diagFiller.globalAssemble(*_diag_sqrt_inverse);
+  inverseSquareRoot(_diag_sqrt_inverse);
 
   return 0; // success
 }
@@ -465,7 +499,10 @@ int DLS<Scalar>::solveProblemLSQR(int maxIters, double tol)
   // something like A * D^-1/2 * y = b.  What we want is a solution to A * x = b, so here
   // x = D^-1/2 * y.
   
-  _lhsVector->elementWiseMultiply(1.0, *_diag_sqrt_inverse, _lhsVector, 0.0);
+  _lhsVector->elementWiseMultiply(1.0, *_diag_sqrt_inverse, *_lhsVector, 0.0);
+
+  cout << "solveProblemLSQR: implementation incomplete!\n";
+  return -1; //
 }
 
 // test by trial
@@ -482,6 +519,12 @@ TVectorPtr<Scalar> DLS<Scalar>::lhs()
   return _lhsVector;
 }
 
+template<typename Scalar>
+TVectorPtr<Scalar> DLS<Scalar>::normalDiagInverseSqrt()
+{
+  return _diag_sqrt_inverse;
+}
+
 // the "enriched" RHS vector (has length = # test dofs)
 template<typename Scalar>
 TVectorPtr<Scalar> DLS<Scalar>::rhs()
@@ -496,7 +539,6 @@ TSolutionPtr<Scalar> DLS<Scalar>::solution()
   return _soln;
 }
 
-typedef Teuchos::RCP<Tpetra::Map<GlobalIndexType,GlobalIndexType>> SolutionMapPtr;
 // Map to allow translation between the Solution returned by DLS::solution()->lhsVector()
 // and that returned by DLS::lhs()
 template<typename Scalar>

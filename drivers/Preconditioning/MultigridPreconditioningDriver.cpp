@@ -49,11 +49,12 @@ enum ProblemChoice
   NavierStokes
 };
 
-void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &meshesCoarseToFine, IPPtr &graphNorm, ProblemChoice problemChoice,
+void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &meshesCoarseToFine, IPPtr &testNorm, ProblemChoice problemChoice,
                                      int spaceDim, bool conformingTraces, bool enhanceFieldsForH1TracesWhenConforming,
                                      bool useStaticCondensation, int numCells, int k, int delta_k,
                                      int k_coarse, int rootMeshNumCells, bool useZeroMeanConstraints, bool jumpToCoarsePolyOrder,
-                                     bool setupMeshTopologyAndQuit, Teuchos::RCP<NavierStokesVGPFormulation> &navierStokesFormulation)
+                                     bool setupMeshTopologyAndQuit, Teuchos::RCP<NavierStokesVGPFormulation> &navierStokesFormulation,
+                                     string normChoice, double epsilonForConvectionDiffusion)
 {
 #ifdef HAVE_MPI
   Epetra_MpiComm Comm(MPI_COMM_WORLD);
@@ -101,22 +102,21 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     rhs = RHS::rhs();
     FunctionPtr f = Function::constant(1.0);
     
-    VarPtr q = formulation.q();
-    rhs->addTerm( f * q );
+    VarPtr v = formulation.v();
+    rhs->addTerm( f * v );
     
     bc = BC::bc();
     SpatialFilterPtr boundary = SpatialFilter::allSpace();
-    VarPtr phi_hat = formulation.phi_hat();
-    bc->addDirichlet(phi_hat, boundary, Function::zero());
+    VarPtr u_hat = formulation.u_hat();
+    bc->addDirichlet(u_hat, boundary, Function::zero());
     
     if (conformingTraces && enhanceFieldsForH1TracesWhenConforming)
     {
-      trialOrderEnhancements[formulation.phi()->ID()] = 1;
+      trialOrderEnhancements[formulation.u()->ID()] = 1;
     }
   }
   else if (problemChoice == ConvectionDiffusion)
   {
-    double epsilon = 1e-2;
     x0 = vector<double>(spaceDim,-1.0);
 
     FunctionPtr beta;
@@ -129,7 +129,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
       beta = Function::vectorize(beta_x, beta_y);
     else if (spaceDim == 3)
       beta = Function::vectorize(beta_x, beta_y, beta_z);
-    ConvectionDiffusionFormulation formulation(spaceDim, conformingTraces, beta, epsilon);
+    ConvectionDiffusionFormulation formulation(spaceDim, conformingTraces, beta, epsilonForConvectionDiffusion);
     
     if (conformingTraces && enhanceFieldsForH1TracesWhenConforming)
     {
@@ -146,39 +146,61 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     
     bc = BC::bc();
     VarPtr uhat = formulation.uhat();
-    VarPtr tc = formulation.tc();
-    SpatialFilterPtr inflowX = SpatialFilter::matchingX(-1);
-    SpatialFilterPtr inflowY = SpatialFilter::matchingY(-1);
-    SpatialFilterPtr inflowZ = SpatialFilter::matchingZ(-1);
-    SpatialFilterPtr outflowX = SpatialFilter::matchingX(1);
-    SpatialFilterPtr outflowY = SpatialFilter::matchingY(1);
-    SpatialFilterPtr outflowZ = SpatialFilter::matchingZ(1);
-    FunctionPtr zero = Function::zero();
-    FunctionPtr one = Function::constant(1);
     FunctionPtr x = Function::xn(1);
     FunctionPtr y = Function::yn(1);
     FunctionPtr z = Function::zn(1);
-    if (spaceDim == 1)
-    {
-      bc->addDirichlet(tc, inflowX, -one);
-      bc->addDirichlet(uhat, outflowX, zero);
-    }
-    if (spaceDim == 2)
-    {
-      bc->addDirichlet(tc, inflowX, -1*.5*(one-y));
-      bc->addDirichlet(uhat, outflowX, zero);
-      bc->addDirichlet(tc, inflowY, -2*.5*(one-x));
-      bc->addDirichlet(uhat, outflowY, zero);
-    }
-    if (spaceDim == 3)
-    {
-      bc->addDirichlet(tc, inflowX, -1*.25*(one-y)*(one-z));
-      bc->addDirichlet(uhat, outflowX, zero);
-      bc->addDirichlet(tc, inflowY, -2*.25*(one-x)*(one-z));
-      bc->addDirichlet(uhat, outflowY, zero);
-      bc->addDirichlet(tc, inflowZ, -3*.25*(one-x)*(one-y));
-      bc->addDirichlet(uhat, outflowZ, zero);
-    }
+    
+    // NVR 3-14-17
+    /*
+     I don't understand the BCs involving tc.  It seems to me if
+     we're trying to get an inflow u of (1-x)*(1-y) (which I think we are,
+     but I guess I'm not sure), then there should be an epsilon somewhere
+     in there, because of the definition of tc and sigma.  But there is not.
+     
+     What I do understand is imposing Dirichlet conditions everywhere on u.
+     This is pretty easy to do...
+     */
+    FunctionPtr u_exact = 1.0 - x;
+    if (spaceDim >= 2)
+      u_exact = u_exact * (1.0 - y);
+    if (spaceDim >= 3)
+      u_exact = u_exact * (1.0 - z);
+    bc->addDirichlet(uhat, SpatialFilter::allSpace(), u_exact);
+    
+    // old implementation below
+//    VarPtr tc = formulation.tc();
+//    SpatialFilterPtr inflowX = SpatialFilter::matchingX(-1);
+//    SpatialFilterPtr inflowY = SpatialFilter::matchingY(-1);
+//    SpatialFilterPtr inflowZ = SpatialFilter::matchingZ(-1);
+//    SpatialFilterPtr outflowX = SpatialFilter::matchingX(1);
+//    SpatialFilterPtr outflowY = SpatialFilter::matchingY(1);
+//    SpatialFilterPtr outflowZ = SpatialFilter::matchingZ(1);
+//    FunctionPtr zero = Function::zero();
+//    FunctionPtr one = Function::constant(1);
+    
+//    if (spaceDim == 1)
+//    {
+//      bc->addDirichlet(tc, inflowX, -one);
+//      bc->addDirichlet(uhat, outflowX, zero);
+//    }
+//    if (spaceDim == 2)
+//    {
+//      bc->addDirichlet(tc, inflowX, -1*.5*(one-y));
+//      bc->addDirichlet(uhat, outflowX, zero);
+//      bc->addDirichlet(tc, inflowY, -2*.5*(one-x));
+//      bc->addDirichlet(uhat, outflowY, zero);
+//    }
+//    if (spaceDim == 3)
+//    {
+//      bc->addDirichlet(tc, inflowX, -1*.25*(one-y)*(one-z));
+//      bc->addDirichlet(uhat, outflowX, zero);
+//      bc->addDirichlet(tc, inflowY, -2*.25*(one-x)*(one-z));
+//      bc->addDirichlet(uhat, outflowY, zero);
+//      bc->addDirichlet(tc, inflowZ, -3*.25*(one-x)*(one-y));
+//      bc->addDirichlet(uhat, outflowZ, zero);
+//    }
+
+    testNorm = formulation.ip(normChoice);
   }
   else if (problemChoice == Stokes)
   {
@@ -195,7 +217,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     p = formulation.p();
     
     bf = formulation.bf();
-    graphNorm = bf->graphNorm();
+    testNorm = bf->graphNorm();
     
     rhs = RHS::rhs();
     
@@ -284,12 +306,24 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     }
 
     bf = navierStokesFormulation->bf();
-    graphNorm = bf->graphNorm();
+    testNorm = bf->graphNorm();
     
     solution = navierStokesFormulation->solutionIncrement();
     
     bc = solution->bc();
     rhs = solution->rhs();
+  }
+  
+  if (testNorm == Teuchos::null)
+  {
+    if (normChoice == "Graph")
+    {
+      testNorm = bf->graphNorm();
+    }
+    else
+    {
+      cout << "Norm choice " << normChoice << " is not supported for this formulation.\n";
+    }
   }
   
   int H1Order = k + 1;
@@ -432,12 +466,10 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     }
   }
   
-  graphNorm = bf->graphNorm();
-  
   Epetra_Time timer(Comm);
   if (solution == Teuchos::null)
   {
-    solution = Solution::solution(mesh, bc, rhs, graphNorm);
+    solution = Solution::solution(mesh, bc, rhs, testNorm);
   }
   solution->setUseCondensedSolve(useStaticCondensation);
   solution->setZMCsAsGlobalLagrange(false); // fine grid solution shouldn't impose ZMCs (should be handled in coarse grid solve)
@@ -573,6 +605,7 @@ int main(int argc, char *argv[])
   bool useCondensedSolve = true;
 
   double cgTol = 1e-10;
+  double epsilonForConvectionDiffusion = 1e-2;
   int cgMaxIterations = 2000;
 
   bool clearFinestCondensedDofInterpreterAfterProlongation = false;
@@ -603,8 +636,12 @@ int main(int argc, char *argv[])
   
   string problemChoiceString = "Poisson";
   string coarseSolverChoiceString = "KLU";
+  string testNormChoice = "Graph";
 
   cmdp.setOption("problem",&problemChoiceString,"problem choice: Poisson, ConvectionDiffusion, Stokes, Navier-Stokes");
+  cmdp.setOption("epsilonForConvectionDiffusion",&epsilonForConvectionDiffusion,"diffusion parameter for convection-dominated diffusion");
+  
+  cmdp.setOption("testNorm",&testNormChoice,"test norm: Graph, or for ConvectionDiffusion: Robust or CoupledRobust");
 
   cmdp.setOption("numCells",&numCells,"mesh width");
   cmdp.setOption("numCellsRootMesh",&numCellsRootMesh,"mesh width of root mesh");
@@ -821,7 +858,7 @@ int main(int argc, char *argv[])
     vector<MeshPtr> meshesCoarseToFine;
     initializeSolutionAndCoarseMesh(solution, meshesCoarseToFine, ip, problemChoice, spaceDim, conformingTraces, enhanceFieldsForH1TracesWhenConforming,
                                     useCondensedSolve, numCells, k, getDeltaK(k), k_coarse, numCellsRootMesh, useZeroMeanConstraints, jumpToCoarsePolyOrder,
-                                    setUpMeshTopologyAndQuit, nsFormulation);
+                                    setUpMeshTopologyAndQuit, nsFormulation, testNormChoice, epsilonForConvectionDiffusion);
     
     if (setUpMeshTopologyAndQuit)
     {

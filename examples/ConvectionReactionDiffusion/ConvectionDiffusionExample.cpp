@@ -4,6 +4,7 @@
 
 #include "BasisFactory.h"
 #include "ConvectionDiffusionReactionFormulation.h"
+#include "DLS.h"
 #include "EnergyErrorFunction.h"
 #include "ExpFunction.h"
 #include "GDAMinimumRule.h"
@@ -17,9 +18,13 @@
 #include "SerialDenseWrapper.h"
 #include "Solution.h"
 
+// Tpetra includes
+#include <MatrixMarket_Tpetra.hpp>
 // EpetraExt includes
 #include "EpetraExt_MatrixMatrix.h"
 #include "EpetraExt_RowMatrixOut.h"
+
+typedef double Scalar;
 
 using namespace Camellia;
 using namespace std;
@@ -535,6 +540,7 @@ int main(int argc, char *argv[])
   double cgTol = 1e-6;
   int smootherApplicationCount = 1;
   double weightForL2TermsGraphNorm = -1;
+  bool useDLSForDPG = false;
   bool useGMRESForDPG = false;
   bool usePointSymmetricGSForDPG = false;
   bool useCustomMeshRefinement = false;
@@ -602,6 +608,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("iterativeTol", &cgTol);
   cmdp.setOption("maxIterations", &maxIterations);
   cmdp.setOption("weightForL2TermsGraphNorm", &weightForL2TermsGraphNorm, "weight to use for the L^2 terms in graph norm (ultraweak only); default value of -1 means use sqrt(epsilon)");
+  cmdp.setOption("useDLSForDPG", "useNormalEquationsForDPG", &useDLSForDPG);
   
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -665,6 +672,8 @@ int main(int argc, char *argv[])
   }
   
   bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL);
+  
+  bool useDLS = formulationIsDPG && useDLSForDPG;
   
   FunctionPtr epsilonFunction, sqrtEpsilon;
   
@@ -840,6 +849,8 @@ int main(int argc, char *argv[])
   ostringstream matrixFileName;
   matrixFileName << thisRunPrefix.str() << "ref" << refinementNumber << ".dat";
   
+  DLS<Scalar> dls(solution);
+  
   if (exportMatrix)
   {
     solution->setWriteMatrixToFile(true, matrixFileName.str());
@@ -894,7 +905,28 @@ int main(int argc, char *argv[])
     solver = getGMGSolver();
   }
   
-  solution->solve(solver);
+  if (useDLS)
+  {
+    dls.assemble();
+    
+    if (exportMatrix)
+    {
+      typedef Tpetra::MatrixMarket::Writer<TMatrix<Scalar>> Writer;
+      bool debug = false; // don't print debugging output
+      ostringstream matrixFileName;
+      matrixFileName << thisRunPrefix.str() << "ref" << refinementNumber << ".dat";
+      ofstream matrixFile;
+      matrixFile.open(matrixFileName.str());
+      Writer::writeSparse (matrixFile, dls.matrix(), debug);
+      matrixFile.close();
+    }
+    
+    dls.solveProblemLSQR(maxIterations,cgTol);
+  }
+  else
+  {
+    solution->solve(solver);
+  }
   assemblyTimes.push_back(solution->totalTimeLocalStiffness());
   solveTimes.push_back(solution->totalTimeSolve());
   
@@ -1114,7 +1146,28 @@ int main(int argc, char *argv[])
       solution->setWriteMatrixToFile(true, matrixFileName.str());
     }
     
-    solution->solve(solver);
+    if (useDLS)
+    {
+      dls.assemble();
+      
+      if (exportMatrix)
+      {
+        typedef Tpetra::MatrixMarket::Writer<TMatrix<Scalar>> Writer;
+        bool debug = false; // don't print debugging output
+        ostringstream matrixFileName;
+        matrixFileName << thisRunPrefix.str() << "ref" << refinementNumber << ".dat";
+        ofstream matrixFile;
+        matrixFile.open(matrixFileName.str());
+        Writer::writeSparse (matrixFile, dls.matrix(), debug);
+        matrixFile.close();
+      }
+      
+      dls.solveProblemLSQR(maxIterations,cgTol);
+    }
+    else
+    {
+      solution->solve(solver);
+    }
     
     assemblyTimes.push_back(solution->totalTimeLocalStiffness());
     solveTimes.push_back(solution->totalTimeSolve());
