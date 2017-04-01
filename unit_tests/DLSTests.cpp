@@ -97,10 +97,12 @@ namespace
       double normalDiagValue = normalDiag[standardLocalID];
       double inverseSqrtDiag = dlsInverseSqrtDiagValues_1d(localID);
 
+//      cout << "inverseSqrtDiag for GID " << GID << ": " << inverseSqrtDiag << endl;
+      
       double expected = normalDiagValue;
       double actual = 1.0 / (inverseSqrtDiag * inverseSqrtDiag);
       
-      cout << "expected: " << expected << "; actual: " << actual << endl;
+//      cout << "expected: " << expected << "; actual: " << actual << endl;
       
 //      cout << "normalDiagValue: " << normalDiagValue << "; 1.0 / (inverseSqrtDiag * inverseSqrtDiag): ";
 //      cout << 1.0 / (inverseSqrtDiag * inverseSqrtDiag) << endl;
@@ -120,18 +122,21 @@ namespace
   
   TEUCHOS_UNIT_TEST( DLS, PoissonMatricesAgree )
   {
-    
+    out << "PoissonMatricesAgree test unimplemented!  Setting success = false.\n";
+    success = false;
   }
   
   TEUCHOS_UNIT_TEST( DLS, PoissonRHSesAgree)
   {
-    
+    out << "PoissonRHSesAgree test unimplemented!  Setting success = false.\n";
+    success = false;
   }
   
   TEUCHOS_UNIT_TEST( DLS, PoissonSolutionsAgree )
   {
     // tests that the solution we get out from DLS agrees with that we get from the standard solve.
-    
+    out << "PoissonSolutionsAgree test unimplemented!  Setting success = false.\n";
+    success = false;
   }
 
 } // namespace

@@ -55,6 +55,11 @@ void inverseSquareRoot(RCP<Vector<Scalar,IndexType,GlobalIndexType>> vector)
   for (IndexType localID=0; localID<mySolnDofCount; localID++)
   {
     Scalar squaredValue = diagValues_1d(localID);
+    if (squaredValue == 0.0)
+    {
+      GlobalIndexType GID = vector->getMap()->getGlobalElement(localID);
+      cout << "WARNING: for globalID " << GID << ", encountered zero value in inverseSquareRoot().\n";
+    }
     diagValues_1d(localID) = 1.0 / sqrt(squaredValue);
   }
 }
@@ -241,7 +246,7 @@ int DLS<Scalar>::assemble()
     elementTestOffset += mesh->getElementType(cellID)->testOrderPtr->totalDofs();
   }
   
-  _dlsMatrix = rcp(new TMatrix<Scalar>(testMap,maxTrialCount,StaticProfile));
+  _dlsMatrix = rcp(new TMatrix<Scalar>(testMap,maxTrialCount,DynamicProfile));
   CrsMatrix<Scalar,IndexType,GlobalIndexType> bcImpositionMatrix(testMap,numBCs,StaticProfile);
   int numCols = 1;
   _rhsVector = rcp(new TVector<Scalar>(testMap,numCols));
@@ -446,6 +451,7 @@ int DLS<Scalar>::assemble()
           for (int i=0; i<rowValues.size(); i++)
           {
             rowValues[i] = rowValues[i] * rowValues[i];
+//            cout << "adding " << rowValues[i] << " to diagonal value with global index " << globalDofIndicesNoBCs[i] << endl;
           }
           diagFiller.sumIntoGlobalValues(globalDofIndicesNoBCs, 0, rowValues);
         }
@@ -473,19 +479,31 @@ int DLS<Scalar>::assemble()
   // compute _rhsVector -= bcImposition * bcValues
   bcImpositionMatrix.fillComplete();
   
-  // TODO: it appears that apply() requires bcValues to have a map that matches the domain map of
-  //       bcImpositionMatrix.  Therefore, we do the following, which will do an appropriate import:
+  // It appears that apply(X,Y) requires X to have a map that matches the domain map of
+  // bcImpositionMatrix, and Y to have a map that matches the range map.  It's hard to believe
+  // that all of the following is actually necessary (or maybe there is something I can do better
+  // in terms of setting up the various maps in the first place -- maybe it would be better to expand
+  // bcMap beyond the indices that match BCs, for instance).
   TVector<Scalar> bcValues_domainMap(bcImpositionMatrix.getDomainMap(),1);
-  Tpetra::Import<IndexType,GlobalIndexType> importer(bcMap, bcImpositionMatrix.getDomainMap());
-  bcValues_domainMap.doImport(bcValues, importer, INSERT);
-  bcImpositionMatrix.apply(bcValues_domainMap,*_rhsVector,NO_TRANS,-1.0,1.0);
+  Tpetra::Import<IndexType,GlobalIndexType> domainMapImporter(bcMap, bcImpositionMatrix.getDomainMap());
+  bcValues_domainMap.doImport(bcValues, domainMapImporter, INSERT);
+  TVector<Scalar> bcApplication_rangeMap(bcImpositionMatrix.getRangeMap(),1);
+  bcImpositionMatrix.apply(bcValues_domainMap,bcApplication_rangeMap,NO_TRANS);
+  TVector<Scalar> bcApplication_rhsMap(_rhsVector->getMap(),1);
+  Tpetra::Import<IndexType,GlobalIndexType> rhsMapImporter(bcApplication_rangeMap.getMap(), bcApplication_rhsMap.getMap());
+  bcApplication_rhsMap.doImport(bcApplication_rangeMap, rhsMapImporter, INSERT);
+  _rhsVector->update(-1.0, bcApplication_rhsMap, 1.0);
   
   _dlsMatrix->fillComplete();
   
-  RCP<Vector<Scalar,IndexType,GlobalIndexType>> matrixScalingVector = rcp( new Vector<Scalar,IndexType,GlobalIndexType>(_dlsMatrix->getRangeMap()) );
-  diagFiller.globalAssemble(*matrixScalingVector);
+  _diag_sqrt_inverse = rcp( new Vector<Scalar,IndexType,GlobalIndexType>(solnMapNoBCs) );
+  diagFiller.globalAssemble(*_diag_sqrt_inverse);
+  inverseSquareRoot(_diag_sqrt_inverse);
   
-  inverseSquareRoot(matrixScalingVector);
+  RCP<Vector<Scalar,IndexType,GlobalIndexType>> matrixScalingVector = rcp( new Vector<Scalar,IndexType,GlobalIndexType>(_dlsMatrix->getDomainMap()) );
+
+  Tpetra::Import<IndexType,GlobalIndexType> scalingImporter(_diag_sqrt_inverse->getMap(), matrixScalingVector->getMap());
+  matrixScalingVector->doImport(*_diag_sqrt_inverse, scalingImporter, INSERT);
   
   _dlsMatrix->rightScale(*matrixScalingVector);
   
