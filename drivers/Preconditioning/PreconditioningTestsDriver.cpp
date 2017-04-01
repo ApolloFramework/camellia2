@@ -3,6 +3,7 @@
 //
 
 #include "AdditiveSchwarz.h"
+#include "BasisFactory.h"
 #include "CamelliaDebugUtility.h"
 #include "ExpFunction.h"
 #include "GDAMinimumRule.h"
@@ -45,6 +46,7 @@ int coarseMaxIterations;
 bool narrateSolution;
 bool narrateCoarseSolution;
 bool saveVisualizationOutput = false;
+bool useNodalBasis = true;  // default: use built-in intrepid basis
 FunctionPtr errToPlot;
 string errFunctionName;
 
@@ -555,23 +557,23 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     rhs = RHS::rhs();
     FunctionPtr f = Function::constant(1.0);
 
-    VarPtr q = formulation.q();
+    VarPtr q = formulation.v();
     rhs->addTerm( f * q );
 
     bc = BC::bc();
     SpatialFilterPtr boundary = SpatialFilter::allSpace();
-    VarPtr phi_hat = formulation.phi_hat();
+    VarPtr phi_hat = formulation.u_hat();
     bc->addDirichlet(phi_hat, boundary, Function::zero());
     
     if (conformingTraces && enhanceFieldsForH1TracesWhenConforming)
     {
-      trialOrderEnhancements[formulation.phi()->ID()] = 1;
+      trialOrderEnhancements[formulation.u()->ID()] = 1;
     }
     
     if (saveVisualizationOutput)
     {
       // we don't have an exact solution, so let's just plot phi instead...
-      varExact = formulation.phi();
+      varExact = formulation.u();
       exactSolution = Function::zero();
     }
   }
@@ -1923,6 +1925,8 @@ void runMany(ProblemChoice problemChoice, int spaceDim, int delta_k, int minCell
       filename << "_graphNormBeta" << graphNormBeta;
     if (cgTol != 1e-10)
       filename << "_cgTol" << cgTol;
+    if (! useNodalBasis)
+      filename << "_lobattoBasis";
     filename << "_results.dat";
     ofstream fout(filename.str().c_str());
     fout << results.str();
@@ -2027,6 +2031,7 @@ int main(int argc, char *argv[])
 
   cmdp.setOption("polyOrder",&k,"polynomial order for field variable u");
   cmdp.setOption("delta_k", &delta_k, "test space polynomial order enrichment");
+  cmdp.setOption("useNodalBasis", "useHierarchicalBasis", &useNodalBasis);
 
   cmdp.setOption("coarseSolver", &coarseSolverChoiceString, "coarse solver choice: KLU, MUMPS, SuperLUDist, SimpleML");
   cmdp.setOption("coarsePolyOrder", &k_coarse, "polynomial order for field variables on coarse grid");
@@ -2092,6 +2097,15 @@ int main(int argc, char *argv[])
     MPI_Finalize();
 #endif
     return -1;
+  }
+  
+  // before we do anything, set the basis functions we will use
+  if (!useNodalBasis)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(!useZeroMeanConstraints, std::invalid_argument, "Using point pressure constraint with hierarchical basis is not yet supported");
+    BasisFactory::basisFactory()->setUseLegendreForQuadHVol(true);
+    BasisFactory::basisFactory()->setUseLobattoForQuadHDiv(true);
+    BasisFactory::basisFactory()->setUseLobattoForQuadHGrad(true);
   }
 
   ProblemChoice problemChoice;
