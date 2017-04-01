@@ -197,11 +197,14 @@ int DLS<Scalar>::assemble()
     }
   }
   
+  solnLHS->ReplaceGlobalValues(bcGlobalValues.size(),&bcGlobalIndices[0],&bcGlobalValues[0]);
+  
   TVector<Scalar> bcValues(bcMap,1);
   size_t colZero=0;
   for (int i=0; i<bcGlobalValues.size(); i++)
   {
     bcValues.replaceLocalValue(i,colZero,bcGlobalValues[i]);
+    GlobalIndexType fullSolnGID = bcGlobalIndices[i];
   }
   
   MapRCP solnMapNoBCs = rcp( new Map<IndexType,GlobalIndexType>(invalid, &myGlobalIndicesNoBCs[0], localDofCountNoBCs,
@@ -469,7 +472,13 @@ int DLS<Scalar>::assemble()
   // adjust RHS to account for the BCs we've eliminated
   // compute _rhsVector -= bcImposition * bcValues
   bcImpositionMatrix.fillComplete();
-  bcImpositionMatrix.apply(bcValues,*_rhsVector,NO_TRANS,-1.0,1.0);
+  
+  // TODO: it appears that apply() requires bcValues to have a map that matches the domain map of
+  //       bcImpositionMatrix.  Therefore, we do the following, which will do an appropriate import:
+  TVector<Scalar> bcValues_domainMap(bcImpositionMatrix.getDomainMap(),1);
+  Tpetra::Import<IndexType,GlobalIndexType> importer(bcMap, bcImpositionMatrix.getDomainMap());
+  bcValues_domainMap.doImport(bcValues, importer, INSERT);
+  bcImpositionMatrix.apply(bcValues_domainMap,*_rhsVector,NO_TRANS,-1.0,1.0);
   
   _dlsMatrix->fillComplete();
   
@@ -501,6 +510,8 @@ int DLS<Scalar>::solveProblemLSQR(int maxIters, double tol)
   
   _lhsVector->elementWiseMultiply(1.0, *_diag_sqrt_inverse, *_lhsVector, 0.0);
 
+  // TODO: initialize _soln's lhsVector using our _lhsVector
+  
   cout << "solveProblemLSQR: implementation incomplete!\n";
   return -1; //
 }
