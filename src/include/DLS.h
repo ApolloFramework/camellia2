@@ -40,10 +40,13 @@ namespace Camellia
     TVectorPtr<Scalar> normalDiagInverseSqrt(); // the diagonal of the inverse of the square root of the normal matrix
 
     TSolutionPtr<Scalar> solution();
-    
-    // Map to allow translation between the Solution returned by DLS::solution()->lhsVector()
-    // and that returned by DLS::lhs()
-    SolutionMapPtr solutionMapPtr();
+
+    // The below method commented out because it seems like a relic, before we decided to maintain
+    // numbering between the two -- the only difference is that solution()->lhsVector() has some extra
+    // dofs, which are set to whatever the BCs were...  The map is an identity map, albeit a non-bijective one...
+//    // Map to allow translation between the Solution returned by DLS::solution()->lhsVector()
+//    // and that returned by DLS::lhs()
+//    SolutionMapPtr solutionMapPtr();
   };
 }
 

@@ -25,8 +25,8 @@ namespace Camellia
   template TVectorPtr<double> DLS<double>::lhs();
   template TVectorPtr<double> DLS<double>::normalDiagInverseSqrt();
   template TSolutionPtr<double> DLS<double>::solution();
-  typedef Teuchos::RCP<Tpetra::Map<GlobalIndexType,GlobalIndexType>> SolutionMapPtr;
-  template SolutionMapPtr DLS<double>::solutionMapPtr();
+//  typedef Teuchos::RCP<Tpetra::Map<GlobalIndexType,GlobalIndexType>> SolutionMapPtr;
+//  template SolutionMapPtr DLS<double>::solutionMapPtr();
 }
 
 static const int MAX_BATCH_SIZE_IN_BYTES = 3*1024*1024; // 3 MB
@@ -61,6 +61,7 @@ void inverseSquareRoot(RCP<Vector<Scalar,IndexType,GlobalIndexType>> vector)
       cout << "WARNING: for globalID " << GID << ", encountered zero value in inverseSquareRoot().\n";
     }
     diagValues_1d(localID) = 1.0 / sqrt(squaredValue);
+//    cout << "diagValues_1d(" << localID << ") = " << diagValues_1d(localID) << endl;
   }
 }
 
@@ -209,7 +210,10 @@ int DLS<Scalar>::assemble()
   for (int i=0; i<bcGlobalValues.size(); i++)
   {
     bcValues.replaceLocalValue(i,colZero,bcGlobalValues[i]);
-    GlobalIndexType fullSolnGID = bcGlobalIndices[i];
+    // TODO:  figure out if it's worth revealing to the outside world which GIDs have been eliminated through BCs
+    //        (if so, here would be a place to record those things)
+    // GlobalIndexType fullSolnGID = bcGlobalIndices[i];
+    
   }
   
   MapRCP solnMapNoBCs = rcp( new Map<IndexType,GlobalIndexType>(invalid, &myGlobalIndicesNoBCs[0], localDofCountNoBCs,
@@ -222,8 +226,8 @@ int DLS<Scalar>::assemble()
    dofs.  These are completely discontinuous, so the only communication happens due to the trial space
    overlap between ranks.
    */
-  GlobalIndexType testIDOffset;
-  int ownedCellCount = mesh->cellIDsInPartition().size();
+//  GlobalIndexType testIDOffset;
+//  int ownedCellCount = mesh->cellIDsInPartition().size();
   IndexType localTestCount = 0;
   IndexType maxTrialCount = 0; // on this processor
   for (GlobalIndexType cellID : mesh->cellIDsInPartition())
@@ -246,11 +250,15 @@ int DLS<Scalar>::assemble()
     elementTestOffset += mesh->getElementType(cellID)->testOrderPtr->totalDofs();
   }
   
-  _dlsMatrix = rcp(new TMatrix<Scalar>(testMap,maxTrialCount,DynamicProfile));
+  _dlsMatrix = rcp(new TMatrix<Scalar>(testMap,solnMapNoBCs,maxTrialCount,DynamicProfile));
   CrsMatrix<Scalar,IndexType,GlobalIndexType> bcImpositionMatrix(testMap,numBCs,StaticProfile);
   int numCols = 1;
   _rhsVector = rcp(new TVector<Scalar>(testMap,numCols));
   _lhsVector = rcp(new TVector<Scalar>(solnMapNoBCs,numCols));
+  
+//  cout << "Test map has " << testMap->getGlobalNumElements() << " global elements.\n";
+//  cout << "Trial map has " << solnMapNoBCs->getGlobalNumElements() << " global elements.\n";
+
   
   MultiVectorFiller<TVector<Scalar>> diagFiller(solnMapNoBCs, numCols);
   
@@ -494,7 +502,12 @@ int DLS<Scalar>::assemble()
   bcApplication_rhsMap.doImport(bcApplication_rangeMap, rhsMapImporter, INSERT);
   _rhsVector->update(-1.0, bcApplication_rhsMap, 1.0);
   
-  _dlsMatrix->fillComplete();
+  _dlsMatrix->fillComplete(solnMapNoBCs,testMap);
+//  cout << "_dlsMatrix dimensions: " << _dlsMatrix->getGlobalNumRows() << " x " << _dlsMatrix->getGlobalNumCols() << endl;
+//  cout << "_dlsMatrix column Map, global element count: " << _dlsMatrix->getColMap()->getGlobalNumElements() << endl;
+//  cout << "_dlsMatrix domain Map, global element count: " << _dlsMatrix->getDomainMap()->getGlobalNumElements() << endl;
+//  cout << "_dlsMatrix row Map, global element count: " << _dlsMatrix->getRowMap()->getGlobalNumElements() << endl;
+//  cout << "_dlsMatrix range Map, global element count: " << _dlsMatrix->getRangeMap()->getGlobalNumElements() << endl;
   
   _diag_sqrt_inverse = rcp( new Vector<Scalar,IndexType,GlobalIndexType>(solnMapNoBCs) );
   diagFiller.globalAssemble(*_diag_sqrt_inverse);
@@ -506,12 +519,13 @@ int DLS<Scalar>::assemble()
   matrixScalingVector->doImport(*_diag_sqrt_inverse, scalingImporter, INSERT);
   
   _dlsMatrix->rightScale(*matrixScalingVector);
-  
-  // now that we've scaled the DLS matrix, let's use diagFiller to export to _diag_sqrt_inverse constructed with
-  // the map we'll want to use to scale the solution:
-  _diag_sqrt_inverse = rcp( new Vector<Scalar,IndexType,GlobalIndexType>(solnMapNoBCs) );
-  diagFiller.globalAssemble(*_diag_sqrt_inverse);
-  inverseSquareRoot(_diag_sqrt_inverse);
+
+  // Commented out because I'm pretty sure this should be redundant with the (identical) code above
+//  // now that we've scaled the DLS matrix, let's use diagFiller to export to _diag_sqrt_inverse constructed with
+//  // the map we'll want to use to scale the solution:
+//  _diag_sqrt_inverse = rcp( new Vector<Scalar,IndexType,GlobalIndexType>(solnMapNoBCs) );
+//  diagFiller.globalAssemble(*_diag_sqrt_inverse);
+//  inverseSquareRoot(_diag_sqrt_inverse);
 
   return 0; // success
 }
@@ -568,10 +582,14 @@ TSolutionPtr<Scalar> DLS<Scalar>::solution()
   return _soln;
 }
 
+// The below method commented out because it seems like a relic, before we decided to maintain
+// numbering between the two -- the only difference is that solution()->lhsVector() has some extra
+// dofs, which are set to whatever the BCs were...  The map is an identity map, albeit a non-bijective one...
+//
 // Map to allow translation between the Solution returned by DLS::solution()->lhsVector()
 // and that returned by DLS::lhs()
-template<typename Scalar>
-SolutionMapPtr DLS<Scalar>::solutionMapPtr()
-{
-  return _dlsToSolnMap;
-}
+//template<typename Scalar>
+//SolutionMapPtr DLS<Scalar>::solutionMapPtr()
+//{
+//  return _dlsToSolnMap;
+//}
