@@ -1,6 +1,13 @@
-Camellia: A Software Toolbox for Discountinuous Petrov-Galerkin (DPG) Methods
+Camellia: A Software Toolbox for Discontinuous Petrov-Galerkin (DPG) Methods (with support for other formulations)
 -------------------------------------------------------------------
 by Nathan V. Roberts
+
+********************************
+Note 10-3-17:
+This README hasn't been completely updated in a while, but it probably remains a pretty good outline.  If you have
+difficulties building, please do drop me a line, at nvrober@sandia.gov.
+*********************************
+
 
 ******** PREREQUISITES ********
 Trilinos is required for all builds of Camellia.  A couple of sample do-configure scripts for Trilinos can be found in distribution directory, under build/trilinos-do-configure-samples.  These include the packages within Trilinos that Camellia requires.
