@@ -14,15 +14,6 @@ Instructions for building several of these libraries follow.
 CMake install:
 On a Mac, our experience is that due to Apple’s requirements for code signatures it is simpler to install CMake from source than to use the prebuilt binary.
 
-SWIG install (required to build Trilinos with support for PyTrilinos):
-1. Download source from http://www.swig.org/download.html.
-2. Configure:
-	./configure --prefix=/Users/nroberts/local/swig-3.0.2
-3. Make:
-	make -j6
-4. Install:
-	make install
-
 OpenMPI install:
 1. Download source from http://www.open-mpi.org/software/ompi/.
 2. cd into source dir.
@@ -100,7 +91,7 @@ Once that's done, you're ready to start on the Camellia build.
 
 Instructions for a serial debug build:
 1. Clone from repo.
-	git clone https://github.com/CamelliaDPG/Camellia.git
+	git clone https://bitbucket.org/nateroberts/camellia.git
 2. Go to the serial-debug build directory:
 	cd build/serial-debug
 3. Edit do-configure-serial-debug in the following manner:
@@ -108,7 +99,7 @@ Instructions for a serial debug build:
        - set ZLIB_LIB to the path to the zlib library (for HDF5 support)
        - set CMAKE_INSTALL_PREFIX:PATH to your preferred install location for Camellia
 4. Run the do-configure script:
-	./do-configure-cli-serial-debug
+	./do-configure-serial-debug
 5. make
 6. make test
 7. make install
