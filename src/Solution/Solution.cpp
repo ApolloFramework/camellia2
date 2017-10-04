@@ -1003,7 +1003,13 @@ void TSolution<Scalar>::initializeLHSVector()
 {
 //  _lhsVector = Teuchos::rcp( (Epetra_FEVector*) NULL); // force a delete
   Epetra_Map partMap = getPartitionMap();
-  _lhsVector = Teuchos::rcp(new Epetra_FEVector(partMap,1,true));
+  // for now, we assume that we will have a "standard" _rhs (whether that means DPG or
+  // some Bubnov-Galerkin RHS depends on whether we have an _ip defined); and that we
+  // may or may not have a goal-oriented RHS (the latter only makes sense, for now, anyway,
+  // if we have a DPG formulation).
+  
+  int numSolutions = (_goalOrientedRHS == Teuchos::null) ? 1 : 2;
+  _lhsVector = Teuchos::rcp(new Epetra_FEVector(partMap,numSolutions,true));
 
   setGlobalSolutionFromCellLocalCoefficients();
   clearComputedResiduals();
@@ -1015,7 +1021,14 @@ void TSolution<Scalar>::initializeLoad()
   narrate("initializeLoad");
   Epetra_Map partMap = getPartitionMap();
 
-  _rhsVector = Teuchos::rcp(new Epetra_FEVector(partMap));
+  // for now, we assume that we will have a "standard" _rhs (whether that means DPG or
+  // some Bubnov-Galerkin RHS depends on whether we have an _ip defined); and that we
+  // may or may not have a goal-oriented RHS (the latter only makes sense, for now, anyway,
+  // if we have a DPG formulation).
+  
+  int numSolutions = (_goalOrientedRHS == Teuchos::null) ? 1 : 2;
+  
+  _rhsVector = Teuchos::rcp(new Epetra_FEVector(partMap, numSolutions));
 }
 
 template <typename Scalar>
@@ -1028,7 +1041,14 @@ void TSolution<Scalar>::initializeStiffnessAndLoad()
   int maxRowSize = 0; // will cause more mallocs during insertion into the CrsMatrix, but will minimize the amount of memory allocated now.
   
   _globalStiffMatrix = Teuchos::rcp(new Epetra_FECrsMatrix(::Copy, partMap, maxRowSize));
-  _rhsVector = Teuchos::rcp(new Epetra_FEVector(partMap));
+  
+  // for now, we assume that we will have a "standard" _rhs (whether that means DPG or
+  // some Bubnov-Galerkin RHS depends on whether we have an _ip defined); and that we
+  // may or may not have a goal-oriented RHS (the latter only makes sense, for now, anyway,
+  // if we have a DPG formulation).
+  
+  int numSolutions = (_goalOrientedRHS == Teuchos::null) ? 1 : 2;
+  _rhsVector = Teuchos::rcp(new Epetra_FEVector(partMap, numSolutions));
 }
 
 template <typename Scalar>
@@ -1099,6 +1119,7 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
     
     Intrepid::FieldContainer<Scalar> localStiffness(maxCellBatch,numTrialDofs,numTrialDofs);
     Intrepid::FieldContainer<Scalar> localRHSVector(maxCellBatch,numTrialDofs);
+    Intrepid::FieldContainer<double> goalOrientedRHSValues;
     
     while (startCellIndexForBatch < totalCellsForType)
     {
@@ -1113,9 +1134,6 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
         GlobalIndexType cellID = cellIDsOfType[cellIndex+startCellIndexForBatch];
         cellIDs.push_back(cellID);
       }
-
-      //cout << "testDofOrdering: " << *testOrderingPtr;
-      //cout << "trialDofOrdering: " << *trialOrderingPtr;
       nodeDimensions[0] = numCells;
       parityDimensions[0] = numCells;
       Intrepid::FieldContainer<double> physicalCellNodes(nodeDimensions,&myPhysicalCellNodesForType(startCellIndexForBatch,0,0));
@@ -1134,6 +1152,12 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
       else
         _mesh->bilinearForm()->localStiffnessMatrixAndRHS(localStiffness, localRHSVector, _ip, ipBasisCache, _rhs, basisCache);
 
+      if (_goalOrientedRHS != Teuchos::null)
+      {
+        goalOrientedRHSValues.resize(numCells,numTrialDofs);
+        _goalOrientedRHS->integrate(goalOrientedRHSValues, trialOrderingPtr, basisCache);
+      }
+      
       // apply filter(s) (e.g. penalty method, preconditioners, etc.)
       if (_filter.get())
       {
@@ -1142,9 +1166,6 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
         filterApplicationTime += subTimer.ElapsedTime();
         //        _filter->filter(localRHSVector,physicalCellNodes,cellIDs,_mesh,_bc);
       }
-
-//      cout << "local stiffness matrices:\n" << localStiffness;
-//      cout << "local loads:\n" << localRHSVector;
 
       subTimer.ResetStartTime();
 
@@ -1182,7 +1203,17 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
 
         globalStiffness->InsertGlobalValues(globalDofIndices.size(),&globalDofIndicesCast(0),
                                             globalDofIndices.size(),&globalDofIndicesCast(0),&interpretedStiffness[0]);
-        _rhsVector->SumIntoGlobalValues(globalDofIndices.size(),&globalDofIndicesCast(0),&interpretedRHS[0]);
+        const int STANDARD_RHS_INDEX = 0; // to distinguish from the "goal-oriented" index...
+        _rhsVector->SumIntoGlobalValues(globalDofIndices.size(),&globalDofIndicesCast(0),&interpretedRHS[0],STANDARD_RHS_INDEX);
+        
+        if (_goalOrientedRHS != Teuchos::null)
+        {
+          Intrepid::FieldContainer<Scalar> cellGoalOrientedRHS(localRHSDim,&goalOrientedRHSValues(cellIndex,0)); // shallow copy
+          // here, we end up "interpretig" the stiffness
+          _dofInterpreter->interpretLocalData(cellID, cellGoalOrientedRHS, interpretedRHS, globalDofIndices);
+          const int GOAL_ORIENTED_RHS_INDEX = 1;
+          _rhsVector->SumIntoGlobalValues(globalDofIndices.size(),&globalDofIndicesCast(0),&interpretedRHS[0],GOAL_ORIENTED_RHS_INDEX);
+        }
       }
       localStiffnessInterpretationTime += subTimer.ElapsedTime();
 

@@ -61,6 +61,9 @@ private:
   TBFPtr<Scalar> _bf;
   TRHSPtr<Scalar> _rhs;
   TIPPtr<Scalar> _ip;
+  
+  LinearTermPtr _goalOrientedRHS;  // trial space functional.
+  
   Teuchos::RCP<LocalStiffnessMatrixFilter> _filter;
   Teuchos::RCP<LagrangeConstraints> _lagrangeConstraints;
 
@@ -252,6 +255,10 @@ public:
 
   void setBC( TBCPtr<Scalar> );
   void setRHS( TRHSPtr<Scalar> );
+  
+  // ! set an RHS involving trial-space variables.  Principal application at the moment
+  // ! is for goal-oriented adaptivity (hence the name), but more generally this belongs to the DPG* method.
+  void setGoalOrientedRHS( LinearTermPtr ltTrial );
 
   Teuchos::RCP<Epetra_CrsMatrix> getStiffnessMatrix();
   TMatrixPtr<Scalar> getStiffnessMatrix2();
