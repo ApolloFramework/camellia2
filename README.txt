@@ -4,8 +4,9 @@ by Nathan V. Roberts
 
 ********************************
 Note 10-3-17:
-This README hasn't been completely updated in a while, but it probably remains a pretty good outline.  If you have
-difficulties building, please do drop me a line, at nvrober@sandia.gov.
+This README hasn't been completely updated in a while, but it probably remains a pretty good outline.  If you have difficulties building, please do drop me a line, at nvrober@sandia.gov.
+
+Also worth noting: there are some known-to-fail tests at the moment: some that test restart for a few problems, one that tests local conservation for Stokes, as well as some that are written to fail because the test itself is not yet implemented.
 *********************************
 
 
