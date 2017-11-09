@@ -277,7 +277,7 @@ int main(int argc, char *argv[])
   NavierStokesVGPFormulation form = NavierStokesVGPFormulation::steadyFormulation(spaceDim, Re, useConformingTraces, meshTopo, polyOrder, delta_k);
   form.addPointPressureCondition({0.5,0.5});
   form.solutionIncrement()->setUseCondensedSolve(useCondensedSolve);
-  form.getRefinementStrategy()->setRelativeEnergyThreshold(energyThreshold);
+  form.getRefinementStrategy()->setRelativeErrorThreshold(energyThreshold);
  
   
   MeshPtr mesh = form.solutionIncrement()->mesh();
@@ -432,7 +432,7 @@ int main(int argc, char *argv[])
       solnRieszRep.computeRieszRep(polyOrder); // enrich by polyOrder (integrate exactly)
       double solnNorm = solnRieszRep.getNorm();
       
-      form.refine();
+      form.refine(rank==0); // print to console on rank 0
     
       double energyError = form.getRefinementStrategy()->getEnergyError(refNumber-1);
       

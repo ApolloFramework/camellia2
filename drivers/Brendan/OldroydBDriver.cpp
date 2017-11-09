@@ -400,7 +400,7 @@ int main(int argc, char *argv[])
     return -1;
   }
 
-  Teuchos::RCP<Time> totalTimer = Teuchos::TimeMonitor::getNewCounter("Total Time");
+  Teuchos::RCP<Teuchos::Time> totalTimer = Teuchos::TimeMonitor::getNewCounter("Total Time");
   totalTimer->start(true);
 
   //////////////////////////////////////////////////////////////////////
@@ -691,7 +691,7 @@ int main(int argc, char *argv[])
   ///////////////////////////////  SOLVE  //////////////////////////////
   //////////////////////////////////////////////////////////////////////
 
-  Teuchos::RCP<Time> solverTime = Teuchos::TimeMonitor::getNewCounter("Solve Time");
+  Teuchos::RCP<Teuchos::Time> solverTime = Teuchos::TimeMonitor::getNewCounter("Solve Time");
   // RefinementStrategyPtr refStrategy = form.getRefinementStrategy();
 
   if (commRank == 0)
