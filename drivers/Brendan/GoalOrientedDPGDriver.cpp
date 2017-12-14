@@ -102,7 +102,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("numXElems",&numXElems,"number of elements in x direction");
   cmdp.setOption("numYElems",&numYElems,"number of elements in y direction");
   cmdp.setOption("norm", &norm, "norm");
-  cmdp.setOption("errorIndicator", &errorIndicator, "Energy,Uniform,GoalOrientedOden");
+  cmdp.setOption("errorIndicator", &errorIndicator, "Energy,Uniform,GoalOriented");
   cmdp.setOption("conformingTraces", "nonconformingTraces", &useConformingTraces, "use conforming traces");
   cmdp.setOption("solver", &solverChoice, "KLU, SuperLUDist, MUMPS, GMG-Direct, GMG-ILU, GMG-IC");
   cmdp.setOption("multigridStrategy", &multigridStrategyString, "Multigrid strategy: V-cycle, W-cycle, Full, or Two-level");
@@ -251,6 +251,12 @@ int main(int argc, char *argv[])
   // soln->setBC(bc);
 
 
+  //////////////////////  DECLARE GOAL FUNCTIONAL //////////////////////
+  LinearTermPtr g;
+  g = 1*u;
+  if (errorIndicator == "GoalOriented")
+    soln->setGoalOrientedRHS(g);
+
   //////////////////////////////////////////////////////////////////////
   ///////////////////////////////  SOLVE  //////////////////////////////
   //////////////////////////////////////////////////////////////////////
@@ -333,6 +339,11 @@ int main(int argc, char *argv[])
   {
     refStrategy = Teuchos::rcp( new RefinementStrategy(ErrorIndicator::energyErrorIndicator(soln), energyThreshold) );
   }
+  else if (errorIndicator == "GoalOriented")
+  {
+    // for now, this is just the standard solution-oriented strategy
+    refStrategy = Teuchos::rcp( new RefinementStrategy(ErrorIndicator::energyErrorIndicator(soln), energyThreshold) );
+  }  
   else
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "unrecognized refinement strategy");

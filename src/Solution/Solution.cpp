@@ -3247,6 +3247,12 @@ void TSolution<Scalar>::setRHS( TRHSPtr<Scalar> rhs)
 }
 
 template <typename Scalar>
+void TSolution<Scalar>::setGoalOrientedRHS( LinearTermPtr goalOrientedRHS)
+{
+  _goalOrientedRHS = goalOrientedRHS;
+}
+
+template <typename Scalar>
 void TSolution<Scalar>::setSolnCoeffsForCellID(Intrepid::FieldContainer<Scalar> &solnCoeffsToSet, GlobalIndexType cellID)
 {
   _solutionForCellIDGlobal[cellID] = solnCoeffsToSet;
