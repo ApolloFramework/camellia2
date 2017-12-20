@@ -69,6 +69,14 @@ MESSAGE(" Looking for Trilinos in ${TRILINOS_PATH}/lib/cmake/Trilinos
 find_package(Trilinos PATHS ${TRILINOS_PATH}/lib/cmake/Trilinos
   ${TRILINOS_PATH} $ENV{TRILINOS_DIR})
 
+list(REVERSE Trilinos_TPL_LIBRARIES)
+list(REMOVE_DUPLICATES Trilinos_TPL_LIBRARIES)
+list(REVERSE Trilinos_TPL_LIBRARIES)
+
+list(REVERSE Trilinos_LIBRARIES)
+list(REMOVE_DUPLICATES Trilinos_LIBRARIES)
+list(REVERSE Trilinos_LIBRARIES)
+
 # If FIND_PACKAGE successfully found your Trilinos install, it will
 # set the Boolean flag Trilinos_FOUND.  The following IF statement
 # fails with a FATAL_ERROR if Trilinos was not found.  If it _was_
