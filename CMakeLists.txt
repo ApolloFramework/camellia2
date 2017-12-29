@@ -77,6 +77,10 @@ list(REVERSE Trilinos_LIBRARIES)
 list(REMOVE_DUPLICATES Trilinos_LIBRARIES)
 list(REVERSE Trilinos_LIBRARIES)
 
+list(REVERSE Trilinos_TPL_INCLUDE_DIRS)
+list(REMOVE_DUPLICATES Trilinos_TPL_INCLUDE_DIRS)
+list(REVERSE Trilinos_TPL_INCLUDE_DIRS)
+
 # If FIND_PACKAGE successfully found your Trilinos install, it will
 # set the Boolean flag Trilinos_FOUND.  The following IF statement
 # fails with a FATAL_ERROR if Trilinos was not found.  If it _was_
