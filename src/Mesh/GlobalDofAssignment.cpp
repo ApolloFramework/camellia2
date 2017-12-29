@@ -231,10 +231,14 @@ void GlobalDofAssignment::assignParities( GlobalIndexType cellID )
 
   for (TSolutionPtr<double> soln : _registeredSolutions)
   {
-    if (soln->cellHasCoefficientsAssigned(cellID))
+    int numSolutions = soln->numSolutions();
+    for (int solutionOrdinal=0; solutionOrdinal<numSolutions; solutionOrdinal++)
     {
-      soln->reverseParitiesForLocalCoefficients(cellID, sidesWithChangedParities);
-//      cout << "Reversing parities for cellID " << cellID << " on " << sidesWithChangedParities.size() << " sides." << endl;
+      if (soln->cellHasCoefficientsAssigned(cellID,solutionOrdinal))
+      {
+        soln->reverseParitiesForLocalCoefficients(cellID, sidesWithChangedParities, solutionOrdinal);
+  //      cout << "Reversing parities for cellID " << cellID << " on " << sidesWithChangedParities.size() << " sides." << endl;
+      }
     }
   }
   
@@ -707,7 +711,8 @@ int GlobalDofAssignment::getTestOrderEnrichment()
   return _testOrderEnhancement;
 }
 
-void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<double> &localCoefficients, Epetra_MultiVector &globalCoefficients)
+void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<double> &localCoefficients,
+                                                     Epetra_MultiVector &globalCoefficients, int columnOrdinal)
 {
   DofOrderingPtr trialOrder = elementType(cellID)->trialOrderPtr;
   FieldContainer<double> basisCoefficients; // declared here so that we can sometimes avoid mallocs, if we get lucky in terms of the resize()
@@ -732,7 +737,7 @@ void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType cellID, con
       for (int i=0; i<fittedGlobalCoefficients.size(); i++)
       {
         GlobalIndexType globalDofIndex = fittedGlobalDofIndices[i];
-        globalCoefficients.ReplaceGlobalValue((GlobalIndexTypeToCast)globalDofIndex, 0, fittedGlobalCoefficients[i]); // for globalDofIndex not owned by this rank, doesn't do anything...
+        globalCoefficients.ReplaceGlobalValue((GlobalIndexTypeToCast)globalDofIndex, columnOrdinal, fittedGlobalCoefficients[i]); // for globalDofIndex not owned by this rank, doesn't do anything...
 //        cout << "global coefficient " << globalDofIndex << " = " << fittedGlobalCoefficients[i] << endl;
       }
     }
@@ -740,7 +745,8 @@ void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType cellID, con
 }
 
 template <typename Scalar>
-void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<Scalar> &localCoefficients, TVectorPtr<Scalar> globalCoefficients)
+void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<Scalar> &localCoefficients,
+                                                     TVectorPtr<Scalar> globalCoefficients, int columnOrdinal)
 {
   DofOrderingPtr trialOrder = elementType(cellID)->trialOrderPtr;
   FieldContainer<Scalar> basisCoefficients; // declared here so that we can sometimes avoid mallocs, if we get lucky in terms of the resize()
@@ -765,12 +771,13 @@ void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType cellID, con
       for (int i=0; i<fittedGlobalCoefficients.size(); i++)
       {
         GlobalIndexType globalDofIndex = fittedGlobalDofIndices[i];
-        globalCoefficients->replaceGlobalValue(globalDofIndex, 0, fittedGlobalCoefficients[i]); // for globalDofIndex not owned by this rank, doesn't do anything...
+        globalCoefficients->replaceGlobalValue(globalDofIndex, columnOrdinal, fittedGlobalCoefficients[i]); // for globalDofIndex not owned by this rank, doesn't do anything...
       }
     }
   }
 }
-template void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<double> &localCoefficients, TVectorPtr<double> globalCoefficients);
+template void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<double> &localCoefficients,
+                                                              TVectorPtr<double> globalCoefficients, int columnOrdinal);
 
 // ! Returns the smallest dimension along which continuity will be enforced.  GlobalDofAssignment's implementation
 // ! assumes that the function spaces for the bases defined on cells determine this (e.g. H^1-conforming basis --> 0).
@@ -787,31 +794,35 @@ void GlobalDofAssignment::projectParentCoefficientsOntoUnsetChildren()
        solutionIt != _registeredSolutions.end(); solutionIt++)
   {
     TSolutionPtr<double> soln = *solutionIt;
+    const int numLHSes = soln->numSolutions();
     for (set<GlobalIndexType>::iterator cellIDIt = rankLocalCellIDs.begin(); cellIDIt != rankLocalCellIDs.end(); cellIDIt++)
     {
       GlobalIndexType cellID = *cellIDIt;
-      if (soln->cellHasCoefficientsAssigned(cellID)) continue;
-
-      CellPtr cell = _meshTopology->getCell(cellID);
-      CellPtr parent = cell->getParent();
-      if (parent.get()==NULL) continue;
-      GlobalIndexType parentCellID = parent->cellIndex();
-      if (! soln->cellHasCoefficientsAssigned(parentCellID)) continue;
-
-      int childOrdinal = -1;
-      vector<IndexType> childIndices = parent->getChildIndices(_meshTopology);
-      for (int i=0; i<childIndices.size(); i++)
+      for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
       {
-        if (childIndices[i]==cellID) childOrdinal = i;
-        else childIndices[i] = -1; // indication that Solution should not compute the projection for this child
+        if (soln->cellHasCoefficientsAssigned(cellID,lhsOrdinal)) continue;
+
+        CellPtr cell = _meshTopology->getCell(cellID);
+        CellPtr parent = cell->getParent();
+        if (parent.get()==NULL) continue;
+        GlobalIndexType parentCellID = parent->cellIndex();
+        if (! soln->cellHasCoefficientsAssigned(parentCellID,lhsOrdinal)) continue;
+
+        int childOrdinal = -1;
+        vector<IndexType> childIndices = parent->getChildIndices(_meshTopology);
+        for (int i=0; i<childIndices.size(); i++)
+        {
+          if (childIndices[i]==cellID) childOrdinal = i;
+          else childIndices[i] = -1; // indication that Solution should not compute the projection for this child
+        }
+        if (childOrdinal == -1)
+        {
+          cout << "ERROR: child not found.\n";
+          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "child not found!");
+        }
+  //      cout << "determining cellID " << parent->cellIndex() << "'s child " << childOrdinal << "'s coefficients.\n";
+        soln->projectOldCellOntoNewCells(parent->cellIndex(), elementType(parentCellID), childIndices, lhsOrdinal);
       }
-      if (childOrdinal == -1)
-      {
-        cout << "ERROR: child not found.\n";
-        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "child not found!");
-      }
-//      cout << "determining cellID " << parent->cellIndex() << "'s child " << childOrdinal << "'s coefficients.\n";
-      soln->projectOldCellOntoNewCells(parent->cellIndex(), elementType(parentCellID), childIndices);
     }
   }
 }

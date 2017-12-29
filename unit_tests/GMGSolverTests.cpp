@@ -120,7 +120,8 @@ namespace
     exactSolnMap[u_hat->ID()]   = u_hat_exact;
     exactSolnMap[sigma_n_hat->ID()] = sigma_n_hat_exact;
 
-    coarseSoln->projectOntoMesh(exactSolnMap);
+    const int solutionOrdinal = 0;
+    coarseSoln->projectOntoMesh(exactSolnMap, solutionOrdinal);
 
     MeshPtr fineMesh = mesh->deepCopy();
     fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal());
@@ -156,7 +157,7 @@ namespace
     bc->addDirichlet(u_hat, boundary, uExact);
     solution = Solution::solution(mesh, bc, rhs, graphNorm);
 
-    solution->projectOntoMesh(exactSolnMap);
+    solution->projectOntoMesh(exactSolnMap, solutionOrdinal);
 
     return solution;
   }

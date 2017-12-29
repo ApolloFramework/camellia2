@@ -76,8 +76,9 @@ namespace
       zeroMap[exactMapIt->first] = Function::zero(exactMapIt->second->rank());
     }
 
-    form.solution()->projectOntoMesh(exactMap);
-    form.solutionIncrement()->projectOntoMesh(zeroMap);
+    const int solutionOrdinal = 0;
+    form.solution()->projectOntoMesh(exactMap, solutionOrdinal);
+    form.solutionIncrement()->projectOntoMesh(zeroMap, solutionOrdinal);
 
     RHSPtr rhs = form.rhs(forcingFunction, false); // false: *include* boundary terms in the RHS -- important for computing energy error correctly
     form.solutionIncrement()->setRHS(rhs);
@@ -152,8 +153,9 @@ namespace
       zeroMap[exactMapIt->first] = Function::zero(exactMapIt->second->rank());
     }
 
-    form.solution()->projectOntoMesh(exactMap);
-    form.solutionIncrement()->projectOntoMesh(zeroMap);
+    const int solutionOrdinal = 0;
+    form.solution()->projectOntoMesh(exactMap, solutionOrdinal);
+    form.solutionIncrement()->projectOntoMesh(zeroMap, solutionOrdinal);
 
     RHSPtr rhs = form.rhs(forcingFunction, false); // false: *include* boundary terms in the RHS -- important for computing energy error correctly
     form.solutionIncrement()->setRHS(rhs);
@@ -244,8 +246,9 @@ namespace
     double tol = 1e-10;
 
     // sanity/consistency check: is the energy error for a zero solutionIncrement zero?
-    form.solutionIncrement()->projectOntoMesh(zeroMap);
-    form.solution()->projectOntoMesh(exactMap);
+    const int solutionOrdinal = 0;
+    form.solutionIncrement()->projectOntoMesh(zeroMap, solutionOrdinal);
+    form.solution()->projectOntoMesh(exactMap, solutionOrdinal);
     form.solutionIncrement()->setRHS(rhsWithBoundaryTerms);
     double energyError = form.solutionIncrement()->energyErrorTotal();
 
@@ -257,7 +260,7 @@ namespace
     // first real test: with exact background flow, if we solve, do we maintain zero energy error?
     form.solveAndAccumulate();
     form.solutionIncrement()->setRHS(rhsWithBoundaryTerms);
-    form.solutionIncrement()->projectOntoMesh(zeroMap); // zero out since we've accumulated
+    form.solutionIncrement()->projectOntoMesh(zeroMap, solutionOrdinal); // zero out since we've accumulated
     energyError = form.solutionIncrement()->energyErrorTotal();
     TEST_COMPARE(energyError, <, tol);
 
@@ -265,7 +268,7 @@ namespace
     form.solutionIncrement()->setRHS(rhsForSolve);
 
     // next test: try starting from a zero initial guess
-    form.solution()->projectOntoMesh(zeroMap);
+    form.solution()->projectOntoMesh(zeroMap, solutionOrdinal);
 
     SolutionPtr solnIncrement = form.solutionIncrement();
 
@@ -287,7 +290,7 @@ namespace
     while ((l2_norm_incr > nonlinearTol) && (form.nonlinearIterationCount() < maxIters));
 
     form.solutionIncrement()->setRHS(rhsWithBoundaryTerms);
-    form.solutionIncrement()->projectOntoMesh(zeroMap); // zero out since we've accumulated
+    form.solutionIncrement()->projectOntoMesh(zeroMap, solutionOrdinal); // zero out since we've accumulated
     energyError = form.solutionIncrement()->energyErrorTotal();
     TEST_COMPARE(energyError, <, tol);
 
@@ -379,8 +382,9 @@ namespace
     double tol = 1e-12;
 
     // sanity/consistency check: is the energy error for a zero solutionIncrement zero?
-    form.solutionIncrement()->projectOntoMesh(zeroMap);
-    form.solution()->projectOntoMesh(exactMap);
+    const int solutionOrdinal = 0;
+    form.solutionIncrement()->projectOntoMesh(zeroMap, solutionOrdinal);
+    form.solution()->projectOntoMesh(exactMap, solutionOrdinal);
     form.solutionIncrement()->setRHS(rhsWithBoundaryTerms);
     double energyError = form.solutionIncrement()->energyErrorTotal();
 
@@ -392,7 +396,7 @@ namespace
     // first real test: with exact background flow, if we solve, do we maintain zero energy error?
     form.solveAndAccumulate();
     form.solutionIncrement()->setRHS(rhsWithBoundaryTerms);
-    form.solutionIncrement()->projectOntoMesh(zeroMap); // zero out since we've accumulated
+    form.solutionIncrement()->projectOntoMesh(zeroMap, solutionOrdinal); // zero out since we've accumulated
     energyError = form.solutionIncrement()->energyErrorTotal();
     TEST_COMPARE(energyError, <, tol);
 
@@ -400,7 +404,7 @@ namespace
     form.solutionIncrement()->setRHS(rhsForSolve);
 
     // next test: try starting from a zero initial guess
-    form.solution()->projectOntoMesh(zeroMap);
+    form.solution()->projectOntoMesh(zeroMap, solutionOrdinal);
 
     SolutionPtr solnIncrement = form.solutionIncrement();
 
@@ -422,7 +426,7 @@ namespace
     while ((l2_norm_incr > nonlinearTol) && (form.nonlinearIterationCount() < maxIters));
 
     form.solutionIncrement()->setRHS(rhsWithBoundaryTerms);
-    form.solutionIncrement()->projectOntoMesh(zeroMap); // zero out since we've accumulated
+    form.solutionIncrement()->projectOntoMesh(zeroMap, solutionOrdinal); // zero out since we've accumulated
     energyError = form.solutionIncrement()->energyErrorTotal();
     TEST_COMPARE(energyError, <, tol);
 
@@ -585,7 +589,8 @@ namespace
     exactMap[form.u_hat(1)->ID()] = u1;
     exactMap[form.u_hat(2)->ID()] = u2;
 
-    stokesSolution->projectOntoMesh(exactMap);
+    const int solutionOrdinal = 0;
+    stokesSolution->projectOntoMesh(exactMap, solutionOrdinal);
 
     double energyError = stokesSolution->energyErrorTotal();
 

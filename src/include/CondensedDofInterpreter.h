@@ -133,7 +133,7 @@ public:
   void interpretLocalData(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &localStiffnessData, const Intrepid::FieldContainer<Scalar> &localLoadData,
                           Intrepid::FieldContainer<Scalar> &globalStiffnessData, Intrepid::FieldContainer<Scalar> &globalLoadData, Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices);
 
-  virtual void interpretLocalCoefficients(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &localCoefficients, Epetra_MultiVector &globalCoefficients);
+  virtual void interpretLocalCoefficients(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &localCoefficients, Epetra_MultiVector &globalCoefficients, int columnOrdinal);
 
   void interpretLocalBasisCoefficients(GlobalIndexType cellID, int varID, int sideOrdinal, const Intrepid::FieldContainer<Scalar> &basisCoefficients,
                                        Intrepid::FieldContainer<Scalar> &globalCoefficients, Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices);

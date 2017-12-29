@@ -13,7 +13,6 @@
 #include "LinearElasticityFormulation.h"
 #include "MeshFactory.h"
 #include "NavierStokesVGPFormulation.h"
-#include "PreviousSolutionFunction.h"
 #include "RefinementStrategy.h"
 #include "Solver.h"
 #include "TrigFunctions.h"

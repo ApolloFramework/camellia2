@@ -12,7 +12,7 @@
 #include "InviscidBurgersFormulation.h"
 #include "MeshFactory.h"
 #include "PenaltyConstraints.h"
-#include "PreviousSolutionFunction.h"
+#include "RHS.h"
 
 using namespace Camellia;
 
@@ -121,7 +121,9 @@ InviscidBurgersFormulation::InviscidBurgersFormulation(MeshTopologyPtr meshTopo,
     if (linearTrace)
       initialGuess[uhat()->ID()] = Function::constant(1);
 
-    _solutionBackground->projectOntoMesh(initialGuess);
+    TEUCHOS_ASSERT(_solutionBackground->numSolutions() == 1);
+    const int solutionOrdinal = 0;
+    _solutionBackground->projectOntoMesh(initialGuess, solutionOrdinal);
   }
   else
   {

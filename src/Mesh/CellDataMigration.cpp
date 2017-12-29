@@ -341,28 +341,33 @@ void CellDataMigration::packSolutionData(Mesh *mesh, GlobalIndexType cellID, boo
   //  cout << numSolutions << " ";
   for (int i=0; i<numSolutions; i++)
   {
-    if (! solutions[i]->cellHasCoefficientsAssigned(cellIDForCoefficients))
+    int numLHSes = solutions[i]->numSolutions();
+    for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
     {
-      int localDofs = 0;
+      bool thisLHSHasCoefficients = solutions[i]->cellHasCoefficientsAssigned(cellIDForCoefficients, lhsOrdinal);
+      if ( !thisLHSHasCoefficients )
+      {
+        int localDofs = 0;
+        memcpy(dataLocation, &localDofs, sizeof(localDofs));
+        dataLocation += sizeof(localDofs);
+        continue; // no dofs to assign; proceed to next solution
+      }
+      // # dofs per solution
+      const FieldContainer<double>* solnCoeffs = &solutions[i]->allCoefficientsForCellID(cellIDForCoefficients, false, lhsOrdinal); // false: don't warn
+      int localDofs = solnCoeffs->size();
+      //    int localDofs = elemType->trialOrderPtr->totalDofs();
       memcpy(dataLocation, &localDofs, sizeof(localDofs));
+      //    cout << localDofs << " ";
       dataLocation += sizeof(localDofs);
-      continue; // no dofs to assign; proceed to next solution
+      
+      memcpy(dataLocation, &(*solnCoeffs)[0], localDofs * sizeof(double));
+      // the dofs themselves
+      dataLocation += localDofs * sizeof(double);
+      //    for (int j=0; j<solnCoeffs->size(); j++) {
+      //      cout << (*solnCoeffs)[j] << " ";
+      //    }
+      //    cout << ";";
     }
-    // # dofs per solution
-    const FieldContainer<double>* solnCoeffs = &solutions[i]->allCoefficientsForCellID(cellIDForCoefficients, false); // false: don't warn
-    int localDofs = solnCoeffs->size();
-    //    int localDofs = elemType->trialOrderPtr->totalDofs();
-    memcpy(dataLocation, &localDofs, sizeof(localDofs));
-    //    cout << localDofs << " ";
-    dataLocation += sizeof(localDofs);
-    
-    memcpy(dataLocation, &(*solnCoeffs)[0], localDofs * sizeof(double));
-    // the dofs themselves
-    dataLocation += localDofs * sizeof(double);
-    //    for (int j=0; j<solnCoeffs->size(); j++) {
-    //      cout << (*solnCoeffs)[j] << " ";
-    //    }
-    //    cout << ";";
   }
   //  cout << endl;
 }
@@ -377,30 +382,35 @@ void CellDataMigration::processSolutionCoefficients(Mesh* mesh)
   {
     GlobalIndexType cellID = entry.first.first;
     bool coefficientsBelongToParent = entry.first.second;
-    Intrepid::FieldContainer<double>* solnCoeffs = &entry.second;
+    const Intrepid::FieldContainer<double>& solnCoeffs = entry.second;
     
-    if (!coefficientsBelongToParent)
+    int numLHSes = solutions[solnOrdinal]->numSolutions();
+    for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
     {
-      solutions[solnOrdinal]->setSolnCoeffsForCellID(*solnCoeffs, cellID);
-    }
-    else
-    {
-      CellPtr cell = mesh->getTopology()->getCell(cellID);
-      CellPtr parent = cell->getParent();
-      int childOrdinal = -1;
-      vector<IndexType> childIndices = parent->getChildIndices(mesh->getTopology());
-      for (int i=0; i<childIndices.size(); i++)
+      if (!coefficientsBelongToParent)
       {
-        if (childIndices[i]==cellID) childOrdinal = i;
-        else childIndices[i] = -1; // indication that Solution should not compute the projection for this child
+        solutions[solnOrdinal]->setSolnCoeffsForCellID(solnCoeffs, cellID, lhsOrdinal);
       }
-      if (childOrdinal == -1)
+      else
       {
-        cout << "ERROR: child not found.\n";
-        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "child not found!");
+        CellPtr cell = mesh->getTopology()->getCell(cellID);
+        CellPtr parent = cell->getParent();
+        int childOrdinal = -1;
+        vector<IndexType> childIndices = parent->getChildIndices(mesh->getTopology());
+        for (int i=0; i<childIndices.size(); i++)
+        {
+          if (childIndices[i]==cellID) childOrdinal = i;
+          else childIndices[i] = -1; // indication that Solution should not compute the projection for this child
+        }
+        if (childOrdinal == -1)
+        {
+          cout << "ERROR: child not found.\n";
+          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "child not found!");
+        }
+        //      cout << "determining cellID " << parent->cellIndex() << "'s child " << childOrdinal << "'s coefficients.\n";
+        solutions[solnOrdinal]->projectOldCellOntoNewCells(parent->cellIndex(), mesh->getElementType(parent->cellIndex()),
+                                                           solnCoeffs, childIndices, lhsOrdinal);
       }
-      //      cout << "determining cellID " << parent->cellIndex() << "'s child " << childOrdinal << "'s coefficients.\n";
-      solutions[solnOrdinal]->projectOldCellOntoNewCells(parent->cellIndex(), mesh->getElementType(parent->cellIndex()), *solnCoeffs, childIndices);
     }
     solnOrdinal = (solnOrdinal + 1) % numSolutions;
   }
@@ -458,7 +468,6 @@ void CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, c
   MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
   TEUCHOS_TEST_FOR_EXCEPTION(meshTopo==NULL, std::invalid_argument, "unpackGeometryData() called on a Mesh that does not have a full MeshTopology as its MeshTopologyView");
   
-  int rank = mesh->Comm()->MyPID();
   cellHaloGeometry.clear();
   int numLabeledBranches;
   
@@ -586,29 +595,33 @@ void CellDataMigration::unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, c
   dataLocation += sizeof(numSolutions);
   for (int solnOrdinal=0; solnOrdinal<numSolutions; solnOrdinal++)
   {
-    // # dofs per solution
-    int localDofs;
-    memcpy(&localDofs, dataLocation, sizeof(localDofs));
-    dataLocation += sizeof(localDofs);
-    if (localDofs==0)
+    int numLHSes = solutions[solnOrdinal]->numSolutions();
+    for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
     {
-      // no dofs assigned -- proceed to next solution
-      continue;
+      // # dofs per solution
+      int localDofs;
+      memcpy(&localDofs, dataLocation, sizeof(localDofs));
+      dataLocation += sizeof(localDofs);
+      if (localDofs==0)
+      {
+        // no dofs assigned -- proceed to next solution
+        continue;
+      }
+      
+      if (localDofs != elemType->trialOrderPtr->totalDofs())
+      {
+        cout << "localDofs != elemType->trialOrderPtr->totalDofs().\n";
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "localDofs != elemType->trialOrderPtr->totalDofs()");
+      }
+      
+      FieldContainer<double> solnCoeffs(localDofs);
+      memcpy(&solnCoeffs[0], dataLocation, localDofs * sizeof(double));
+      // the dofs themselves
+      dataLocation += localDofs * sizeof(double);
+      
+      solutionCoefficients.push_back({{cellID,coefficientsBelongToParent},solnCoeffs});
+      //    cout << "setting solution coefficients for cellID " << cellID << endl << solnCoeffs;
     }
-    
-    if (localDofs != elemType->trialOrderPtr->totalDofs())
-    {
-      cout << "localDofs != elemType->trialOrderPtr->totalDofs().\n";
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "localDofs != elemType->trialOrderPtr->totalDofs()");
-    }
-    
-    FieldContainer<double> solnCoeffs(localDofs);
-    memcpy(&solnCoeffs[0], dataLocation, localDofs * sizeof(double));
-    // the dofs themselves
-    dataLocation += localDofs * sizeof(double);
-    
-    solutionCoefficients.push_back({{cellID,coefficientsBelongToParent},solnCoeffs});
-    //    cout << "setting solution coefficients for cellID " << cellID << endl << solnCoeffs;
   }
 }
 

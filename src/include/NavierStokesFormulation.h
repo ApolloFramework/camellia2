@@ -666,6 +666,7 @@ public:
         //       for all fluxes at once, and faster still if we did managed this within the addSolution() call below)
         vector<int> fluxIDs = _bf->trialBoundaryIDs();
         const set<GlobalIndexType>* myCellIDs = &_mesh->cellIDsInPartition();
+        int numSolutions = _backgroundFlow->numSolutions();
         for (GlobalIndexType cellID : *myCellIDs)
         {
           int numSides = _mesh->getTopology()->getCell(cellID)->getSideCount();
@@ -675,9 +676,12 @@ public:
             for (int i=0; i<fluxIDs.size(); i++)
             {
               int fluxID = fluxIDs[i];
-              _backgroundFlow->solnCoeffsForCellID(solnCoeffs, cellID, fluxID, sideIndex); // just sizes solnCoeffs (again, not most efficient)
+              _backgroundFlow->solnCoeffsForCellID(solnCoeffs, cellID, fluxID, sideIndex, 0); // just sizes solnCoeffs (again, not most efficient)
               solnCoeffs.initialize(0);
-              _backgroundFlow->setSolnCoeffsForCellID(solnCoeffs, cellID, fluxID, sideIndex);
+              for (int solutionOrdinal=0; solutionOrdinal<numSolutions; solutionOrdinal++)
+              {
+                _backgroundFlow->setSolnCoeffsForCellID(solnCoeffs, cellID, fluxID, sideIndex, solutionOrdinal);
+              }
             }
           }
         }

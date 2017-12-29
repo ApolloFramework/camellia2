@@ -14,6 +14,7 @@ void TestingUtilities::initializeSolnCoeffs(TSolutionPtr<double> solution)
 {
   map< pair<IndexType,IndexType>, IndexType> localToGlobalMap = solution->mesh()->getLocalToGlobalMap();
   map< pair<IndexType,IndexType>, IndexType>::iterator it;
+  int numSolutions = solution->numSolutions();
   for (it = localToGlobalMap.begin(); it!=localToGlobalMap.end(); it++)
   {
     pair<int,int> cellID_dofIndex = it->first;
@@ -21,7 +22,10 @@ void TestingUtilities::initializeSolnCoeffs(TSolutionPtr<double> solution)
     int numLocalTrialDofs = solution->mesh()->getElement(cellID)->elementType()->trialOrderPtr->totalDofs();
     FieldContainer<double> dofs(numLocalTrialDofs);
     dofs.initialize(0.0);
-    solution->setSolnCoeffsForCellID(dofs,cellID);
+    for (int solutionOrdinal=0; solutionOrdinal<numSolutions; solutionOrdinal++)
+    {
+      solution->setSolnCoeffsForCellID(dofs,cellID,solutionOrdinal);
+    }
   }
 }
 
@@ -62,6 +66,7 @@ void TestingUtilities::setSolnCoeffForGlobalDofIndex(TSolutionPtr<double> soluti
 {
   map< pair<GlobalIndexType,IndexType>, GlobalIndexType> localToGlobalMap = solution->mesh()->getLocalToGlobalMap();
   map< pair<GlobalIndexType,IndexType>, GlobalIndexType>::iterator it;
+  int numSolutions = solution->numSolutions();
   for (it = localToGlobalMap.begin(); it!=localToGlobalMap.end(); it++)
   {
     pair<IndexType,GlobalIndexType> cellID_dofIndex = it->first;
@@ -74,7 +79,10 @@ void TestingUtilities::setSolnCoeffForGlobalDofIndex(TSolutionPtr<double> soluti
       FieldContainer<double> dofs(numLocalTrialDofs);
       dofs.initialize(0.0); // inefficient; can do better.
       dofs(localDofIndex) = solnCoeff;
-      solution->setSolnCoeffsForCellID(dofs,cellID);
+      for (int solutionOrdinal=0; solutionOrdinal<numSolutions; solutionOrdinal++)
+      {
+        solution->setSolnCoeffsForCellID(dofs,cellID,solutionOrdinal);
+      }
     }
   }
 }

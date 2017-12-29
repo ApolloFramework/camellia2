@@ -69,7 +69,9 @@ public:
                                   Intrepid::FieldContainer<double> &globalStiffnessData, Intrepid::FieldContainer<double> &globalLoadData, Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices);
   
   //!! Determines global coefficients corresponding to the provided local coefficients; in the case of minimum-rule meshes, this will be computed using a least-squares fit.  If some of the corresponding global coefficients are off-rank in globalCoefficients, these will be ignored.  (See the version of interpretLocalCoefficients that takes an STL map for an alternative that will include all global coefficients, regardless of data distribution.)
-  virtual void interpretLocalCoefficients(GlobalIndexType cellID, const Intrepid::FieldContainer<double> &localCoefficients, Epetra_MultiVector &globalCoefficients);
+  //!! columnOrdinal specifies into which column in the globalCoefficients Multi-Vector the result should be stored.
+  virtual void interpretLocalCoefficients(GlobalIndexType cellID, const Intrepid::FieldContainer<double> &localCoefficients,
+                                          Epetra_MultiVector &globalCoefficients, int columnOrdinal);
   
   //!! Determines global coefficients corresponding to the provided local coefficients; in the case of minimum-rule meshes, this will be computed using a least-squares fit.
   virtual void interpretLocalCoefficients(GlobalIndexType cellID, const Intrepid::FieldContainer<double> &localCoefficients,

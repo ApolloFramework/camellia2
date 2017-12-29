@@ -262,7 +262,8 @@ namespace
     {
       FieldContainer<double> cellDofs(mesh->getElementType(cellID)->trialOrderPtr->totalDofs());
       cellDofs.initialize((double)rank);
-      soln->setLocalCoefficientsForCell(cellID, cellDofs);
+      const int solutionOrdinal = 0;
+      soln->setLocalCoefficientsForCell(cellID, cellDofs, solutionOrdinal);
     }
     
     set<GlobalIndexType> myCellsAndNeighbors;
@@ -306,7 +307,8 @@ namespace
       VarPtr u_hat = poissonForm.u_hat();
       FunctionPtr value = Function::constant(1.0);
       SolutionPtr solution = Solution::solution(poissonMesh);
-      solution->projectOntoMesh({{u_hat->ID(), value}});
+      const int solutionOrdinal = 0;
+      solution->projectOntoMesh({{u_hat->ID(), value}}, solutionOrdinal);
       
       SolutionPtr solutionAdded = Solution::solution(poissonMesh);
       solutionAdded->addSolution(solution, 1.0);
@@ -341,7 +343,8 @@ namespace
       VarPtr u_hat = poissonForm.u_hat();
       FunctionPtr value = Function::constant(1.0);
       SolutionPtr solution = Solution::solution(poissonMesh);
-      solution->projectOntoMesh({{u_hat->ID(), value}});
+      const int solutionOrdinal = 0;
+      solution->projectOntoMesh({{u_hat->ID(), value}}, solutionOrdinal);
       
       SolutionPtr solutionAdded = Solution::solution(poissonMesh);
       solutionAdded->addSolution(solution, 1.0);
@@ -1202,7 +1205,8 @@ namespace
     map<int, FunctionPtr > functionMap;
     functionMap[uhat->ID()] = f;
     
-    soln->projectOntoMesh(functionMap);
+    const int solutionOrdinal = 0;
+    soln->projectOntoMesh(functionMap, solutionOrdinal);
     
     // Now, manually project onto the basis for the trace to compute some expected coefficients
     Intrepid::FieldContainer<double> basisCoefficientsExpected;
@@ -1283,7 +1287,8 @@ namespace
     VarPtr sigma_n_hat = form.sigma_n_hat();
     solutionMap[sigma_n_hat->ID()] = exactFxn;
     
-    solution->projectOntoMesh(solutionMap);
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh(solutionMap, solutionOrdinal);
     
     double tol = 1e-14;
     FunctionPtr solnFxn = Function::solution(sigma_n_hat, solution, false);
@@ -1326,7 +1331,8 @@ namespace
     
     solutionMap[sigma_n_hat->ID()] = exactFxn;
     
-    solution->projectOntoMesh(solutionMap);
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh(solutionMap, solutionOrdinal);
     FunctionPtr solnFxn = Function::solution(sigma_n_hat, solution, false);
     
     // as sanity check, confirm that (solnFxn == exactFxn) before refinement
@@ -1403,7 +1409,8 @@ namespace
     
     solutionMap[sigma_n_hat->ID()] = exactFxn;
     
-    solution->projectOntoMesh(solutionMap);
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh(solutionMap, solutionOrdinal);
     FunctionPtr solnFxn = Function::solution(sigma_n_hat, solution, false);
     
     // as sanity check, confirm that (solnFxn == exactFxn) before refinement
@@ -1520,7 +1527,8 @@ namespace
     
     solutionMap[sigma_n_hat->ID()] = exactFxn;
     
-    solution->projectOntoMesh(solutionMap);
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh(solutionMap, solutionOrdinal);
     FunctionPtr solnFxn = Function::solution(sigma_n_hat, solution, false);
 
     // as sanity check, confirm that (solnFxn == exactFxn) before refinement
@@ -1603,7 +1611,8 @@ namespace
     map<int, FunctionPtr > functionMap;
     
     functionMap[uhat->ID()] = f;
-    spaceTimeSolution->projectOntoMesh(functionMap);
+    const int solutionOrdinal = 0;
+    spaceTimeSolution->projectOntoMesh(functionMap, solutionOrdinal);
     
     //    for (GlobalIndexType cellID=0; cellID <= 1; cellID++) {
     //      cout << "CellID " << cellID << " info:\n";
@@ -1767,7 +1776,8 @@ namespace
     functionMap[fhat->ID()] = f_flux;
     functionMap[u->ID()] = Function::xn(1);
     functionMap[sigma->ID()] = Function::vectorize(Function::xn(1), Function::yn(1));
-    spaceTimeSolution->projectOntoMesh(functionMap);
+    const int solutionOrdinal = 0;
+    spaceTimeSolution->projectOntoMesh(functionMap, solutionOrdinal);
     
     double tol = 1e-14;
     for (map<int, FunctionPtr >::iterator entryIt = functionMap.begin(); entryIt != functionMap.end(); entryIt++)
@@ -1888,7 +1898,8 @@ namespace
     functionMap[fhat->ID()] = f_flux;
     functionMap[u->ID()] = Function::xn(1);
     functionMap[sigma->ID()] = Function::vectorize(Function::xn(1), Function::yn(1), Function::zn(1));
-    spaceTimeSolution->projectOntoMesh(functionMap);
+    const int solutionOrdinal = 0;
+    spaceTimeSolution->projectOntoMesh(functionMap, solutionOrdinal);
     
     double tol = 1e-14;
     for (map<int, FunctionPtr >::iterator entryIt = functionMap.begin(); entryIt != functionMap.end(); entryIt++)

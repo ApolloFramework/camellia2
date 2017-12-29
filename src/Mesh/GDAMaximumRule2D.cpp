@@ -641,7 +641,11 @@ void GDAMaximumRule2D::didHRefine(const set<GlobalIndexType> &parentCellIDs)
       vector<IndexType> childIDsLocalIndexType = _meshTopology->getCell(parentCellID)->getChildIndices(_meshTopology);
       vector<GlobalIndexType> childIDs(childIDsLocalIndexType.begin(),childIDsLocalIndexType.end());
       (*solutionIt)->processSideUpgrades(_cellSideUpgrades,parentCellIDs); // cellIDs argument: skip these...
-      (*solutionIt)->projectOldCellOntoNewCells(parentCellID,elemType,childIDs);
+      const int numLHSes = (*solutionIt)->numSolutions();
+      for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
+      {
+        (*solutionIt)->projectOldCellOntoNewCells(parentCellID,elemType,childIDs,lhsOrdinal);
+      }
     }
     // with the exception of the cellIDs upgrades, _cellSideUpgrades have been processed,
     // so we delete everything except those
@@ -722,7 +726,11 @@ void GDAMaximumRule2D::didPRefine(const set<GlobalIndexType> &cellIDs, int delta
       // do projection: for p-refinements, the "child" is the same cell
       vector<GlobalIndexType> childIDs(1,cellID);
       (*solutionIt)->processSideUpgrades(_cellSideUpgrades,cellIDs);
-      (*solutionIt)->projectOldCellOntoNewCells(cellID,oldElemType,childIDs);
+      int numLHSes = (*solutionIt)->numSolutions();
+      for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
+      {
+        (*solutionIt)->projectOldCellOntoNewCells(cellID,oldElemType,childIDs,lhsOrdinal);
+      }
     }
     _cellSideUpgrades.clear(); // these have been processed by all solutions that will ever have a chance to process them.
   }

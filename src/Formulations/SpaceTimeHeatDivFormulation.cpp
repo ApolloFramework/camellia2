@@ -13,7 +13,7 @@
 #include "MeshFactory.h"
 #include "PenaltyConstraints.h"
 #include "PoissonFormulation.h"
-#include "PreviousSolutionFunction.h"
+#include "RHS.h"
 
 using namespace Camellia;
 

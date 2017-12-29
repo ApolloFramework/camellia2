@@ -37,7 +37,6 @@
 #include "SpatiallyFilteredFunction.h"
 #include "ExpFunction.h"
 #include "TrigFunctions.h"
-// #include "PreviousSolutionFunction.h"
 #include "RieszRep.h"
 #include "BasisFactory.h"
 #include "GnuPlotUtil.h"
@@ -273,7 +272,6 @@ int main(int argc, char *argv[])
 #ifdef HAVE_AMESOS_MUMPS
   solvers["MUMPS"] = Solver::getSolver(Solver::MUMPS, true);
 #endif
-  int azOutput = 50; // print residual every 20 CG iterations
 
   GMGOperator::MultigridStrategy multigridStrategy;
   if (multigridStrategyString == "Two-level")

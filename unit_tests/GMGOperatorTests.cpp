@@ -449,7 +449,8 @@ namespace
     exactSolnMap[u_hat->ID()] = u_exact * n * parity;
     exactSolnMap[sigma_n_hat->ID()] = sigma_exact * n * parity;
     
-    coarseSoln->projectOntoMesh(exactSolnMap);
+    const int solutionOrdinal = 0;
+    coarseSoln->projectOntoMesh(exactSolnMap, solutionOrdinal);
     
     { // DEBUGGING
       bool warnAboutOffRank = false;
@@ -484,7 +485,7 @@ namespace
     fineSoln->setUseCondensedSolve(useStaticCondensation);
     
     // again, a sanity check, now on the fine solution:
-    fineSoln->projectOntoMesh(exactSolnMap);
+    fineSoln->projectOntoMesh(exactSolnMap, solutionOrdinal);
     bool warnAboutOffRank = false;
     set<GlobalIndexType> myCellIDs = fineSoln->mesh()->cellIDsInPartition();
     for (GlobalIndexType cellID : myCellIDs) {
@@ -651,7 +652,8 @@ namespace
     exactSolnMap[u_hat->ID()]   = u_hat_exact;
     exactSolnMap[sigma_n_hat->ID()] = sigma_n_hat_exact;
     
-    coarseSoln->projectOntoMesh(exactSolnMap);
+    const int solutionOrdinal = 0;
+    coarseSoln->projectOntoMesh(exactSolnMap, solutionOrdinal);
     
     double energyError = coarseSoln->energyErrorTotal();
     
@@ -664,7 +666,7 @@ namespace
     exactSoln->setRHS(rhs);
     
     // again, a sanity check, now on the exact fine solution:
-    exactSoln->projectOntoMesh(exactSolnMap);
+    exactSoln->projectOntoMesh(exactSolnMap, solutionOrdinal);
     energyError = exactSoln->energyErrorTotal();
     TEST_COMPARE(energyError, <, tol);
     

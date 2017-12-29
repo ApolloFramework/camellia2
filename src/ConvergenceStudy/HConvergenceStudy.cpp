@@ -286,7 +286,11 @@ TSolutionPtr<double> HConvergenceStudy::bestApproximation(Teuchos::RCP<Mesh> mes
   // this probably should be a feature of ExactSolution
   TSolutionPtr<double> bestApproximation = Teuchos::rcp( new TSolution<double>(mesh, _bc, _rhs, _ip) );
   bestApproximation->setCubatureEnrichmentDegree(_cubatureDegreeForExact);
-  bestApproximation->projectOntoMesh(_exactSolutionFunctions);
+  
+  TEUCHOS_ASSERT(bestApproximation->numSolutions() == 1);
+  const int solutionOrdinal = 0;
+  
+  bestApproximation->projectOntoMesh(_exactSolutionFunctions,solutionOrdinal);
   return bestApproximation;
 }
 

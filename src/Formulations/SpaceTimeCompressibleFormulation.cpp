@@ -13,7 +13,8 @@
 #include "MeshFactory.h"
 #include "PenaltyConstraints.h"
 #include "PoissonFormulation.h"
-#include "PreviousSolutionFunction.h"
+#include "RHS.h"
+#include "TypeDefs.h"
 #include "CompressibleProblems.h"
 #include <algorithm>
 
@@ -289,7 +290,9 @@ SpaceTimeCompressibleFormulation::SpaceTimeCompressibleFormulation(Teuchos::RCP<
     if (spaceDim > 2)
       initialGuess[u(3)->ID()] = problem->u3_exact();
     initialGuess[T()->ID()] = problem->T_exact();
-    _solutionBackground->projectOntoMesh(initialGuess);
+    TEUCHOS_ASSERT(_solutionBackground->numSolutions() == 1);
+    const int solutionOrdinal = 0;
+    _solutionBackground->projectOntoMesh(initialGuess, solutionOrdinal);
   }
   else
   {

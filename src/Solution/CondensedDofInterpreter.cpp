@@ -1014,7 +1014,8 @@ void CondensedDofInterpreter<Scalar>::interpretLocalBasisCoefficients(GlobalInde
 }
 
 template <typename Scalar>
-void CondensedDofInterpreter<Scalar>::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<Scalar> &localCoefficients, Epetra_MultiVector &globalCoefficients)
+void CondensedDofInterpreter<Scalar>::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<Scalar> &localCoefficients,
+                                                                 Epetra_MultiVector &globalCoefficients, int columnOrdinal)
 {
   DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
   FieldContainer<Scalar> basisCoefficients; // declared here so that we can sometimes avoid mallocs, if we get lucky in terms of the resize()
@@ -1038,7 +1039,7 @@ void CondensedDofInterpreter<Scalar>::interpretLocalCoefficients(GlobalIndexType
       for (int i=0; i<fittedGlobalCoefficients.size(); i++)
       {
         GlobalIndexType globalDofIndex = fittedGlobalDofIndices[i];
-        globalCoefficients.ReplaceGlobalValue((GlobalIndexTypeToCast)globalDofIndex, 0, fittedGlobalCoefficients[i]); // for globalDofIndex not owned by this rank, doesn't do anything...
+        globalCoefficients.ReplaceGlobalValue((GlobalIndexTypeToCast)globalDofIndex, columnOrdinal, fittedGlobalCoefficients[i]); // for globalDofIndex not owned by this rank, doesn't do anything...
         //        cout << "global coefficient " << globalDofIndex << " = " << fittedGlobalCoefficients[i] << endl;
       }
     }

@@ -51,12 +51,17 @@ namespace
     soln = Solution::solution(bf, mesh);
     map<int, FunctionPtr> functionMap;
     const set<GlobalIndexType>* myCells = &mesh->cellIDsInPartition();
+    int numSolutions = soln->numSolutions();
+    int sideOrdinal = -1; // all sides
     for (GlobalIndexType cellID : *myCells)
     {
       vector<double> centroid = mesh->getCellCentroid(cellID);
       double value = cellValue(centroid);
       functionMap[var->ID()] = Function::constant(value);
-      soln->projectOntoCell(functionMap, cellID);
+      for (int solutionOrdinal=0; solutionOrdinal<numSolutions; solutionOrdinal++)
+      {
+        soln->projectOntoCell(functionMap, cellID, sideOrdinal, solutionOrdinal);
+      }
     }
   }
 
@@ -98,7 +103,9 @@ namespace
     for (GlobalIndexType cellID : *myCells)
     {
       functionMap[var->ID()] = f;
-      soln->projectOntoCell(functionMap, cellID);
+      const int solutionOrdinal = 0;
+      const int ALL_SIDES = -1;
+      soln->projectOntoCell(functionMap, cellID, ALL_SIDES, solutionOrdinal);
     }
   }
   

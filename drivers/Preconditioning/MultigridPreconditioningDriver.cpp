@@ -13,7 +13,6 @@
 #include "MeshFactory.h"
 #include "NavierStokesVGPFormulation.h"
 #include "PoissonFormulation.h"
-#include "PreviousSolutionFunction.h"
 #include "RefinementStrategy.h"
 #include "Solver.h"
 #include "StokesVGPFormulation.h"

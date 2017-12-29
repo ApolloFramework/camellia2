@@ -111,7 +111,8 @@ void DofInterpreter::interpretLocalCoefficients(GlobalIndexType cellID, const In
   }
 }
 
-void DofInterpreter::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<double> &localCoefficients, Epetra_MultiVector &globalCoefficients)
+void DofInterpreter::interpretLocalCoefficients(GlobalIndexType cellID, const FieldContainer<double> &localCoefficients,
+                                                Epetra_MultiVector &globalCoefficients, int columnOrdinal)
 {
   // TODO: make this method call the one above, which takes an STL map as argument.
   DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
@@ -137,7 +138,7 @@ void DofInterpreter::interpretLocalCoefficients(GlobalIndexType cellID, const Fi
       for (int i=0; i<fittedGlobalCoefficients.size(); i++)
       {
         GlobalIndexType globalDofIndex = fittedGlobalDofIndices[i];
-        globalCoefficients.ReplaceGlobalValue((GlobalIndexTypeToCast)globalDofIndex, 0, fittedGlobalCoefficients[i]); // for globalDofIndex not owned by this rank, doesn't do anything...
+        globalCoefficients.ReplaceGlobalValue((GlobalIndexTypeToCast)globalDofIndex, columnOrdinal, fittedGlobalCoefficients[i]); // for globalDofIndex not owned by this rank, doesn't do anything...
         //        cout << "global coefficient " << globalDofIndex << " = " << fittedGlobalCoefficients[i] << endl;
       }
     }

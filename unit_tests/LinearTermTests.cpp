@@ -584,7 +584,8 @@ TEUCHOS_UNIT_TEST( LinearTerm, FauxSpaceTimeIntegrationByPartsInTime_2D )
     LinearTermPtr lt = weight * u;
     
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
-    solution->projectOntoMesh({{u->ID(), u_exact}});
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh({{u->ID(), u_exact}}, solutionOrdinal);
     
     GlobalIndexType cellID = 0;
     // do comparison on the MPI rank that owns cellID
@@ -622,7 +623,8 @@ TEUCHOS_UNIT_TEST( LinearTerm, FauxSpaceTimeIntegrationByPartsInTime_2D )
     LinearTermPtr lt = weight * u->grad();
     
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
-    solution->projectOntoMesh({{u->ID(), u_exact}});
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh({{u->ID(), u_exact}}, solutionOrdinal);
     
     GlobalIndexType cellID = 0;
     // do comparison on the MPI rank that owns cellID
@@ -661,7 +663,8 @@ TEUCHOS_UNIT_TEST( LinearTerm, FauxSpaceTimeIntegrationByPartsInTime_2D )
     LinearTermPtr lt = weight * u;
     
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
-    solution->projectOntoMesh({{u->ID(), u_exact}});
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh({{u->ID(), u_exact}}, solutionOrdinal);
     
     GlobalIndexType cellID = 0;
     // do comparison on the MPI rank that owns cellID
@@ -699,7 +702,8 @@ TEUCHOS_UNIT_TEST( LinearTerm, FauxSpaceTimeIntegrationByPartsInTime_2D )
     LinearTermPtr lt = weight * u->grad();
     
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
-    solution->projectOntoMesh({{u->ID(), u_exact}});
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh({{u->ID(), u_exact}}, solutionOrdinal);
     
     GlobalIndexType cellID = 0;
     // do comparison on the MPI rank that owns cellID

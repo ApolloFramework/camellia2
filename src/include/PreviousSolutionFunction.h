@@ -27,17 +27,18 @@ namespace Camellia
 template <typename Scalar>
 class PreviousSolutionFunction : public TFunction<Scalar>
 {
+  bool _overrideMeshCheck;
   TSolutionPtr<Scalar> _soln;
   LinearTermPtr _solnExpression;
-  bool _overrideMeshCheck;
+  int _solnOrdinal;
 public:
-  PreviousSolutionFunction(TSolutionPtr<Scalar> soln, LinearTermPtr solnExpression, bool multiplyFluxesByCellParity = true);
-  PreviousSolutionFunction(TSolutionPtr<Scalar> soln, VarPtr var, bool multiplyFluxesByCellParity = true);
+  PreviousSolutionFunction(TSolutionPtr<Scalar> soln, LinearTermPtr solnExpression, bool multiplyFluxesByCellParity = true, int solutionOrdinal=0);
+  PreviousSolutionFunction(TSolutionPtr<Scalar> soln, VarPtr var, bool multiplyFluxesByCellParity = true, int solutionOrdinal=0);
   bool boundaryValueOnly();
   void setOverrideMeshCheck(bool value, bool dontWarn=false);
   void importCellData(std::vector<GlobalIndexType> cells);
   void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
-  static map<int, TFunctionPtr<Scalar> > functionMap( vector< VarPtr > varPtrs, TSolutionPtr<Scalar> soln);
+  static map<int, TFunctionPtr<Scalar> > functionMap( vector< VarPtr > varPtrs, TSolutionPtr<Scalar> soln, int solutionOrdinal);
   string displayString();
 };
 }

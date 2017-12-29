@@ -18,7 +18,7 @@
 #include "MeshFactory.h"
 #include "PenaltyConstraints.h"
 #include "PoissonFormulation.h"
-#include "PreviousSolutionFunction.h"
+#include "RHS.h"
 #include "SimpleFunction.h"
 #include "SuperLUDistSolver.h"
 

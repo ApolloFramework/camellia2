@@ -12,7 +12,6 @@
 #include "SpaceTimeIncompressibleFormulation.h"
 #include "MeshFactory.h"
 #include "PenaltyConstraints.h"
-#include "PreviousSolutionFunction.h"
 #include "IncompressibleProblems.h"
 #include <algorithm>
 
@@ -248,7 +247,10 @@ SpaceTimeIncompressibleFormulation::SpaceTimeIncompressibleFormulation(Teuchos::
     //   (problem->u1_exact()*problem->u2_exact()-problem->sigma2_exact()->x())*n_x->x()
     //   + (problem->u2_exact()*problem->u2_exact()-problem->sigma2_exact()->y()+problem->p_exact())*n_x->y();
 
-    _solutionBackground->projectOntoMesh(initialGuess);
+    TEUCHOS_ASSERT(_solutionBackground->numSolutions() == 1);
+    const int solutionOrdinal = 0;
+    
+    _solutionBackground->projectOntoMesh(initialGuess, solutionOrdinal);
   }
   else
   {

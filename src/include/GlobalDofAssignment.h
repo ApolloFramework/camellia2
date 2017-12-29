@@ -152,10 +152,10 @@ public:
                                   Intrepid::FieldContainer<double> &globalData,
                                   Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices) = 0;
   void interpretLocalCoefficients(GlobalIndexType cellID, const Intrepid::FieldContainer<double> &localCoefficients,
-                                  Epetra_MultiVector &globalCoefficients);
+                                  Epetra_MultiVector &globalCoefficients, int columnOrdinal);
   template <typename Scalar>
   void interpretLocalCoefficients(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &localCoefficients,
-                                  TVectorPtr<Scalar> globalCoefficients);
+                                  TVectorPtr<Scalar> globalCoefficients, int columnOrdinal);
   virtual void interpretLocalBasisCoefficients(GlobalIndexType cellID, int varID, int sideOrdinal,
                                                const Intrepid::FieldContainer<double> &basisCoefficients,
                                                Intrepid::FieldContainer<double> &globalCoefficients,

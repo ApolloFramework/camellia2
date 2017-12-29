@@ -271,7 +271,8 @@ namespace
     
     map<int, FunctionPtr> u_exact_map;
     u_exact_map[u->ID()] = u_exact;
-    soln->projectOntoMesh(u_exact_map);
+    const int solutionOrdinal = 0;
+    soln->projectOntoMesh(u_exact_map,solutionOrdinal);
     
     FunctionPtr u_soln = Function::solution(u, soln);
     FunctionPtr u_err = u_soln - u_exact;
@@ -2291,7 +2292,8 @@ namespace
     FunctionPtr phiExact = 2 * Function::xn(1) + Function::yn(1);
     map<int, FunctionPtr> projectionMap;
     projectionMap[form.u()->ID()] = phiExact;
-    soln->projectOntoMesh(projectionMap);
+    const int solutionOrdinal = 0;
+    soln->projectOntoMesh(projectionMap, solutionOrdinal);
     soln->initializeLHSVector();
     soln->importSolution();
     
@@ -2389,7 +2391,8 @@ namespace
       
       map<int, FunctionPtr> u_exact_map;
       u_exact_map[u->ID()] = u_exact;
-      soln->projectOntoMesh(u_exact_map);
+      const int solutionOrdinal = 0;
+      soln->projectOntoMesh(u_exact_map, solutionOrdinal);
       
       FunctionPtr u_soln = Function::solution(u, soln);
       FunctionPtr u_err = u_soln - u_exact;

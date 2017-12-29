@@ -44,9 +44,10 @@ template <typename Scalar>
 {
 private:
   int _cubatureEnrichmentDegree;
-  std::map< GlobalIndexType, Intrepid::FieldContainer<Scalar> > _solutionForCellIDGlobal; // eventually, replace this with a distributed _solutionForCellID
-  std::map< GlobalIndexType, double > _energyErrorForCell; // now rank local
-  std::map< GlobalIndexType, double > _energyErrorForCellGlobal;
+  
+  // first index into _solutionForCellID corresponds to the index of the RHS (0 for primary, 1 for influence, at present)
+  std::vector<std::map< GlobalIndexType, Intrepid::FieldContainer<Scalar> > > _solutionForCellID;
+  std::map< GlobalIndexType, double > _energyErrorForCell; // this is *just* for the primary solution.  Use RieszRep if dealing with the influence function...
 
   map< GlobalIndexType, Intrepid::FieldContainer<double> > _residualForCell;
   std::map< GlobalIndexType, Intrepid::FieldContainer<double> > _errorRepresentationForCell;
@@ -113,8 +114,9 @@ private:
   void setGlobalSolutionFromCellLocalCoefficients();
 
   void gatherSolutionData(); // get all solution data onto every node (not what we should do in the end)
-protected:
-  Intrepid::FieldContainer<Scalar> solutionForElementTypeGlobal(ElementTypePtr elemType); // probably should be deprecated…
+//protected:
+  // Pretty sure this is cruft... commenting it out
+//  Intrepid::FieldContainer<Scalar> solutionForElementTypeGlobal(ElementTypePtr elemType); // probably should be deprecated…
 public:
   TSolution(TBFPtr<Scalar> bf, MeshPtr mesh, TBCPtr<Scalar> bc = Teuchos::null,
             TRHSPtr<Scalar> rhs = Teuchos::null, TIPPtr<Scalar> ip = Teuchos::null);
@@ -125,8 +127,9 @@ public:
   TSolution(const TSolution &soln);
   virtual ~TSolution() {}
 
-  const Intrepid::FieldContainer<Scalar>& allCoefficientsForCellID(GlobalIndexType cellID, bool warnAboutOffRankImports=true); // coefficients for all solution variables
-  void setLocalCoefficientsForCell(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &coefficients);
+  const Intrepid::FieldContainer<Scalar>& allCoefficientsForCellID(GlobalIndexType cellID, bool warnAboutOffRankImports=true,
+                                                                   int solutionNumber=0); // coefficients for all solution variables
+  void setLocalCoefficientsForCell(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &coefficients, int solutionNumber);
 
   Teuchos::RCP<DofInterpreter> getDofInterpreter() const;
   void setDofInterpreter(Teuchos::RCP<DofInterpreter> dofInterpreter);
@@ -142,7 +145,7 @@ public:
   Epetra_MultiVector* getGlobalCoefficients();
   TVectorPtr<Scalar> getGlobalCoefficients2();
 
-  bool cellHasCoefficientsAssigned(GlobalIndexType cellID);
+  bool cellHasCoefficientsAssigned(GlobalIndexType cellID, int solutionOrdinal);
   void clearComputedResiduals();
 
   bool getZMCsAsGlobalLagrange() const;
@@ -190,15 +193,17 @@ public:
   void setSolution(TSolutionPtr<Scalar> soln); // thisSoln = soln
 
   void solutionValues(Intrepid::FieldContainer<Scalar> &values, int trialID,
-                      const Intrepid::FieldContainer<double> &physicalPoints); // searches for the elements that match the points provided
+                      const Intrepid::FieldContainer<double> &physicalPoints, int solutionOrdinal=0); // searches for the elements that match the points provided
   void solutionValues(Intrepid::FieldContainer<Scalar> &values, int trialID, BasisCachePtr basisCache,
-                      bool weightForCubature = false, Camellia::EOperator op = OP_VALUE);
+                      bool weightForCubature = false, Camellia::EOperator op = OP_VALUE, int solutionOrdinal=0);
 
-  void solnCoeffsForCellID(Intrepid::FieldContainer<Scalar> &solnCoeffs, GlobalIndexType cellID, int trialID, int sideIndex=VOLUME_INTERIOR_SIDE_ORDINAL);
-  void setSolnCoeffsForCellID(Intrepid::FieldContainer<Scalar> &solnCoeffsToSet, GlobalIndexType cellID, int trialID, int sideIndex=VOLUME_INTERIOR_SIDE_ORDINAL);
-  void setSolnCoeffsForCellID(Intrepid::FieldContainer<Scalar> &solnCoeffsToSet, GlobalIndexType cellID);
+  void solnCoeffsForCellID(Intrepid::FieldContainer<Scalar> &solnCoeffs, GlobalIndexType cellID, int trialID, int sideIndex=VOLUME_INTERIOR_SIDE_ORDINAL,
+                           int solutionOrdinal=0);
+  void setSolnCoeffsForCellID(const Intrepid::FieldContainer<Scalar> &solnCoeffsToSet, GlobalIndexType cellID, int trialID,
+                              int sideIndex, int solutionOrdinal);
+  void setSolnCoeffsForCellID(const Intrepid::FieldContainer<Scalar> &solnCoeffsToSet, GlobalIndexType cellID, int solutionOrdinal);
 
-  const std::map< GlobalIndexType, Intrepid::FieldContainer<Scalar> > & solutionForCellIDGlobal() const;
+  const std::vector< std::map< GlobalIndexType, Intrepid::FieldContainer<Scalar> > > & solutionForCellID() const;
 
   double meshMeasure();
 
@@ -213,19 +218,22 @@ public:
   // ! provides the GID (in stiffness/load) corresponding to an element lagrange constraint
   GlobalIndexType elementLagrangeIndex(GlobalIndexType cellID, int lagrangeOrdinal) const;
   
+  // ! returns the number of solutions we're solving for; right now, this is 1 or 2 (2 in the case that goal-oriented RHS is set).
+  int numSolutions() const;
+  
   void processSideUpgrades( const std::map<GlobalIndexType, std::pair< ElementTypePtr, ElementTypePtr > > &cellSideUpgrades);
   void processSideUpgrades( const std::map<GlobalIndexType, std::pair< ElementTypePtr, ElementTypePtr > > &cellSideUpgrades, const std::set<GlobalIndexType> &cellIDsToSkip );
 
-  void projectOntoMesh(const std::map<int, TFunctionPtr<Scalar> > &functionMap);
-  void projectOntoCell(const std::map<int, TFunctionPtr<Scalar> > &functionMap, GlobalIndexType cellID, int sideIndex=-1);
+  void projectOntoMesh(const std::map<int, TFunctionPtr<Scalar> > &functionMap, int solutionOrdinal);
+  void projectOntoCell(const std::map<int, TFunctionPtr<Scalar> > &functionMap, GlobalIndexType cellID, int sideIndex, int solutionOrdinal);
   void projectFieldVariablesOntoOtherSolution(TSolutionPtr<Scalar> otherSoln);
 
   void projectOldCellOntoNewCells(GlobalIndexType cellID, ElementTypePtr oldElemType,
-                                  const vector<GlobalIndexType> &childIDs);
+                                  const vector<GlobalIndexType> &childIDs, int solutionOrdinal);
   void projectOldCellOntoNewCells(GlobalIndexType cellID, ElementTypePtr oldElemType,
                                   const Intrepid::FieldContainer<Scalar> &oldData,
-                                  const std::vector<GlobalIndexType> &childIDs);
-  void reverseParitiesForLocalCoefficients(GlobalIndexType cellID, const vector<int> &sidesWithChangedParities);
+                                  const std::vector<GlobalIndexType> &childIDs, int solutonOrdinal);
+  void reverseParitiesForLocalCoefficients(GlobalIndexType cellID, const vector<int> &sidesWithChangedParities, int solutionOrdinal);
 
   void setLagrangeConstraints( Teuchos::RCP<LagrangeConstraints> lagrangeConstraints);
   void setFilter(Teuchos::RCP<LocalStiffnessMatrixFilter> newFilter);
@@ -239,7 +247,6 @@ public:
 
   void discardInactiveCellCoefficients();
   double energyErrorTotal();
-  const map<GlobalIndexType,double> & globalEnergyError();
   const map<GlobalIndexType,double> & rankLocalEnergyError();
 
   void setWriteMatrixToFile(bool value,const std::string &filePath);
@@ -280,8 +287,8 @@ public:
   void condensedSolve(TSolverPtr<Scalar> globalSolver = Teuchos::rcp(new TAmesos2Solver<Scalar>()), bool reduceMemoryFootprint = false,
                       std::set<GlobalIndexType> offRankCellsToInclude = std::set<GlobalIndexType>()); // when reduceMemoryFootprint is true, local stiffness matrices will be computed twice, rather than stored for reuse
 #endif
-  void readFromFile(const std::string &filePath);
-  void writeToFile(const std::string &filePath);
+//  void readFromFile(const std::string &filePath, int solutionOrdinal);
+//  void writeToFile(const std::string &filePath, int solutionOrdinal);
 
 #ifdef HAVE_EPETRAEXT_HDF5
   void save(std::string meshAndSolutionPrefix);

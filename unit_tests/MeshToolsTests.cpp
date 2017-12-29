@@ -204,7 +204,8 @@ TEUCHOS_UNIT_TEST( MeshTools, MeshSlice_Polynomial )
   // project u0 onto the whole spacetime mesh (i.e. it'll look like the initial value is a steady solution)
   std::map<int, FunctionPtr> functionMap;
   functionMap[u->ID()] = u0;
-  soln->projectOntoMesh(functionMap);
+  const int solutionOrdinal = 0;
+  soln->projectOntoMesh(functionMap, solutionOrdinal);
 
   FunctionPtr u_spacetime = Function::solution(u, soln);
 
@@ -324,7 +325,8 @@ TEUCHOS_UNIT_TEST( MeshTools, MeshSliceTimeZero_Cone )
   // project u0 onto the whole spacetime mesh (i.e. it'll look like the initial value is a steady solution)
   std::map<int, FunctionPtr> functionMap;
   functionMap[u->ID()] = u0;
-  soln->projectOntoMesh(functionMap);
+  const int solutionOrdinal = 0;
+  soln->projectOntoMesh(functionMap, solutionOrdinal);
 
   FunctionPtr u_spacetime = Function::solution(u, soln);
 

@@ -239,7 +239,11 @@ void GDAMinimumRule::didPRefine(const set<GlobalIndexType> &cellIDs, int deltaP)
     {
       // do projection
       vector<IndexType> childIDs(1,cellID); // "child" ID is just the cellID
-      soln->projectOldCellOntoNewCells(cellID,oldType,childIDs);
+      const int numLHSes = soln->numSolutions();
+      for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
+      {
+        soln->projectOldCellOntoNewCells(cellID,oldType,childIDs,lhsOrdinal);
+      }
     }
   }
   

@@ -70,7 +70,8 @@ void projectExactSolution(StokesVGPFormulation &form, SolutionPtr stokesSolution
     exactMap[form.u_hat(comp_i)->ID()] = ui;
   }
   
-  stokesSolution->projectOntoMesh(exactMap);
+  const int solutionOrdinal = 0;
+  stokesSolution->projectOntoMesh(exactMap, solutionOrdinal);
 }
 
 void setupExactSolution(StokesVGPFormulation &form, FunctionPtr u, FunctionPtr p,
@@ -203,7 +204,8 @@ TEUCHOS_UNIT_TEST( StokesVGPFormulation, StreamFormulationConsistency )
   exactMap[phi_hat->ID()] = phi_hat_exact;
   exactMap[psi_n_hat->ID()] = psi_n_hat_exact;
 
-  streamSoln->projectOntoMesh(exactMap);
+  const int solutionOrdinal = 0;
+  streamSoln->projectOntoMesh(exactMap, solutionOrdinal);
 
   double energyError = streamSoln->energyErrorTotal();
 
@@ -564,7 +566,8 @@ TEUCHOS_UNIT_TEST( StokesVGPFormulation, Projection_2D_Slow )
     
     FunctionPtr tn1_exact = solnToProject[tn1_hat->ID()];
     
-    form.solution()->projectOntoMesh(solnToProject);
+    const int solutionOrdinal = 0;
+    form.solution()->projectOntoMesh(solnToProject, solutionOrdinal);
     
     // sanity check: did the projection work?
     FunctionPtr u1_soln = Function::solution(u1, form.solution());

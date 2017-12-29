@@ -522,8 +522,14 @@ void ZoltanMeshPartitionPolicy::pack_elem_data(void *data,
   bool hasData = false;
   if (mesh->globalDofAssignment()->getRegisteredSolutions().size() > 0)
   {
-    TSolutionPtr<double> soln = mesh->globalDofAssignment()->getRegisteredSolutions()[0];
-    hasData = soln->cellHasCoefficientsAssigned(cellID);
+    for (auto &soln : mesh->globalDofAssignment()->getRegisteredSolutions())
+    {
+      int numLHSes = soln->numSolutions();
+      for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
+      {
+        hasData = hasData || soln->cellHasCoefficientsAssigned(cellID, lhsOrdinal);
+      }
+    }
   }
   CellDataMigration::packData(mesh, cellID, isChild && !hasData, buf, size);
   *ierr = ZOLTAN_OK; // CellDataMigration throws exceptions if it's not OK

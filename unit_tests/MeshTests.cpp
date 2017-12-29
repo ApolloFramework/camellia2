@@ -679,7 +679,8 @@ void testSaveAndLoad2D(BFPtr bf, Teuchos::FancyOStream &out, bool &success)
     VarPtr u = form.u();
     solutionMap[u->ID()] = exactFxn;
     
-    solution->projectOntoMesh(solutionMap);
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh(solutionMap, solutionOrdinal);
     
     FunctionPtr solnFxn = Function::solution(u, solution, false);
     double err = (solnFxn - exactFxn)->l2norm(mesh);
@@ -710,7 +711,8 @@ void testSaveAndLoad2D(BFPtr bf, Teuchos::FancyOStream &out, bool &success)
     FunctionPtr n_parity = Function::normal() * Function::sideParity();
     solutionMap[form.sigma_n_hat()->ID()] = Function::constant({1.0,0.0}) * n_parity;
     
-    solution->projectOntoMesh(solutionMap);
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh(solutionMap,solutionOrdinal);
     
     // sanity check: make sure that the difference *before* refinement is 0
     double tol = 1e-14;

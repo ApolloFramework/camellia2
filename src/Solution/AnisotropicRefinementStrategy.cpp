@@ -162,7 +162,6 @@ void AnisotropicRefinementStrategy<Scalar>::getAnisotropicCellsToRefine(map<Glob
 template <typename Scalar>
 void AnisotropicRefinementStrategy<Scalar>::getAnisotropicCellsToRefine(map<GlobalIndexType,double> &xErr, map<GlobalIndexType,double> &yErr, vector<GlobalIndexType> &xCells, vector<GlobalIndexType> &yCells, vector<GlobalIndexType> &regCells, map<GlobalIndexType,double> &threshMap)
 {
-  map<GlobalIndexType,double> energyError = _solution->globalEnergyError();
   MeshPtr mesh = this->mesh();
   vector<GlobalIndexType> cellsToRefine;
   this->getCellsAboveErrorThreshhold(cellsToRefine);

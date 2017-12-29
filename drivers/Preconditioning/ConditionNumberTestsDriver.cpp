@@ -16,7 +16,6 @@
 #include "MeshFactory.h"
 #include "NavierStokesVGPFormulation.h"
 #include "PoissonFormulation.h"
-#include "PreviousSolutionFunction.h"
 #include "RefinementStrategy.h"
 #include "SerialDenseWrapper.h"
 #include "Solver.h"

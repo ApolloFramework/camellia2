@@ -17,7 +17,6 @@
 #include "MeshFactory.h"
 #include "PenaltyConstraints.h"
 #include "PoissonFormulation.h"
-#include "PreviousSolutionFunction.h"
 #include "SimpleFunction.h"
 #include "TrigFunctions.h"
 #include "PolarizedFunction.h"
@@ -567,9 +566,13 @@ CompressibleNavierStokesFormulation::CompressibleNavierStokesFormulation(MeshTop
       initialGuess[this->u_hat(3)->ID()] = u3_init;
       initialGuess[this->tm(3)->ID()] = tm3_init;
     }
+    
+    TEUCHOS_ASSERT(_backgroundFlow->numSolutions() == 1);
+    TEUCHOS_ASSERT(_solnPrevTime->numSolutions() == 1);
+    const int solutionOrdinal = 0;
 
-    _backgroundFlow->projectOntoMesh(initialGuess);
-    _solnPrevTime->projectOntoMesh(initialGuess);
+    _backgroundFlow->projectOntoMesh(initialGuess, solutionOrdinal);
+    _solnPrevTime->projectOntoMesh(initialGuess, solutionOrdinal);
   }
   else
   {

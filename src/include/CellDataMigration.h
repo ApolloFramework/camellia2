@@ -50,7 +50,7 @@ namespace Camellia
   
 class CellDataMigration
 {
-  // ! cellCoefficients stores solution data that has been migrated to this MPI rank, but not yet stored to the appropriate Solution object.
+  // ! solutionCoefficients stores solution data that has been migrated to this MPI rank, but not yet stored to the appropriate Solution object.
   // ! The method processSolutionCoefficients() will process these, and clear the container.  (The deferral is necessary because we may not
   // ! have assigned global degrees of freedom to the cell in question by the time we receive the solution coefficients for the cell.)
   // ! This is not an ideal design, for many reasons.  It would be better to communicate solution coefficients independently of Zoltan; that
