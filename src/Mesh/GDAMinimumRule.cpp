@@ -611,8 +611,9 @@ void GDAMinimumRule::interpretGlobalCoefficients(GlobalIndexType cellID, Intrepi
   }
   else
   {
-    Intrepid::FieldContainer<double> globalCoefficientsFC(globalCoefficients.NumVectors(), globalIndexVector->size());
+    Intrepid::FieldContainer<double> globalCoefficientsFC(globalIndexVector->size());
     Epetra_BlockMap partMap = globalCoefficients.Map();
+    
     for (int vectorOrdinal=0; vectorOrdinal < globalCoefficients.NumVectors(); vectorOrdinal++)
     {
       for (int i=0; i<globalIndexVector->size(); i++)
@@ -621,16 +622,26 @@ void GDAMinimumRule::interpretGlobalCoefficients(GlobalIndexType cellID, Intrepi
         int localIndex = partMap.LID(globalIndex);
         if (localIndex != -1)
         {
-          globalCoefficientsFC(vectorOrdinal,i) = globalCoefficients[vectorOrdinal][localIndex];
+          globalCoefficientsFC(i) = globalCoefficients[vectorOrdinal][localIndex];
         }
         else
         {
           // non-local coefficient: ignore
-          globalCoefficientsFC(vectorOrdinal,i) = 0;
+          globalCoefficientsFC(i) = 0;
         }
       }
+      auto vectorLocalCoefficients = dofMapper->mapGlobalCoefficients(globalCoefficientsFC);
+      auto numLocalCoefficients = vectorLocalCoefficients.size();
+      if (vectorOrdinal == 0)
+      {
+        // resize localCoefficients according to the first returned guy:
+        localCoefficients.resize(globalCoefficients.NumVectors(), numLocalCoefficients);
+      }
+      for (int localDofOrdinal=0; localDofOrdinal<numLocalCoefficients; localDofOrdinal++)
+      {
+        localCoefficients(vectorOrdinal,localDofOrdinal) = vectorLocalCoefficients(localDofOrdinal);
+      }
     }
-    localCoefficients = dofMapper->mapGlobalCoefficients(globalCoefficientsFC);
   }
 //  cout << "For cellID " << cellID << ", mapping globalData:\n " << globalDataFC;
 //  cout << " to localData:\n " << localDofs;
