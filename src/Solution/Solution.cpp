@@ -1651,12 +1651,12 @@ void TSolution<Scalar>::importSolution()
     myDof++;
   }
 //  cout << "on rank " << rank << ", about to create myCellsMap\n";
-  Epetra_Map     myCellsMap(-1, globalDofIndicesForMyCells.size(), myDofs, 0, *Comm);
+  Epetra_Map     myCellsMap = Epetra_Map(-1, globalDofIndicesForMyCells.size(), myDofs, 0, *Comm); // 0: IndexBase
 
   // Import solution onto current processor
   Epetra_Map partMap = getPartitionMap();
   Epetra_Import  solnImporter(myCellsMap, partMap);
-  Epetra_Vector  solnCoeff(myCellsMap);
+  Epetra_MultiVector  solnCoeff(myCellsMap, _lhsVector->NumVectors());
 //  cout << "on rank " << rank << ", about to Import\n";
   solnCoeff.Import(*_lhsVector, solnImporter, Insert);
 //  cout << "on rank " << rank << ", returned from Import\n";
@@ -1674,8 +1674,23 @@ void TSolution<Scalar>::importSolution()
     }
     else
     {
+//      { // DEBUGGING
+//        cout << "For multi-solution, passing solnCoeff to interpretGlobalCoefficients:\n";
+//        int myLength = solnCoeff.MyLength();
+//        int myRank = Comm->MyPID();
+//        for (int solutionOrdinal=0; solutionOrdinal<numSolutions; solutionOrdinal++)
+//        {
+//          for (int localOrdinal=0; localOrdinal<myLength; localOrdinal++)
+//          {
+//            cout << "On rank " << myRank << ", solnCoeff[" << solutionOrdinal << "][" << localOrdinal << "] = ";
+//            cout << solnCoeff[solutionOrdinal][localOrdinal] << endl;;
+//          }
+//        }
+//      }
+      
       Intrepid::FieldContainer<Scalar> cellDofs(numSolutions,_mesh->getElementType(cellID)->trialOrderPtr->totalDofs());
       _dofInterpreter->interpretGlobalCoefficients(cellID,cellDofs,solnCoeff);
+//      cout << "cellDofs returned by interpretGlobalCoefficients (for multi-solution):\n" << cellDofs;
       int numDofs = _mesh->getElementType(cellID)->trialOrderPtr->totalDofs();
       for (int solutionOrdinal=0; solutionOrdinal<numSolutions; solutionOrdinal++)
       {
@@ -2813,7 +2828,7 @@ void TSolution<Scalar>::solutionValues(Intrepid::FieldContainer<Scalar> &values,
       }
     }
 
-//    cout << "solnCoeffs:\n" << *solnCoeffs;
+//    cout << "solnCoeffs:\n" << solnCoeffs;
 
     const vector<int> *dofIndices = fluxOrTrace ? &(trialOrder->getDofIndices(trialID,sideIndex))
                                                 : &(trialOrder->getDofIndices(trialID));
