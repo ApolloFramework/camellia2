@@ -78,28 +78,94 @@ namespace
     auto soln_OneRHS = simplePoissonSolution                (elementWidths, H1Order, useConformingTraces);
     auto soln_TwoRHS = simplePoissonSolutionWithSecondaryRHS(elementWidths, H1Order, useConformingTraces);
     
-    {
-      // DEBUGGING: write out the matrices and RHSes to file
-      soln_OneRHS->setWriteMatrixToMatrixMarketFile(true, "/tmp/A_one.dat");
-      soln_TwoRHS->setWriteMatrixToMatrixMarketFile(true, "/tmp/A_two.dat");
-      soln_OneRHS->setWriteRHSToMatrixMarketFile(true, "/tmp/b_one.dat");
-      soln_TwoRHS->setWriteRHSToMatrixMarketFile(true, "/tmp/b_two.dat");
-    }
+//    {
+//      // DEBUGGING: write out the matrices and RHSes to file
+//      soln_OneRHS->setWriteMatrixToMatrixMarketFile(true, "/tmp/A_one.dat");
+//      soln_TwoRHS->setWriteMatrixToMatrixMarketFile(true, "/tmp/A_two.dat");
+//      soln_OneRHS->setWriteRHSToMatrixMarketFile(true, "/tmp/b_one.dat");
+//      soln_TwoRHS->setWriteRHSToMatrixMarketFile(true, "/tmp/b_two.dat");
+//    }
     
     soln_OneRHS->solve();
     soln_TwoRHS->solve();
     
-    {
-      // DEBUGGING:
-      auto lhs_OneRHS = soln_OneRHS->getLHSVector();
-      auto lhs_TwoRHS = soln_TwoRHS->getLHSVector();
-      bool includeHeaders = true;
-      
-      EpetraExt::MultiVectorToMatrixMarketFile("/tmp/x_one.dat",*lhs_OneRHS,0,0,includeHeaders);
-      EpetraExt::MultiVectorToMatrixMarketFile("/tmp/x_two.dat",*lhs_TwoRHS,0,0,includeHeaders);
-    }
+//    {
+//      // DEBUGGING:
+//      auto lhs_OneRHS = soln_OneRHS->getLHSVector();
+//      auto lhs_TwoRHS = soln_TwoRHS->getLHSVector();
+//      bool includeHeaders = true;
+//
+//      EpetraExt::MultiVectorToMatrixMarketFile("/tmp/x_one.dat",*lhs_OneRHS,0,0,includeHeaders);
+//      EpetraExt::MultiVectorToMatrixMarketFile("/tmp/x_two.dat",*lhs_TwoRHS,0,0,includeHeaders);
+//    }
     
     // we want to check that the (primary) solutions match each other
+    // we'll do some higher-level tests below, but to start with, we'll check that the solution coefficients match
+    auto lhs_OneRHS = soln_OneRHS->getLHSVector();
+    auto lhs_TwoRHS = soln_TwoRHS->getLHSVector(); // the first column of this should match the first column of lhs_OneRHS
+    
+    int localLength = lhs_OneRHS->MyLength();
+    TEST_EQUALITY(localLength, lhs_TwoRHS->MyLength()); // the value distribution across MPI should also match
+    
+    // we take advantage of the fact that the value distribution should match here
+    for (int i=0; i<localLength; i++)
+    {
+      auto oneRHSValue = (*lhs_OneRHS)[0][i];
+      auto twoRHSValue = (*lhs_TwoRHS)[0][i];
+      // also use tol as a ceiling for rounding to zero:
+      if ((abs(oneRHSValue) < tol) && ((abs(twoRHSValue) < tol)))
+      {
+        continue;
+      }
+      TEST_FLOATING_EQUALITY(oneRHSValue, twoRHSValue, tol);
+    }
+    
+    // Solution *also* stores a cell-local representation of solution coefficients, and this should also match
+    // for the first (0) solution ordinals.
+    auto & myCellIDs = soln_OneRHS->mesh()->cellIDsInPartition();
+    for (auto cellID : myCellIDs)
+    {
+      bool warnAboutOffRank = true; // should all be on-rank
+      const int solutionOrdinal = 0;
+      auto & coeffsOne = soln_OneRHS->allCoefficientsForCellID(cellID,warnAboutOffRank,solutionOrdinal);
+      auto & coeffsTwo = soln_TwoRHS->allCoefficientsForCellID(cellID,warnAboutOffRank,solutionOrdinal);
+      if (coeffsOne.size() != coeffsTwo.size())
+      {
+        out << "FAILURE: Sizes differ: coeffsOne is of length " << coeffsOne.size();
+        out << ", while coeffsTwo is of length " << coeffsTwo.size() << endl;
+        success = false;
+      }
+      else
+      {
+        int dofCount = coeffsOne.size();
+        bool savedSuccess = success; // allows us to detect local failure
+        success = true;
+        for (int dofOrdinal=0; dofOrdinal<dofCount; dofOrdinal++)
+        {
+          auto dofOne = coeffsOne[dofOrdinal];
+          auto dofTwo = coeffsTwo[dofOrdinal];
+          if ((abs(dofOne) < tol) && (abs(dofTwo) < tol))
+          {
+            // both zero, essentially
+            continue;
+          }
+          else
+          {
+            TEST_FLOATING_EQUALITY(dofOne, dofTwo, tol);
+          }
+        }
+        if (!success) // local failure
+        {
+          out << "Dofs do not match on cell ID " << cellID << endl;
+          out << "coeffsOne:\n" << coeffsOne;
+          out << "coeffsTwo:\n" << coeffsTwo;
+        }
+        // copy back saved value of success
+        success = savedSuccess;
+      }
+    }
+    
+    // higher-level check below -- check that the solutions globally match
     PoissonFormulation poissonForm(spaceDim, useConformingTraces);
     VarPtr u = poissonForm.u();
     
