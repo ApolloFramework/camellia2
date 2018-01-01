@@ -122,6 +122,15 @@ int main(int argc, char *argv[])
     return -1;
   }
 
+  if (commRank == 0)
+  {
+    // for now, just print out the error indicator choice
+    cout << "Selected options:\n";
+    cout << " - Error Indicator: " << errorIndicator << endl;
+    cout << endl << endl;
+  }
+  
+  
   Teuchos::RCP<Teuchos::Time> totalTimer = Teuchos::TimeMonitor::getNewCounter("Total Time");
   totalTimer->start(true);
 
