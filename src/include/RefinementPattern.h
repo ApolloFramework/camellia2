@@ -19,6 +19,9 @@
 
 // #include "MeshTopology.h"
 
+#include <map>
+#include <set>
+
 using namespace std;
 
 namespace Camellia {

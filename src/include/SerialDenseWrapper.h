@@ -13,6 +13,8 @@
 #include "Epetra_SerialDenseMatrix.h"
 #include "Epetra_DataAccess.h"
 
+#include <set>
+
 namespace Camellia
 {
   class SerialDenseWrapper

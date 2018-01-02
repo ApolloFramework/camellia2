@@ -15,6 +15,10 @@
 #ifndef Camellia_TimeLogger_h
 #define Camellia_TimeLogger_h
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include "Teuchos_RCP.hpp"
 
 class Epetra_Time;

@@ -34,6 +34,9 @@
 #warning "HAVE_EPETRAEXT_HDF5 is not defined."
 #endif
 
+#include <set>
+#include <vector>
+
 namespace Camellia {
   
   class MeshTransformationFunction;
