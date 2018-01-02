@@ -151,7 +151,8 @@ public:
   void bubnovStiffness(Intrepid::FieldContainer<Scalar> &stiffness, Teuchos::RCP<ElementType> elemType,
                        Intrepid::FieldContainer<double> &cellSideParities, Teuchos::RCP<BasisCache> basisCache);
 
-  TLinearTermPtr<Scalar> testFunctional(TSolutionPtr<Scalar> trialSolution, bool excludeBoundaryTerms=false, bool overrideMeshCheck=false);
+  TLinearTermPtr<Scalar> testFunctional(TSolutionPtr<Scalar> trialSolution, bool excludeBoundaryTerms=false, bool overrideMeshCheck=false,
+                                        int solutionOrdinal=0);
 
   virtual bool trialTestOperator(int trialID, int testID,
                                  Camellia::EOperator &trialOperator,

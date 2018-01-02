@@ -1608,7 +1608,8 @@ namespace Camellia
   }
   
   template <typename Scalar>
-  TLinearTermPtr<Scalar> TBF<Scalar>::testFunctional(TSolutionPtr<Scalar> trialSolution, bool excludeBoundaryTerms, bool overrideMeshCheck)
+  TLinearTermPtr<Scalar> TBF<Scalar>::testFunctional(TSolutionPtr<Scalar> trialSolution, bool excludeBoundaryTerms, bool overrideMeshCheck,
+                                                     int solutionOrdinal)
   {
     TLinearTermPtr<Scalar> functional = Teuchos::rcp(new LinearTerm());
     for (typename vector< TBilinearTerm<Scalar> >:: iterator btIt = _terms.begin();
@@ -1617,7 +1618,9 @@ namespace Camellia
       TBilinearTerm<Scalar> bt = *btIt;
       TLinearTermPtr<Scalar> trialTerm = btIt->first;
       TLinearTermPtr<Scalar> testTerm = btIt->second;
-      TFunctionPtr<Scalar> trialValue = Teuchos::rcp( new PreviousSolutionFunction<Scalar>(trialSolution, trialTerm) );
+      bool multiplyFluxesByParity = true; // default for PreviousSolutionFunction constructor
+      TFunctionPtr<Scalar> trialValue = Teuchos::rcp( new PreviousSolutionFunction<Scalar>(trialSolution, trialTerm,
+                                                                                           multiplyFluxesByParity, solutionOrdinal) );
       static_cast< PreviousSolutionFunction<Scalar>* >(trialValue.get())->setOverrideMeshCheck(overrideMeshCheck);
       if ( (! excludeBoundaryTerms) || (! trialValue->boundaryValueOnly()) )
       {
