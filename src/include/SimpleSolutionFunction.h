@@ -25,8 +25,9 @@ class SimpleSolutionFunction : public TFunction<Scalar>
   TSolutionPtr<Scalar> _soln;
   VarPtr _var;
   bool _weightFluxesBySideParity;
+  int _solutionOrdinal;
 public:
-  SimpleSolutionFunction(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity);
+  SimpleSolutionFunction(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal);
   void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
   TFunctionPtr<Scalar> x();
   TFunctionPtr<Scalar> y();

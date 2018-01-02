@@ -15,11 +15,12 @@ using namespace std;
 
 template <typename Scalar>
 SimpleSolutionFunction<Scalar>::SimpleSolutionFunction(VarPtr var, TSolutionPtr<Scalar> soln,
-                                                       bool weightFluxesBySideParity) : TFunction<Scalar>(var->rank())
+                                                       bool weightFluxesBySideParity, int solutionOrdinal) : TFunction<Scalar>(var->rank())
 {
   _var = var;
   _soln = soln;
   _weightFluxesBySideParity = weightFluxesBySideParity;
+  _solutionOrdinal = solutionOrdinal;
 }
 
 template <typename Scalar>
@@ -58,10 +59,11 @@ void SimpleSolutionFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &va
   bool dontWeightForCubature = false;
   if (basisCache->mesh() != Teuchos::null)   // then we assume that the BasisCache is appropriate for solution's mesh...
   {
-    _soln->solutionValues(values, _var->ID(), basisCache, dontWeightForCubature, _var->op());
+    _soln->solutionValues(values, _var->ID(), basisCache, dontWeightForCubature, _var->op(), _solutionOrdinal);
   }
   else
   {
+    TEUCHOS_TEST_FOR_EXCEPTION(_solutionOrdinal != 0, std::invalid_argument, "SimpleSolutionFunction only supports non-zero solutionOrdinals for BasisCaches with meshes defined.");
     // the following adapted from PreviousSolutionFunction.  Probably would do well to consolidate
     // that class with this one at some point...
     LinearTermPtr solnExpression = 1.0 * _var;
