@@ -333,7 +333,11 @@ int main(int argc, char *argv[])
            << endl;
 
   Teuchos::RCP<HDF5Exporter> exporter;
+  // Teuchos::RCP<HDF5Exporter> functionExporter;
   exporter = Teuchos::rcp(new HDF5Exporter(mesh,solnName.str(), outputDir));
+  // string exporterName = "TestFunctions";
+  // exporterName = thisRunPrefix.str() + exporterName;
+  // functionExporter = Teuchos::rcp(new HDF5Exporter(mesh, exporterName));
 
   double energyThreshold = 0.5;
   RefinementStrategyPtr refStrategy;
@@ -396,6 +400,21 @@ int main(int argc, char *argv[])
     soln->solve(solver);
 
     double solveTime = solverTime->stop();
+
+    // compute error rep function / influence function
+    bool excludeBoundaryTerms = false;
+    LinearTermPtr residual = rhs()->linearTerm() - bf->testFunctional(soln,excludeBoundaryTerms);
+    LinearTermPtr influence = bf->testFunctional(soln,excludeBoundaryTerms);
+    RieszRepPtr rieszResidual = Teuchos::rcp(new RieszRep(mesh, ip, residual));
+    RieszRepPtr dualSoln = Teuchos::rcp(new RieszRep(mesh, ip, influence));
+    rieszResidual->computeRieszRep();
+    dualSoln->computeRieszRep();
+    // extract the component of psi corresponding to the first test velocity component
+    FunctionPtr psi_v =  Teuchos::rcp( new RepFunction<double>(form.v(), rieszResidual) );
+    FunctionPtr psi_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), rieszResidual) );
+    FunctionPtr dualSoln_v =  Teuchos::rcp( new RepFunction<double>(form.v(), dualSoln) );
+    FunctionPtr dualSoln_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), dualSoln) );
+
 
     double energyError = soln->energyErrorTotal();
 
