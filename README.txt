@@ -64,6 +64,8 @@ HDF5 install (serial build, not suitable for parallel builds of Trilinos):
    -D TPL_HDF5_INCLUDE_DIRS:FILEPATH=/Users/nroberts/local/hdf5-serial/include \
    -D EpetraExt_USING_HDF5:BOOL=ON \
 
+Note that HDF5 1.10.x appears to be incompatible with the EpetraExt class that Camellia relies on for HDF5 output.  Therefore, 1.8.x is strongly recommended.
+
 Scalapack install:
 1. Download source from http://www.netlib.org/scalapack/
 2. cd into source dir.
