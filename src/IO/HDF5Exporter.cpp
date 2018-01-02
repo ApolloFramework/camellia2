@@ -91,23 +91,34 @@ void HDF5Exporter::exportSolution(TSolutionPtr<double> solution, double timeVal,
 
   vector<TFunctionPtr<double>> fieldFunctions;
   vector<string> fieldFunctionNames;
-  for (int i=0; i < fieldTrialIDs.size(); i++)
-  {
-    fieldVars.push_back(varFactory->trial(fieldTrialIDs[i]));
-    TFunctionPtr<double> fieldFunction = TFunction<double>::solution(fieldVars[i], solution);
-    string fieldFunctionName = fieldVars[i]->name();
-    fieldFunctions.push_back(fieldFunction);
-    fieldFunctionNames.push_back(fieldFunctionName);
-  }
   vector<TFunctionPtr<double>> traceFunctions;
   vector<string> traceFunctionNames;
-  for (int i=0; i < traceTrialIDs.size(); i++)
+  
+  int numSolutions = solution->numSolutions();
+  for (int solutionOrdinal=0; solutionOrdinal<numSolutions; solutionOrdinal++)
   {
-    traceVars.push_back(varFactory->trial(traceTrialIDs[i]));
-    TFunctionPtr<double> traceFunction = TFunction<double>::solution(traceVars[i], solution, false); // false: don't weight by sideParity
-    string traceFunctionName = traceVars[i]->name();
-    traceFunctions.push_back(traceFunction);
-    traceFunctionNames.push_back(traceFunctionName);
+    string namePrefix;
+    if      (solutionOrdinal == 0) namePrefix = "";
+    else if (solutionOrdinal == 1) namePrefix = "influence_";
+    else                           namePrefix = "unlabelled_"; // not *yet* supported by Solution, but could be someday...
+    bool dontWeightByParity = false; // inconsequential for field variables; allows unique value for traces...
+    
+    for (int i=0; i < fieldTrialIDs.size(); i++)
+    {
+      fieldVars.push_back(varFactory->trial(fieldTrialIDs[i]));
+      TFunctionPtr<double> fieldFunction = TFunction<double>::solution(fieldVars[i], solution, dontWeightByParity, solutionOrdinal);
+      string fieldFunctionName = namePrefix + fieldVars[i]->name();
+      fieldFunctions.push_back(fieldFunction);
+      fieldFunctionNames.push_back(fieldFunctionName);
+    }
+    for (int i=0; i < traceTrialIDs.size(); i++)
+    {
+      traceVars.push_back(varFactory->trial(traceTrialIDs[i]));
+      TFunctionPtr<double> traceFunction = TFunction<double>::solution(traceVars[i], solution, dontWeightByParity, solutionOrdinal);
+      string traceFunctionName = namePrefix + traceVars[i]->name();
+      traceFunctions.push_back(traceFunction);
+      traceFunctionNames.push_back(traceFunctionName);
+    }
   }
   if (fieldFunctions.size() > 0)
     exportFunction(fieldFunctions, fieldFunctionNames, timeVal, defaultNum1DPts, cellIDToNum1DPts, cellIndices);
