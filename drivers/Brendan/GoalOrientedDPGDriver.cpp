@@ -333,11 +333,11 @@ int main(int argc, char *argv[])
            << endl;
 
   Teuchos::RCP<HDF5Exporter> exporter;
-  // Teuchos::RCP<HDF5Exporter> functionExporter;
+  Teuchos::RCP<HDF5Exporter> functionExporter;
   exporter = Teuchos::rcp(new HDF5Exporter(mesh,solnName.str(), outputDir));
-  // string exporterName = "TestFunctions";
-  // exporterName = thisRunPrefix.str() + exporterName;
-  // functionExporter = Teuchos::rcp(new HDF5Exporter(mesh, exporterName));
+  string exporterName = "_DualSolutions";
+  exporterName = solnName.str() + exporterName;
+  functionExporter = Teuchos::rcp(new HDF5Exporter(mesh, exporterName));
 
   double energyThreshold = 0.5;
   RefinementStrategyPtr refStrategy;
@@ -352,7 +352,8 @@ int main(int argc, char *argv[])
   }
   else if (errorIndicator == "GoalOriented")
   {
-    // for now, this is just the standard solution-oriented strategy
+    // for now, this is just the UNIFORM strategy
+    energyThreshold = 0;
     refStrategy = Teuchos::rcp( new RefinementStrategy(ErrorIndicator::energyErrorIndicator(soln), energyThreshold) );
   }  
   else
@@ -401,20 +402,30 @@ int main(int argc, char *argv[])
 
     double solveTime = solverTime->stop();
 
-    // compute error rep function / influence function
-    bool excludeBoundaryTerms = false;
-    LinearTermPtr residual = rhs()->linearTerm() - bf->testFunctional(soln,excludeBoundaryTerms);
-    LinearTermPtr influence = bf->testFunctional(soln,excludeBoundaryTerms);
-    RieszRepPtr rieszResidual = Teuchos::rcp(new RieszRep(mesh, ip, residual));
-    RieszRepPtr dualSoln = Teuchos::rcp(new RieszRep(mesh, ip, influence));
-    rieszResidual->computeRieszRep();
-    dualSoln->computeRieszRep();
-    // extract the component of psi corresponding to the first test velocity component
-    FunctionPtr psi_v =  Teuchos::rcp( new RepFunction<double>(form.v(), rieszResidual) );
-    FunctionPtr psi_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), rieszResidual) );
-    FunctionPtr dualSoln_v =  Teuchos::rcp( new RepFunction<double>(form.v(), dualSoln) );
-    FunctionPtr dualSoln_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), dualSoln) );
+    vector<FunctionPtr> functionsToExport;
+    vector<string> functionsToExportNames;
+    if (errorIndicator == "GoalOriented")
+    {
+      // compute error rep function / influence function
+      bool excludeBoundaryTerms = false;
+      const bool overrideMeshCheck = false; // testFunctional() default for third argument
+      const int solutionOrdinal = 1; // solution corresponding to second RHS
+      LinearTermPtr residual = rhs()->linearTerm() - bf->testFunctional(soln,excludeBoundaryTerms);
+      LinearTermPtr influence = bf->testFunctional(soln,excludeBoundaryTerms,overrideMeshCheck,solutionOrdinal);
+      RieszRepPtr rieszResidual = Teuchos::rcp(new RieszRep(mesh, ip, residual));
+      RieszRepPtr dualSoln = Teuchos::rcp(new RieszRep(mesh, ip, influence));
+      rieszResidual->computeRieszRep();
+      dualSoln->computeRieszRep();
+      // extract the test functions
+      FunctionPtr psi_v, psi_tau, dualSoln_v, dualSoln_tau;
+      psi_v =  Teuchos::rcp( new RepFunction<double>(form.v(), rieszResidual) );
+      psi_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), rieszResidual) );
+      dualSoln_v =  Teuchos::rcp( new RepFunction<double>(form.v(), dualSoln) );
+      dualSoln_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), dualSoln) );
 
+      functionsToExport = {dualSoln_v, dualSoln_tau};
+      functionsToExportNames = {"v", "tau"};
+    }
 
     double energyError = soln->energyErrorTotal();
 
@@ -458,7 +469,12 @@ int main(int argc, char *argv[])
     if (exportSolution)
     {
       exporter->exportSolution(soln, refIndex);
-      
+
+      if (errorIndicator == "GoalOriented")
+      {
+        int numLinearPointsPlotting = max(k,15);
+        functionExporter->exportFunction(functionsToExport, functionsToExportNames, refIndex, numLinearPointsPlotting);
+      }
       // // output mesh with GnuPlotUtil
       // ostringstream meshExportName;
       // meshExportName << outputDir << "/" << solnName.str() << "/" << "ref" << refIndex << "_mesh";
