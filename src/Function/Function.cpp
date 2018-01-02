@@ -1625,15 +1625,23 @@ TFunctionPtr<Scalar> TFunction<Scalar>::solution(VarPtr var, TSolutionPtr<Scalar
 {
   TEUCHOS_TEST_FOR_EXCEPTION(var->varType() == FLUX, std::invalid_argument, "For flux variables, must provide a weightFluxesBySideParity argument");
   bool weightFluxesBySideParity = false; // inconsequential for non-fluxes
-  return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity) );
+  int solutionOrdinal = 0;
+  return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity, solutionOrdinal) );
 }
 
 template <typename Scalar>
 TFunctionPtr<Scalar> TFunction<Scalar>::solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity)
 {
-  return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity) );
+  int solutionOrdinal = 0;
+  return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity, solutionOrdinal) );
 }
 
+  template <typename Scalar>
+  TFunctionPtr<Scalar> TFunction<Scalar>::solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal)
+  {
+    return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity, solutionOrdinal) );
+  }
+  
   template <typename Scalar>
   TFunctionPtr<Scalar> TFunction<Scalar>::sqrtFunction(TFunctionPtr<Scalar> f)
   {

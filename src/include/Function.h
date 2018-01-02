@@ -190,6 +190,8 @@ public:
   static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln);
   // ! When weightFluxesBySideParity = true, the solution function will be non-uniquely-valued
   static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity);
+  // ! Use this for solutions with multiple RHSes (including influence computations)
+  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal);
   static TFunctionPtr<double> zero(int rank=0);
   static TFunctionPtr<Scalar> restrictToCellBoundary(TFunctionPtr<Scalar> f);
 
