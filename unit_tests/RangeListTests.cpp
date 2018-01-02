@@ -14,6 +14,8 @@
 #include "RangeList.h"
 #include "TypeDefs.h"
 
+#include <set>
+
 using namespace Camellia;
 using namespace std;
 

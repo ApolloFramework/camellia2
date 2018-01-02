@@ -18,6 +18,8 @@ using namespace Camellia;
 using namespace Intrepid;
 using namespace std;
 
+#include <set>
+
 #include "Teuchos_UnitTestHarness.hpp"
 namespace
 {
