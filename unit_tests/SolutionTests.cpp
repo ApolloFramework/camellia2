@@ -292,76 +292,116 @@ namespace
     }
   }
   
-  TEUCHOS_UNIT_TEST( Solution, AddSolution )
+  void testAddSolution(int spaceDim, int H1Order, int elementWidth, bool includeHangingNodes, double tol, Teuchos::FancyOStream &out, bool &success)
   {
     MPIWrapper::CommWorld()->Barrier();
     bool useConformingTraces = true;
-    int H1Order = 2;
-    int elementWidth = 2;
-    double tol = 1e-14;
-    for (int spaceDim=1; spaceDim <= 3; spaceDim++)
+    
+    MeshPtr poissonMesh;
+    if (includeHangingNodes)
     {
-      MeshPtr poissonMesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
-      PoissonFormulation poissonForm(spaceDim, useConformingTraces);
-      
-      VarPtr u_hat = poissonForm.u_hat();
-      FunctionPtr value = Function::constant(1.0);
-      SolutionPtr solution = Solution::solution(poissonMesh);
-      const int solutionOrdinal = 0;
-      solution->projectOntoMesh({{u_hat->ID(), value}}, solutionOrdinal);
-      
-      SolutionPtr solutionAdded = Solution::solution(poissonMesh);
-      solutionAdded->addSolution(solution, 1.0);
-      
-      FunctionPtr uHatSoln = Function::solution(u_hat, solution, false);
-      FunctionPtr uHatSolnAdded = Function::solution(u_hat, solutionAdded, false);
-      
-      double l2norm = uHatSoln->l2norm(poissonMesh);
-      TEST_COMPARE(l2norm, >, 0);
-      
-      double err = (uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
-      TEST_COMPARE(err, <, tol);
-      
-      solutionAdded->addSolution(solution, 1.0);
-      err = (2 * uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
-      TEST_COMPARE(err, <, tol);
+      const int irregularity = 1;
+      poissonMesh = poissonIrregularMesh(spaceDim, irregularity, H1Order);
     }
+    else
+    {
+      poissonMesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
+    }
+    PoissonFormulation poissonForm(spaceDim, useConformingTraces);
+    
+    VarPtr u_hat = poissonForm.u_hat();
+    FunctionPtr value = Function::constant(1.0);
+    SolutionPtr solution = Solution::solution(poissonMesh);
+    const int solutionOrdinal = 0;
+    solution->projectOntoMesh({{u_hat->ID(), value}}, solutionOrdinal);
+    
+    SolutionPtr solutionAdded = Solution::solution(poissonMesh);
+    solutionAdded->addSolution(solution, 1.0);
+    
+    FunctionPtr uHatSoln = Function::solution(u_hat, solution, false);
+    FunctionPtr uHatSolnAdded = Function::solution(u_hat, solutionAdded, false);
+    
+    // sanity check: both L^2 norms are > 0
+    double l2norm = uHatSoln->l2norm(poissonMesh);
+    TEST_COMPARE(l2norm, >, 0);
+    
+    double l2normAdded = uHatSolnAdded->l2norm(poissonMesh);
+    TEST_COMPARE(l2normAdded, >, 0);
+    
+    TEST_FLOATING_EQUALITY(l2norm, l2normAdded, tol);
+    
+    double err = (uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
+    TEST_COMPARE(err, <, tol);
+    
+    solutionAdded->addSolution(solution, 1.0);
+    err = (2 * uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
+    TEST_COMPARE(err, <, tol);
   }
   
-  TEUCHOS_UNIT_TEST( Solution, AddSolutionWithHangingNodes )
+  TEUCHOS_UNIT_TEST( Solution, AddSolution_1D )
   {
-    MPIWrapper::CommWorld()->Barrier();
-    bool useConformingTraces = true;
-    int H1Order = 2;
-    int irregularity = 1;
+    const int H1Order = 2;
+    const int elementWidth = 2;
+    const int spaceDim = 1;
+    const bool hangingNodes = false;
+    double tol = 1e-14;
+    
+    testAddSolution(spaceDim, H1Order, elementWidth, hangingNodes, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( Solution, AddSolution_2D )
+  {
+    const int H1Order = 2;
+    const int elementWidth = 2;
+    const int spaceDim = 2;
+    const bool hangingNodes = false;
+    double tol = 1e-14;
+    
+    testAddSolution(spaceDim, H1Order, elementWidth, hangingNodes, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( Solution, AddSolution_3D )
+  {
+    const int H1Order = 2;
+    const int elementWidth = 2;
+    const int spaceDim = 3;
+    const bool hangingNodes = false;
+    double tol = 1e-14;
+    
+    testAddSolution(spaceDim, H1Order, elementWidth, hangingNodes, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( Solution, AddSolutionWithHangingNodes_1D )
+  {
+    const int H1Order = 2;
+    const int elementWidth = 2;
+    const int spaceDim = 1;
+    const bool hangingNodes = true;
+    double tol = 1e-14;
+    
+    testAddSolution(spaceDim, H1Order, elementWidth, hangingNodes, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( Solution, AddSolutionWithHangingNodes_2D )
+  {
+    const int H1Order = 2;
+    const int elementWidth = 2;
+    const int spaceDim = 2;
+    const bool hangingNodes = true;
+    double tol = 1e-13;
+    
+    testAddSolution(spaceDim, H1Order, elementWidth, hangingNodes, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( Solution, AddSolutionWithHangingNodes_3D )
+  {
+    const int H1Order = 2;
+    const int elementWidth = 2;
+    const int spaceDim = 3;
+    const bool hangingNodes = true;
     double tol = 1e-11;
-    for (int spaceDim=1; spaceDim <= 3; spaceDim++)
-    {
-      MeshPtr poissonMesh = poissonIrregularMesh(spaceDim, irregularity, H1Order);
-      PoissonFormulation poissonForm(spaceDim, useConformingTraces);
-      
-      VarPtr u_hat = poissonForm.u_hat();
-      FunctionPtr value = Function::constant(1.0);
-      SolutionPtr solution = Solution::solution(poissonMesh);
-      const int solutionOrdinal = 0;
-      solution->projectOntoMesh({{u_hat->ID(), value}}, solutionOrdinal);
-      
-      SolutionPtr solutionAdded = Solution::solution(poissonMesh);
-      solutionAdded->addSolution(solution, 1.0);
-      
-      FunctionPtr uHatSoln = Function::solution(u_hat, solution, false);
-      FunctionPtr uHatSolnAdded = Function::solution(u_hat, solutionAdded, false);
-      
-      double l2norm = uHatSoln->l2norm(poissonMesh);
-      TEST_COMPARE(l2norm, >, 0);
-
-      double err = (uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
-      TEST_COMPARE(err, <, tol);
-      
-      solutionAdded->addSolution(solution, 1.0);
-      err = (2 * uHatSoln - uHatSolnAdded)->l2norm(poissonMesh);
-      TEST_COMPARE(err, <, tol);
-    }
+    
+    testAddSolution(spaceDim, H1Order, elementWidth, hangingNodes, tol, out, success);
   }
   
   // TODO: finish moving AddSolution and AddSolutionCondensed, commented out below, from DPGTests (then delete there)
