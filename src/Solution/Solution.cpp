@@ -1141,7 +1141,9 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
       if (_goalOrientedRHS != Teuchos::null)
       {
         goalOrientedRHSValues.resize(numCells,numTrialDofs);
-        _goalOrientedRHS->integrate(goalOrientedRHSValues, trialOrderingPtr, basisCache);
+        bool forceBoundaryTerm = false;
+        bool sumInto = false;
+        _goalOrientedRHS->integrate(goalOrientedRHSValues, trialOrderingPtr, basisCache, forceBoundaryTerm, sumInto);
       }
       
       // apply filter(s) (e.g. penalty method, preconditioners, etc.)
@@ -1195,7 +1197,6 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
         if (_goalOrientedRHS != Teuchos::null)
         {
           Intrepid::FieldContainer<Scalar> cellGoalOrientedRHS(localRHSDim,&goalOrientedRHSValues(cellIndex,0)); // shallow copy
-          // here, we end up "interpretig" the stiffness
           _dofInterpreter->interpretLocalData(cellID, cellGoalOrientedRHS, interpretedRHS, globalDofIndices);
           const int GOAL_ORIENTED_RHS_INDEX = 1;
           _rhsVector->SumIntoGlobalValues(globalDofIndices.size(),&globalDofIndicesCast(0),&interpretedRHS[0],GOAL_ORIENTED_RHS_INDEX);
@@ -2028,6 +2029,8 @@ void TSolution<Scalar>::imposeBCs()
   int numBCs = bcsToImposeThisRank.size()-numDuplicates;
   vector<GlobalIndexTypeToCast> bcGlobalIndices(numBCs);
   vector<double> bcGlobalValues(numBCs);
+  int numGoalBCs = (numSolutions() > 1) ? numBCs : 0;
+  vector<double> goalBCValues(numGoalBCs,0.0); // homogeneous BCs for goal-oriented RHS
   int i_adjusted = 0; // adjusted to eliminate duplicates
   for (int i=0; i<bcsToImposeThisRank.size(); i++)
   {
@@ -2056,9 +2059,16 @@ void TSolution<Scalar>::imposeBCs()
   
   Epetra_MultiVector v(partMap,1);
   v.PutScalar(0.0);
+  const int firstSolutionOrdinal = 0, goalSolutionOrdinal = 1;
+  const int numSolutions = this->numSolutions();
   for (int i = 0; i < numBCs; i++)
   {
-    v.ReplaceGlobalValue(bcGlobalIndices[i], 0, bcGlobalValues[i]);
+    v.ReplaceGlobalValue(bcGlobalIndices[i], firstSolutionOrdinal, bcGlobalValues[i]);
+    if (numSolutions > 1)
+    {
+      // impose homogeneous constraints for the solution corresponding to goal RHS
+      v.ReplaceGlobalValue(bcGlobalIndices[i], goalSolutionOrdinal, 0.0);
+    }\
   }
   
   Epetra_MultiVector rhsDirichlet(partMap,1);
@@ -2078,7 +2088,15 @@ void TSolution<Scalar>::imposeBCs()
     {
       cout << "Error code " << err << " returned by rhsVector.ReplaceGlobalValues()\n";
     }
-    err = _lhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndices[0],&bcGlobalValues[0]);
+    err = _lhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndices[0],&bcGlobalValues[0],firstSolutionOrdinal);
+    if (err != 0)
+    {
+      cout << "Error code " << err << " returned by lhsVector.ReplaceGlobalValues()\n";
+    }
+    if (numSolutions > 1)
+    {
+      err = _lhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndices[0],&goalBCValues[0],goalSolutionOrdinal);
+    }
     if (err != 0)
     {
       cout << "Error code " << err << " returned by lhsVector.ReplaceGlobalValues()\n";
