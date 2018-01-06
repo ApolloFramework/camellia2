@@ -251,6 +251,7 @@ int main(int argc, char *argv[])
   ///////////////////////  DECLARE INNER PRODUCT ///////////////////////
   map<string, IPPtr> poissonIPs;
   poissonIPs["Graph"] = bf->graphNorm();
+  poissonIPs["Naive"] = bf->naiveNorm(spaceDim);
   IPPtr ip = poissonIPs[norm];
 
 
@@ -261,7 +262,17 @@ int main(int argc, char *argv[])
 
   //////////////////////  DECLARE GOAL FUNCTIONAL //////////////////////
   LinearTermPtr g;
-  g = 1*u;
+  FunctionPtr boundaryRestriction = Function::meshBoundaryCharacteristic();
+  FunctionPtr v_exact;
+  // v_exact = one;
+  // v_exact = x * x + 2 * x * y;
+  // v_exact = x * x * x * y + 2 * x * y * y;
+  v_exact = sin_pix * sin_piy;
+  // g = 1 * boundaryRestriction * sigma_n_hat;
+  // g = -2 * PI * PI * sin_pix * sin_piy * u;
+  g = 0*u;
+  // g = v_exact->dx()->dx() * u + v_exact->dy()->dy() * u;
+   // - v_exact * boundaryRestriction * sigma_n_hat;
   if (errorIndicator == "GoalOriented")
     soln->setGoalOrientedRHS(g);
 
@@ -409,7 +420,7 @@ int main(int argc, char *argv[])
       // compute error rep function / influence function
       bool excludeBoundaryTerms = false;
       const bool overrideMeshCheck = false; // testFunctional() default for third argument
-      const int solutionOrdinal = 1; // solution corresponding to second RHS
+      const int solutionOrdinal = 10; // solution corresponding to second RHS
       LinearTermPtr residual = rhs()->linearTerm() - bf->testFunctional(soln,excludeBoundaryTerms);
       LinearTermPtr influence = bf->testFunctional(soln,excludeBoundaryTerms,overrideMeshCheck,solutionOrdinal);
       RieszRepPtr rieszResidual = Teuchos::rcp(new RieszRep(mesh, ip, residual));
@@ -423,8 +434,8 @@ int main(int argc, char *argv[])
       dualSoln_v =  Teuchos::rcp( new RepFunction<double>(form.v(), dualSoln) );
       dualSoln_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), dualSoln) );
 
-      functionsToExport = {dualSoln_v, dualSoln_tau};
-      functionsToExportNames = {"v", "tau"};
+      functionsToExport = {psi_v, psi_tau, dualSoln_v, dualSoln_tau};
+      functionsToExportNames = {"psi_v", "psi_tau", "dual_v", "dual_tau"};
     }
 
     double energyError = soln->energyErrorTotal();
