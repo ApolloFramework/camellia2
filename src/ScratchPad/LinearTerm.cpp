@@ -805,7 +805,7 @@ bool TLinearTerm<Scalar>::isZero() const   // true if the TLinearTerm is identic
 //  if Var learned about its "base", and then in addition to tracking the varIDs set here, we also tracked vars.)
 template<typename Scalar>
 void TLinearTerm<Scalar>::evaluate(Intrepid::FieldContainer<Scalar> &values, TSolutionPtr<Scalar> solution, BasisCachePtr basisCache,
-                                   bool applyCubatureWeights)
+                                   bool applyCubatureWeights, int solutionOrdinal)
 {
   // int sideIndex = basisCache->getSideIndex();
   //  bool boundaryTerm = (sideIndex != -1);
@@ -886,7 +886,7 @@ void TLinearTerm<Scalar>::evaluate(Intrepid::FieldContainer<Scalar> &values, TSo
 
     f->values(fValues,basisCache);
     solution->solutionValues(solnValues,var->ID(),basisCache,
-                             applyCubatureWeights,var->op());
+                             applyCubatureWeights,var->op(),solutionOrdinal);
 
     std::vector<int> fDim(fValues.rank());
     std::vector<int> solnDim(solnValues.rank());

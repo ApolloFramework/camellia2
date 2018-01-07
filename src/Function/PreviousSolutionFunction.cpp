@@ -80,10 +80,11 @@ template <typename Scalar>
 void PreviousSolutionFunction<Scalar>::values(FieldContainer<Scalar> &values, BasisCachePtr basisCache)
 {
   int rank = Teuchos::GlobalMPISession::getRank();
-
+  const bool applyCubatureWeights = false;
+  
   if (_overrideMeshCheck)
   {
-    _solnExpression->evaluate(values, _soln, basisCache);
+    _solnExpression->evaluate(values, _soln, basisCache, applyCubatureWeights, _solnOrdinal);
     return;
   }
   if (!basisCache.get()) cout << "basisCache is nil!\n";
@@ -91,7 +92,7 @@ void PreviousSolutionFunction<Scalar>::values(FieldContainer<Scalar> &values, Ba
   // values are stored in (C,P,D) order
   if (basisCache->mesh().get() == _soln->mesh().get())
   {
-    _solnExpression->evaluate(values, _soln, basisCache);
+    _solnExpression->evaluate(values, _soln, basisCache, applyCubatureWeights, _solnOrdinal);
   }
   else
   {
@@ -140,7 +141,7 @@ void PreviousSolutionFunction<Scalar>::values(FieldContainer<Scalar> &values, Ba
         basisCacheOnePoint->setRefCellPoints(refPoint);
         //          cout << "refCellPoints:\n " << refPoint;
         //          cout << "physicalCubaturePoints:\n " << basisCacheOnePoint->getPhysicalCubaturePoints();
-        _solnExpression->evaluate(value, _soln, basisCacheOnePoint);
+        _solnExpression->evaluate(value, _soln, basisCacheOnePoint, applyCubatureWeights, _solnOrdinal);
         //          cout << "value at point (" << point(0,0) << ", " << point(0,1) << ") = " << value(0,0) << endl;
         values(cellIndex,ptIndex) = value(0,0);
       }
