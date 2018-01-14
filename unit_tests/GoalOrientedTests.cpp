@@ -66,6 +66,19 @@ namespace
     return soln;
   }
   
+  SolutionPtr simplePoissonSolutionWithZeroSecondaryRHS(const vector<int> &elementWidths, int H1Order, bool useConformingTraces)
+  {
+    auto soln = simplePoissonSolution(elementWidths, H1Order, useConformingTraces);
+    const int spaceDim = elementWidths.size();
+    PoissonFormulation poissonForm(spaceDim, useConformingTraces);
+    VarPtr u = poissonForm.u();
+    
+    LinearTermPtr g = 0.0*u;
+    soln->setGoalOrientedRHS(g);
+    
+    return soln;
+  }
+  
   void testPoissonSolveMatches(const vector<int> &elementWidths, int H1Order, bool useConformingTraces, double tol, bool &success, Teuchos::FancyOStream &out)
   {
     // simple test that Poisson solve with secondary ("goal-oriented") RHS
@@ -174,12 +187,55 @@ namespace
     
     auto u_err_L2 = u_diff->l2norm(soln_OneRHS->mesh());
     TEST_COMPARE(u_err_L2, <, tol);
+  }
+  
+  void testZeroSecondaryRHSHasZeroSolution(const vector<int> &elementWidths, int H1Order, bool useConformingTraces, double tol, bool &success, Teuchos::FancyOStream &out)
+  {
+    // simple test that Poisson solve with a zero secondary ("goal-oriented") RHS
+    // has a zero secondary (influence) solution
     
-    /*
-     Right now, this test fails.  It does appear that the linear algebra is done correctly; it
-     seems likely that SimpleSolutionFunction or something else downstream of the Solution coefficients
-     is doing something wrong (what, exactly, I'm not sure).
-     */
+    const int spaceDim = elementWidths.size();
+    
+    auto soln_TwoRHS = simplePoissonSolutionWithZeroSecondaryRHS(elementWidths, H1Order, useConformingTraces);
+    
+    //    {
+    //      // DEBUGGING: write out the matrices and RHSes to file
+    //      soln_TwoRHS->setWriteMatrixToMatrixMarketFile(true, "/tmp/A_two.dat");
+    //      soln_TwoRHS->setWriteRHSToMatrixMarketFile(true, "/tmp/b_two.dat");
+    //    }
+    
+    soln_TwoRHS->solve();
+    
+    //    {
+    //      // DEBUGGING:
+    //      auto lhs_TwoRHS = soln_TwoRHS->getLHSVector();
+    //      bool includeHeaders = true;
+    //
+    //      EpetraExt::MultiVectorToMatrixMarketFile("/tmp/x_two.dat",*lhs_TwoRHS,0,0,includeHeaders);
+    //    }
+    
+    // high-level check below -- check that the solution is zero
+    PoissonFormulation poissonForm(spaceDim, useConformingTraces);
+    VarPtr u = poissonForm.u();
+    VarPtr u_hat = poissonForm.u_hat();
+    VarPtr sigma = poissonForm.sigma();
+    VarPtr sigma_n_hat = poissonForm.sigma_n_hat();
+    
+    const bool weightFluxesByParity = false; // should not matter
+    const int solutionOrdinal = 1; // secondary solution
+    auto u_influence           = Function::solution(u,           soln_TwoRHS, weightFluxesByParity, solutionOrdinal);
+    auto u_hat_influence       = Function::solution(u_hat,       soln_TwoRHS, weightFluxesByParity, solutionOrdinal);
+    auto sigma_influence       = Function::solution(sigma,       soln_TwoRHS, weightFluxesByParity, solutionOrdinal);
+    auto sigma_n_hat_influence = Function::solution(sigma_n_hat, soln_TwoRHS, weightFluxesByParity, solutionOrdinal);
+    // u_influence should be zero; test this:
+    auto u_err_L2 = u_influence->l2norm(soln_TwoRHS->mesh());
+    TEST_COMPARE(u_err_L2, <, tol);
+    auto u_hat_err_L2 = u_hat_influence->l2norm(soln_TwoRHS->mesh());
+    TEST_COMPARE(u_hat_err_L2, <, tol);
+    auto sigma_err_L2 = sigma_influence->l2norm(soln_TwoRHS->mesh());
+    TEST_COMPARE(sigma_err_L2, <, tol);
+    auto sigma_n_hat_err_L2 = sigma_n_hat_influence->l2norm(soln_TwoRHS->mesh());
+    TEST_COMPARE(sigma_n_hat_err_L2, <, tol);
   }
   
   void testRefinedSolutionMatches(const vector<int> &elementWidths, int H1Order, bool useConformingTraces, double tol,
@@ -375,6 +431,31 @@ namespace
     
     testRefinedSolutionMatches(elementWidths, H1Order, useConformingTraces, tol, success, out);
   }
+  
+  TEUCHOS_UNIT_TEST( GoalOriented, ZeroGoalHasZeroSolution_1D )
+  {
+    const int spaceDim = 1;
+    const int meshWidth = 2;
+    auto elementWidths = vector<int>(spaceDim,meshWidth);
+    int H1Order = 4;
+    bool useConformingTraces = true;
+    double tol = 1e-16;
+    
+    testZeroSecondaryRHSHasZeroSolution(elementWidths, H1Order, useConformingTraces, tol, success, out);
+  }
+  
+  TEUCHOS_UNIT_TEST( GoalOriented, ZeroGoalHasZeroSolution_2D )
+  {
+    const int spaceDim = 2;
+    const int meshWidth = 2;
+    auto elementWidths = vector<int>(spaceDim,meshWidth);
+    int H1Order = 1;
+    bool useConformingTraces = true;
+    double tol = 1e-16;
+    
+    testZeroSecondaryRHSHasZeroSolution(elementWidths, H1Order, useConformingTraces, tol, success, out);
+  }
+  
 //  TEUCHOS_UNIT_TEST( Int, Assignment )
 //  {
 //    int i1 = 4;

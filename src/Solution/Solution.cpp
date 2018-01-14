@@ -4407,7 +4407,7 @@ void TSolution<Scalar>::setGlobalSolutionFromCellLocalCoefficients()
       if (_solutionForCellID[solutionOrdinal].find(cellID) != _solutionForCellID[solutionOrdinal].end())
       {
         int localTrialDofCount = _mesh->getElementType(cellID)->trialOrderPtr->totalDofs();
-        if (localTrialDofCount != _solutionForCellID[cellID].size())   // guard against cases when solutions not registered with their meshes have their meshes p-refined beneath them.  In such a case, we'll just ignore the previous solution coefficients on the cell.
+        if (localTrialDofCount != _solutionForCellID[solutionOrdinal][cellID].size())   // guard against cases when solutions not registered with their meshes have their meshes p-refined beneath them.  In such a case, we'll just ignore the previous solution coefficients on the cell.
         {
           _dofInterpreter->interpretLocalCoefficients(cellID, _solutionForCellID[solutionOrdinal][cellID], *_lhsVector, solutionOrdinal);
         }
