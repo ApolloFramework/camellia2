@@ -80,6 +80,7 @@ int main(int argc, char *argv[])
   string norm = "Graph";
   string errorIndicator = "Uniform";
   bool useConformingTraces = true;
+  bool enrichTrial = false;
   string solverChoice = "KLU";
   string multigridStrategyString = "V-cycle";
   bool useCondensedSolve = false;
@@ -103,6 +104,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("norm", &norm, "norm");
   cmdp.setOption("errorIndicator", &errorIndicator, "Energy,Uniform,GoalOriented");
   cmdp.setOption("conformingTraces", "nonconformingTraces", &useConformingTraces, "use conforming traces");
+  cmdp.setOption("enrichTrial", "classictrial", &enrichTrial, "use enriched u-variable");
   cmdp.setOption("solver", &solverChoice, "KLU, SuperLUDist, MUMPS, GMG-Direct, GMG-ILU, GMG-IC");
   cmdp.setOption("multigridStrategy", &multigridStrategyString, "Multigrid strategy: V-cycle, W-cycle, Full, or Two-level");
   cmdp.setOption("useCondensedSolve", "useStandardSolve", &useCondensedSolve);
@@ -177,8 +179,8 @@ int main(int argc, char *argv[])
 
 
   ///////////////////////  DECLARE BILINEAR FORM  //////////////////////
-  bool useEnrichedTraces = true;
-  BasisFactory::basisFactory()->setUseEnrichedTraces(useEnrichedTraces);  // does this need to be here?
+  // bool useEnrichedTraces = true;
+  // BasisFactory::basisFactory()->setUseEnrichedTraces(useEnrichedTraces);  // does this need to be here?
   // double lengthScale = 1.0;
   // H1ProjectionFormulation form(spaceDim, useConformingTraces, H1ProjectionFormulation::CONTINUOUS_GALERKIN, lengthScale);
   // if (formulationChoice == "ULTRAWEAK")
@@ -194,16 +196,6 @@ int main(int argc, char *argv[])
   bf->setOptimalTestSolver(TBF<>::FACTORED_CHOLESKY);
 
 
-  ///////////////////////////  DECLARE MESH  ///////////////////////////
-  vector<int> H1Order = {k + 1};
-  int testEnrichment = delta_k;
-  MeshPtr mesh = Teuchos::rcp( new Mesh(spatialMeshTopo, bf, H1Order, testEnrichment) ) ;
-  if (globalEdgeToCurveMap.size() > 0) // only necessary if geometry is curvilinear
-  {
-    spatialMeshTopo->initializeTransformationFunction(mesh);
-  }
-
-
   //////////////////////  DECLARE TRIAL FUNCTIONS //////////////////////
   VarPtr u, sigma, u_hat, sigma_n_hat;
   u           = form.u();
@@ -211,11 +203,25 @@ int main(int argc, char *argv[])
   u_hat       = form.u_hat(); 
   sigma_n_hat = form.sigma_n_hat();
 
+  map<int, int> trialOrderEnhancements;
+  if (enrichTrial)
+    trialOrderEnhancements[u->ID()] = 1;
+
 
   //////////////////////  DECLARE TEST FUNCTIONS ///////////////////////
   VarPtr v, tau;
   v   = form.v();
   tau = form.tau();
+
+
+  ///////////////////////////  DECLARE MESH  ///////////////////////////
+  vector<int> H1Order = {k + 1};
+  int testEnrichment = delta_k;
+  MeshPtr mesh = Teuchos::rcp( new Mesh(spatialMeshTopo, bf, H1Order, testEnrichment, trialOrderEnhancements) ) ;
+  if (globalEdgeToCurveMap.size() > 0) // only necessary if geometry is curvilinear
+  {
+    spatialMeshTopo->initializeTransformationFunction(mesh);
+  }
 
 
   ///////////////////  DECLARE RHS & EXACT SOLUTION  ///////////////////
@@ -261,20 +267,20 @@ int main(int argc, char *argv[])
 
 
   //////////////////////  DECLARE GOAL FUNCTIONAL //////////////////////
-  LinearTermPtr g;
+  LinearTermPtr g_functional;
   FunctionPtr boundaryRestriction = Function::meshBoundaryCharacteristic();
-  FunctionPtr v_exact;
-  // v_exact = one;
+  FunctionPtr v_exact, g_u;
+  v_exact = one;
   // v_exact = x * x + 2 * x * y;
   // v_exact = x * x * x * y + 2 * x * y * y;
-  v_exact = sin_pix * sin_piy;
-  // g = 1 * boundaryRestriction * sigma_n_hat;
-  // g = -2 * PI * PI * sin_pix * sin_piy * u;
-  g = 0*u;
-  // g = v_exact->dx()->dx() * u + v_exact->dy()->dy() * u;
+  // v_exact = sin_pix * sin_piy;
+  g_u = v_exact->dx()->dx() + v_exact->dy()->dy();
+  // g_functional = g_u * u;
+  // g_functional = v_exact->dx()->dx() * u + v_exact->dy()->dy() * u;
    // - v_exact * boundaryRestriction * sigma_n_hat;
+  g_functional = v_exact * boundaryRestriction * sigma_n_hat;
   if (errorIndicator == "GoalOriented")
-    soln->setGoalOrientedRHS(g);
+    soln->setGoalOrientedRHS(g_functional);
 
   //////////////////////////////////////////////////////////////////////
   ///////////////////////////////  SOLVE  //////////////////////////////
@@ -373,7 +379,7 @@ int main(int argc, char *argv[])
   }
 
   SolverPtr solver;
-  double energyErrorPrvs, numGlobalDofsPrvs;
+  double energyErrorPrvs, solnErrorPrvs, solnErrorL2Prvs, dualSolnErrorPrvs, dualSolnErrorL2Prvs, dualSolnResidualPrvs, numGlobalDofsPrvs;
   for (int refIndex=0; refIndex <= numRefs; refIndex++)
   {
     Teuchos::RCP<GMGSolver> gmgSolver;
@@ -412,15 +418,22 @@ int main(int argc, char *argv[])
     soln->solve(solver);
 
     double solveTime = solverTime->stop();
+    double numGlobalDofs = mesh->numGlobalDofs();
 
     vector<FunctionPtr> functionsToExport;
     vector<string> functionsToExportNames;
+    double dualSolnError = 0;
+    double dualSolnErrorL2 = 0;
+    double dualSolnErrorRate = 0;
+    double dualSolnErrorL2Rate = 0;
+    double dualSolnResidual = 0;
+    double dualSolnResidualRate = 0;
     if (errorIndicator == "GoalOriented")
     {
       // compute error rep function / influence function
       bool excludeBoundaryTerms = false;
       const bool overrideMeshCheck = false; // testFunctional() default for third argument
-      const int solutionOrdinal = 10; // solution corresponding to second RHS
+      const int solutionOrdinal = 1; // solution corresponding to second RHS
       LinearTermPtr residual = rhs()->linearTerm() - bf->testFunctional(soln,excludeBoundaryTerms);
       LinearTermPtr influence = bf->testFunctional(soln,excludeBoundaryTerms,overrideMeshCheck,solutionOrdinal);
       RieszRepPtr rieszResidual = Teuchos::rcp(new RieszRep(mesh, ip, residual));
@@ -436,45 +449,116 @@ int main(int argc, char *argv[])
 
       functionsToExport = {psi_v, psi_tau, dualSoln_v, dualSoln_tau};
       functionsToExportNames = {"psi_v", "psi_tau", "dual_v", "dual_tau"};
+
+      // compute error in DPG* solution
+      FunctionPtr e_v   = v_exact - dualSoln_v;
+      FunctionPtr e_tau_x = v_exact->dx() - dualSoln_tau->x();
+      FunctionPtr e_tau_y = v_exact->dy() - dualSoln_tau->y();
+      dualSolnError = e_v->l2norm(mesh);
+      dualSolnError += e_tau_x->l2norm(mesh);
+      dualSolnError += e_tau_y->l2norm(mesh);
+      dualSolnErrorL2 = e_v->l2norm(mesh);
+
+      // compute residual in DPG* solution
+      FunctionPtr res1 = dualSoln_tau->div() - g_u;
+      FunctionPtr res2 = dualSoln_v->dx() - dualSoln_tau->x();  
+      FunctionPtr res3 = dualSoln_v->dy() - dualSoln_tau->y();
+      dualSolnResidual = res1->l2norm(mesh);
+      dualSolnResidual += res2->l2norm(mesh);
+      dualSolnResidual += res3->l2norm(mesh);
+
+      // compute rates
+      if (refIndex == 0)
+      {
+        dualSolnErrorRate = 0;
+        dualSolnErrorL2Rate = 0;
+        dualSolnResidualRate = 0;
+      }
+      else
+      {
+        dualSolnErrorRate =-spaceDim*log(dualSolnErrorPrvs/dualSolnError)/log(numGlobalDofsPrvs/numGlobalDofs);
+        dualSolnErrorL2Rate =-spaceDim*log(dualSolnErrorL2Prvs/dualSolnErrorL2)/log(numGlobalDofsPrvs/numGlobalDofs);
+        dualSolnResidualRate =-spaceDim*log(dualSolnResidualPrvs/dualSolnResidual)/log(numGlobalDofsPrvs/numGlobalDofs);
+      }
     }
 
+
+    FunctionPtr soln_u = Function::solution(u, soln);
+    FunctionPtr soln_sigma = Function::solution(sigma, soln);
+    FunctionPtr e_u   = u_exact - soln_u;
+    FunctionPtr e_sigma_x = u_exact->dx() - soln_sigma->x();
+    FunctionPtr e_sigma_y = u_exact->dy() - soln_sigma->y();
+    double solnError = e_u->l2norm(mesh);
+    solnError += e_sigma_x->l2norm(mesh);
+    solnError += e_sigma_y->l2norm(mesh);
+    double solnErrorL2 = e_u->l2norm(mesh);
     double energyError = soln->energyErrorTotal();
 
-    double numGlobalDofs = mesh->numGlobalDofs();
-
     double energyRate;
+    double solnErrorRate;
+    double solnErrorL2Rate;
     if (refIndex == 0)
+    {
       energyRate = 0;
+      solnErrorRate = 0;
+      solnErrorL2Rate = 0;
+    }
     else
     {
       energyRate =-spaceDim*log(energyErrorPrvs/energyError)/log(numGlobalDofsPrvs/numGlobalDofs);
+      solnErrorRate =-spaceDim*log(solnErrorPrvs/solnError)/log(numGlobalDofsPrvs/numGlobalDofs);
+      solnErrorL2Rate =-spaceDim*log(solnErrorL2Prvs/solnErrorL2)/log(numGlobalDofsPrvs/numGlobalDofs);
     }
 
     if (commRank == 0)
     {
       cout << setprecision(8) 
-        << " \nRefinement: " << refIndex
+        << " \n\nRefinement: " << refIndex
         << " \tElements: " << mesh->numActiveElements()
         << " \tDOFs: " << mesh->numGlobalDofs()
-        << " \tEnergy Error: " << energyError
         << setprecision(4)
-        << " \tRate: " << energyRate
-        << " \nSolve Time: " << solveTime
+        << " \tSolve Time: " << solveTime
         << " \tTotal Time: " << totalTimer->totalElapsedTime(true)
         << endl;
+      cout << setprecision(4) 
+        << " \nDPG Residual:   " << energyError
+        << " \tRate: " << energyRate
+        << " \nDPG Error:      " << solnError
+        << " \tRate: " << solnErrorRate
+        << " \nDPG Error (L2): " << solnErrorL2
+        << " \tRate: " << solnErrorL2Rate
+        << endl;
+      if (errorIndicator == "GoalOriented")
+      {
+        cout << setprecision(4) 
+          << " \nDPG* Residual:   " << dualSolnResidual
+          << " \tRate: " << dualSolnResidualRate
+          << " \nDPG* Error:      " << dualSolnError
+          << " \tRate: " << dualSolnErrorRate
+          << " \nDPG* Error (L2): " << dualSolnErrorL2
+          << " \tRate: " << dualSolnErrorL2Rate
+          << endl;
+      }
       dataFile << setprecision(8)
         << " " << refIndex
         << " " << mesh->numActiveElements()
         << " " << numGlobalDofs
-        << " " << energyError
         << setprecision(4)
+        << " " << energyError
         << " " << energyRate
         << " " << solveTime
         << " " << totalTimer->totalElapsedTime(true)
+        << " " << dualSolnError
+        << " " << dualSolnErrorRate
         << endl;
     }
 
     energyErrorPrvs = energyError;
+    solnErrorPrvs = solnError;
+    solnErrorL2Prvs = solnErrorL2;
+    dualSolnErrorPrvs = dualSolnError;
+    dualSolnErrorL2Prvs = dualSolnErrorL2;
+    dualSolnResidualPrvs = dualSolnResidual;
     numGlobalDofsPrvs = numGlobalDofs;
 
     if (exportSolution)
@@ -507,7 +591,7 @@ int main(int argc, char *argv[])
   // dataFile.close();
   double totalTime = totalTimer->stop();
   if (commRank == 0)
-    cout << "Total time = " << totalTime << endl;
+    cout << "\n\nTotal time = " << totalTime << endl;
 
   return 0;
 }
