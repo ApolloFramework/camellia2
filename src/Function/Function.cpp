@@ -1190,6 +1190,14 @@ Scalar TFunction<Scalar>::integrate(MeshPtr mesh, int cubatureDegreeEnrichment, 
     // default implementation: we only attest to being zero on basisCache if we are zero everywhere
     return isZero();
   }
+
+template <typename Scalar>
+double TFunction<Scalar>::l1norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment, bool spatialSidesOnly)
+{
+  TFunctionPtr<Scalar> thisPtr = Teuchos::rcp( this, false );
+  bool testVsTest = false, requireSideCaches = false;
+  return abs(thisPtr->integrate(mesh, cubatureDegreeEnrichment, testVsTest, requireSideCaches, spatialSidesOnly));
+}
   
 template <typename Scalar>
 double TFunction<Scalar>::l2norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment, bool spatialSidesOnly)
