@@ -451,9 +451,6 @@ int main(int argc, char *argv[])
     dualSoln_v =  Teuchos::rcp( new RepFunction<double>(form.v(), dualSoln) );
     dualSoln_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), dualSoln) );
 
-    vector<FunctionPtr> functionsToExport = {psi_v, psi_tau, dualSoln_v, dualSoln_tau};
-    vector<string> functionsToExportNames = {"psi_v", "psi_tau", "dual_v", "dual_tau"};
-
     // compute error in DPG solution
     FunctionPtr soln_u = Function::solution(u, soln);
     FunctionPtr soln_sigma = Function::solution(sigma, soln);
@@ -481,6 +478,18 @@ int main(int argc, char *argv[])
     FunctionPtr res2 = dualSoln_v->dx() - dualSoln_tau->x();  
     FunctionPtr res3 = dualSoln_v->dy() - dualSoln_tau->y();
     FunctionPtr dualSolnResidualFunction = res1*res1 + res2*res2 + res3*res3;
+
+    map<int, FunctionPtr > opDualSoln = bf()->applyAdjointOperatorDPGstar(dualSoln);
+
+    FunctionPtr res1_2 = opDualSoln[u->ID()] - g_u;
+    FunctionPtr res2_2 = opDualSoln[sigma->ID()];  
+
+    FunctionPtr dualSolnResFxn = res1_2*res1_2 + res2_2*res2_2;
+    // FunctionPtr dualSolnResidualFunction = dualSolnResFxn;
+
+    vector<FunctionPtr> functionsToExport = {psi_v, psi_tau, dualSoln_v, dualSoln_tau, dualSolnResidualFunction, dualSolnResFxn};
+    vector<string> functionsToExportNames = {"psi_v", "psi_tau", "dual_v", "dual_tau", "dualSolnResidualFunction", "dualSolnResFxn"};
+
 
     int cubatureDegreeEnrichment = delta_k;
     double dualSolnResidual = sqrt(dualSolnResidualFunction->l1norm(mesh, cubatureDegreeEnrichment));

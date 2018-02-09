@@ -222,6 +222,48 @@ public:
   }
 };
 
+template <typename Scalar>
+class GoalOrientedErrorIndicator : public ErrorIndicator
+{
+  SolutionPtr _solution;
+  FunctionPtr _dualSolnResidualFunction;
+  int _cubatureDegreeEnrichment;
+public:
+  GoalOrientedErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
+  {
+    _solution = soln;
+    _dualSolnResidualFunction = dualSolnResidualFunction;
+    _cubatureDegreeEnrichment = cubatureDegreeEnrichment;
+  }
+
+  //! determine rank-local error measures.  Populates ErrorIndicator::_localErrorMeasures.
+  virtual void measureError()
+  {
+
+    const map<GlobalIndexType, double>* rankLocalEnergyError = &_solution->rankLocalEnergyError();
+    // square roots have already been taken
+    bool energyErrorIsSquared = false;
+
+    _localErrorMeasures.clear();
+    for (auto entry : *rankLocalEnergyError)
+    {
+      GlobalIndexType cellID = entry.first;
+      double residual = energyErrorIsSquared ? sqrt(entry.second) : entry.second;
+      double dualresidual = sqrt(_dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment));
+      _localErrorMeasures[cellID] = residual*dualresidual;
+    }
+
+    // calculate max
+    double localMax;
+    double globalMax;
+    for (auto measureEntry : _localErrorMeasures) {
+      double cellError = measureEntry.second;
+      localMax = max(localMax,cellError);
+    }
+    _mesh->Comm()->MaxAll(&localMax, &globalMax, 1);
+  }
+};
+
 
 int main(int argc, char *argv[])
 {
@@ -292,7 +334,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("errorIndicator", &errorIndicator, "Energy,CylinderBoundary,GoalOrientedDragCoeff");
   cmdp.setOption("enforceLocalConservation", "noLocalConservation", &enforceLocalConservation, "enforce local conservation principles at the element level");
   cmdp.setOption("conformingTraces", "nonconformingTraces", &useConformingTraces, "use conforming traces");
-  cmdp.setOption("solver", &solverChoice, "KLU, SuperLUDist, MUMPS, GMG-Direct, GMG-ILU, GMG-IC");
+  cmdp.setOption("solver", &solverChoice, "KLU, SuperLUDist, MUMPS, Pardiso");
   cmdp.setOption("multigridStrategy", &multigridStrategyString, "Multigrid strategy: V-cycle, W-cycle, Full, or Two-level");
   cmdp.setOption("useCondensedSolve", "useStandardSolve", &useCondensedSolve);
   cmdp.setOption("CG", "GMRES", &useConjugateGradient);
@@ -535,8 +577,11 @@ int main(int argc, char *argv[])
 #if defined(HAVE_AMESOS_SUPERLUDIST) || defined(HAVE_AMESOS2_SUPERLUDIST)
   solvers["SuperLUDist"] = Solver::getSolver(Solver::SuperLUDist, true);
 #endif
-#ifdef HAVE_AMESOS_MUMPS
+#if defined(HAVE_AMESOS_MUMPS) && defined(HAVE_MPI)
   solvers["MUMPS"] = Solver::getSolver(Solver::MUMPS, true);
+#endif
+#ifdef HAVE_AMESOS_PARDISO_MKL
+  solvers["Pardiso"] = Solver::getSolver(Solver::Pardiso, true);
 #endif
 
   // choose local normal equation matrix calculation algorithm
@@ -545,7 +590,7 @@ int main(int argc, char *argv[])
   bf->setOptimalTestSolver(TBF<>::FACTORED_CHOLESKY);
 
   ostringstream solnName;
-  solnName << "GoalOrientedOldroydB" << "_" << norm << "_k" << k << "_" << solverChoice;
+  solnName << "GoalOrientedOldroydB" << "_" << norm << "_k" << k << "_dk" << delta_k << "_" << solverChoice;
   if (solverChoice[0] == 'G')
     solnName << "_" << multigridStrategyString;
   if (tag != "")
@@ -760,43 +805,66 @@ int main(int argc, char *argv[])
         // solve again
         form.solveForIncrement();
 
-        // // construct DPG* solution
-        // bool excludeBoundaryTerms = false;
-        // const bool overrideMeshCheck = false; // testFunctional() default for third argument
-        // const int solutionOrdinal = 1; // solution corresponding to second RHS
-        // LinearTermPtr influence = form.bf()->testFunctional(solutionIncrement,excludeBoundaryTerms,overrideMeshCheck,solutionOrdinal);
-        // RieszRepPtr dualSoln = Teuchos::rcp(new RieszRep(mesh, form.bf()->graphNorm(), influence));
-        // dualSoln->computeRieszRep();
+        // construct DPG* solution
+        bool excludeBoundaryTerms = false;
+        const bool overrideMeshCheck = false; // testFunctional() default for third argument
+        const int solutionOrdinal = 1; // solution corresponding to second RHS
+        LinearTermPtr influence = form.bf()->testFunctional(solutionIncrement,excludeBoundaryTerms,overrideMeshCheck,solutionOrdinal);
+        RieszRepPtr dualSoln = Teuchos::rcp(new RieszRep(mesh, form.bf()->graphNorm(), influence));
+        dualSoln->computeRieszRep();
 
-        // FunctionPtr dualSoln_q, dualSoln_v1, dualSoln_v2, dualSoln_M1, dualSoln_M2, dualSoln_S11, dualSoln_S12, dualSoln_S22;
-        // dualSoln_q   =  Teuchos::rcp( new RepFunction<double>(form.q(), dualSoln) );
-        // dualSoln_v1  =  Teuchos::rcp( new RepFunction<double>(form.v(1), dualSoln) );
-        // dualSoln_v2  =  Teuchos::rcp( new RepFunction<double>(form.v(2), dualSoln) );
-        // dualSoln_M1  =  Teuchos::rcp( new RepFunction<double>(form.M(1), dualSoln) );
-        // dualSoln_M2  =  Teuchos::rcp( new RepFunction<double>(form.M(2), dualSoln) );
-        // dualSoln_S11 =  Teuchos::rcp( new RepFunction<double>(form.S(1,1), dualSoln) );
-        // dualSoln_S12 =  Teuchos::rcp( new RepFunction<double>(form.S(1,2), dualSoln) );
-        // dualSoln_S22 =  Teuchos::rcp( new RepFunction<double>(form.S(2,2), dualSoln) );
-        // vector<FunctionPtr> functionsToExport = {dualSoln_q, dualSoln_v1, dualSoln_v2, dualSoln_M1, dualSoln_M2, dualSoln_S11, dualSoln_S12, dualSoln_S22};
-        // vector<string> functionsToExportNames = {"dual_q", "dual_v1", "dual_v2", "dual_M1", "dual_M2", "dual_S11", "dual_S12", "dual_S22"};
+        FunctionPtr dualSoln_q, dualSoln_v1, dualSoln_v2, dualSoln_M1, dualSoln_M2, dualSoln_S11, dualSoln_S12, dualSoln_S22;
+        dualSoln_q   =  Teuchos::rcp( new RepFunction<double>(form.q(), dualSoln) );
+        dualSoln_v1  =  Teuchos::rcp( new RepFunction<double>(form.v(1), dualSoln) );
+        dualSoln_v2  =  Teuchos::rcp( new RepFunction<double>(form.v(2), dualSoln) );
+        dualSoln_M1  =  Teuchos::rcp( new RepFunction<double>(form.M(1), dualSoln) );
+        dualSoln_M2  =  Teuchos::rcp( new RepFunction<double>(form.M(2), dualSoln) );
+        dualSoln_S11 =  Teuchos::rcp( new RepFunction<double>(form.S(1,1), dualSoln) );
+        dualSoln_S12 =  Teuchos::rcp( new RepFunction<double>(form.S(1,2), dualSoln) );
+        dualSoln_S22 =  Teuchos::rcp( new RepFunction<double>(form.S(2,2), dualSoln) );
 
-        // // construct DPG* residual
+        // construct DPG* residual
+        // FunctionPtr res1 = dualSoln_v1->dx() + dualSoln_v2->dy();
+        // FunctionPtr dualSolnResFxn = res1*res1;
+        map<int, FunctionPtr > opDualSoln = bf()->applyAdjointOperatorDPGstar(dualSoln);
+        FunctionPtr dualSolnResFxn = zero;
+        for ( auto opDualSolnComponent  : opDualSoln  )
+        {
+          FunctionPtr f = opDualSolnComponent.second;
+          dualSolnResFxn = dualSolnResFxn + f * f;
+        }
 
-        // // export DPG* solution
-        // if (exportSolution)
-        // {
-        //   int numLinearPointsPlotting = max(k,15);
-        //   functionExporter->exportFunction(functionsToExport, functionsToExportNames, refIndex, numLinearPointsPlotting);
-        // }
+        int cubatureDegreeEnrichment = delta_k;
+        double dualSolnRes = sqrt(dualSolnResFxn->l1norm(mesh, cubatureDegreeEnrichment));
+        if (commRank == 0)
+        {
+          cout << setprecision(8) 
+            << "DPG* residual: " << dualSolnRes
+            << endl;
+        }
+
+        // export DPG* solution
+        vector<FunctionPtr> functionsToExport = {dualSoln_q, dualSoln_v1, dualSoln_v2, dualSoln_M1, dualSoln_M2, dualSoln_S11, dualSoln_S12, dualSoln_S22, dualSolnResFxn};
+        vector<string> functionsToExportNames = {"dual_q", "dual_v1", "dual_v2", "dual_M1", "dual_M2", "dual_S11", "dual_S12", "dual_S22", "dualSolnResFxn"};
+
+        if (exportSolution)
+        {
+          int numLinearPointsPlotting = max(k,15);
+          functionExporter->exportFunction(functionsToExport, functionsToExportNames, refIndex, numLinearPointsPlotting);
+        }
 
         // remove second RHS
         solutionIncrement->setGoalOrientedRHS(Teuchos::null);
 
         // refine
+        form.solveForIncrement();
         form.accumulate();
-        form.refine();
+        // form.refine();
 
-
+        double refThreshold = 0.2;
+        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new GoalOrientedErrorIndicator<double>(solutionIncrement, dualSolnResFxn, cubatureDegreeEnrichment) );
+        RefinementStrategyPtr refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, refThreshold) );
+        refStrategy->refine();
 
 //         // define spatial filters for the H1-projection problems
 //         SpatialFilterPtr cylinderBoundary, topBoundary, bottomBoundary, leftBoundary, 

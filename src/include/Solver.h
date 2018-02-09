@@ -113,6 +113,7 @@ public:
     KLU,
     SuperLUDist,
     MUMPS,
+    Pardiso,
     GMG
   };
   
@@ -130,6 +131,7 @@ public:
     if (choiceString=="KLU") return KLU;
     if (choiceString=="SuperLUDist") return SuperLUDist;
     if (choiceString=="MUMPS") return MUMPS;
+    if (choiceString=="Pardiso") return Pardiso;
     if (choiceString=="GMG") return GMG;
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "choiceString not recognized!");
   }
@@ -138,6 +140,7 @@ public:
     if (choice==KLU) return "KLU";
     if (choice==SuperLUDist) return "SuperLUDist";
     if (choice==MUMPS) return "MUMPS";
+    if (choice==Pardiso) return "Pardiso";
     if (choice==GMG) return "GMG";
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "choice not recognized!");
   }
@@ -235,20 +238,12 @@ public:
     int previousSize = 0;
     rank     = Teuchos::GlobalMPISession::getRank();
     numProcs = Teuchos::GlobalMPISession::getNProc();
-    mumps->SetICNTL(28, 0); // 0: automatic choice between parallel and sequential analysis
-//    mumps->SetICNTL(28, 2); // 2: parallel analysis
-//    mumps->SetICNTL(29, 2); // 2: use PARMETIS; 1: use PT-SCOTCH
-//    int minSize = max(infog[26-1], infog[16-1]);
-//    // want to set ICNTL 23 to a size "significantly larger" than minSize
-//    int sizeToSet = max(2 * minSize, previousSize*2);
-//    sizeToSet = min(sizeToSet, _maxMemoryPerCoreMB);
-//    previousSize = sizeToSet;
-    //    mumps->SetICNTL(23, sizeToSet);
-    // not sure why we shouldn't just do this: (I don't think MUMPS will allocate as much as we allow it, unless it thinks it needs it)
-    mumps->SetICNTL(1,6); // set output stream for errors (this is supposed to be the default, but maybe Amesos clobbers it?)
-//    int sizeToSet = _maxMemoryPerCoreMB;
-//    cout << "setting ICNTL 23 to " << sizeToSet << endl;
-//    mumps->SetICNTL(23, sizeToSet);
+    mumps->SetICNTL( 1, 6); // set output stream for errors
+    mumps->SetICNTL(10, 1);
+    mumps->SetICNTL(14, 100);
+    // mumps->SetICNTL(28, 2); // 2: parallel analysis
+    // mumps->SetICNTL(28, 0); // 0: automatic choice between parallel and sequential analysis
+    mumps->SetICNTL(29, 2); // 2: use PARMETIS; 1: use PT-SCOTCH
     mumps->SymbolicFactorization();
     mumps->NumericFactorization();
     int relaxationParam = 0; // the default

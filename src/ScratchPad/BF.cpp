@@ -3,6 +3,7 @@
 //
 
 #include "BF.h"
+#include "RieszRep.h"
 
 #include "BilinearFormUtility.h"
 #include "Function.h"
@@ -1628,6 +1629,80 @@ namespace Camellia
       }
     }
     return functional;
+  }
+
+  // BK: function returns the adjoint operator in an uweak BF (i.e. A* in (u,A*v) = (f,v) for all v) applied to the DPG* solution (i.e. A*v, when v is a fixed DPG* soln)
+  template <typename Scalar>
+  map<int, TFunctionPtr<Scalar> > TBF<Scalar>::applyAdjointOperatorDPGstar(TRieszRepPtr<double> dualSolution)
+  {
+
+    // group test functional contributions based on trial variables (field only)
+    map<int, TLinearTermPtr<Scalar>> testTermsForVarID;
+    for (TBilinearTerm<Scalar> bt : _terms)
+    {
+      TLinearTermPtr<Scalar> trialTerm = bt.first;
+      TLinearTermPtr<Scalar> testTerm = bt.second;
+
+      vector< TLinearSummand<Scalar> > summands = trialTerm->summands();
+      for (TLinearSummand<Scalar> summand : trialTerm->summands())
+      {
+        VarPtr trialVar = summand.second;
+        if (trialVar->varType() == FIELD)
+        {
+          TFunctionPtr<Scalar> f = summand.first;
+          f = Function::op( f, trialVar->op() );
+          if (testTermsForVarID.find(trialVar->ID()) == testTermsForVarID.end())
+          {
+            testTermsForVarID[trialVar->ID()] = Teuchos::rcp( new LinearTerm );
+          }
+          testTermsForVarID[trialVar->ID()]->addTerm( f * testTerm );
+        }
+      }
+    }
+
+    // apply grouped test functional contributions to DPG* solution
+    map<int, TFunctionPtr<Scalar>> opDualSolutionForVarID;
+    for ( auto varIDTestTermEntry : testTermsForVarID )
+    {
+      double weight = 1.0;
+      // int varID = testTermIt->first;
+      // if (trialVarWeights.find(varID) != trialVarWeights.end())
+      // {
+      //   double trialWeight = trialVarWeights.find(varID)->second;
+      //   if (trialWeight <= 0)
+      //   {
+      //     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "variable weights must be positive.");
+      //   }
+      //   weight = 1.0 / sqrt(trialWeight);
+      // }
+
+      TFunctionPtr<Scalar> fxn_sum = Function::zero();
+      TLinearTermPtr<Scalar> testFunctional = varIDTestTermEntry.second;
+      
+      // std::cout << testFunctional->displayString() << std::endl;
+      
+      for ( TLinearSummand<Scalar> testSummand : testFunctional->summands() )
+      {
+        TFunctionPtr<Scalar> f = testSummand.first;
+        VarPtr testVar = testSummand.second;
+
+        TFunctionPtr<Scalar> fxn = Teuchos::rcp(new RepFunction<Scalar>(testVar, dualSolution));
+        fxn = Function::op( fxn, testVar->op() );
+
+        // std::cout << fxn->displayString() << std::endl;
+
+        fxn_sum = fxn_sum + f * fxn;
+      }
+
+      int varID = varIDTestTermEntry.first;
+      opDualSolutionForVarID[varID] = fxn_sum;
+
+      // std::cout << fxn_sum->displayString() << std::endl;
+
+      
+    }
+
+    return opDualSolutionForVarID;
   }
   
   template <typename Scalar>

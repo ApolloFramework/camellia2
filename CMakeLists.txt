@@ -47,7 +47,10 @@ if(MPI_DIR)
   include_directories(${MPI_DIR}/include)
   link_directories(${MPI_DIR})
   link_libraries(mpi)
+  # use with openmpi
   link_libraries(mpi_mpifh)
+  # use with mpich / intel mpi
+  # link_libraries(mpifort) 
 endif()
 
 if(SCALAPACK_LIB)
@@ -202,12 +205,12 @@ link_libraries(
 
 add_library(Camellia ${LIB_SOURCES} ${HEADERS})
 
-#link_libraries(
-#  Camellia
-#  ${Trilinos_LIBRARIES}
-#  ${Trilinos_TPL_LIBRARIES}
-#  ${ADDITIONAL_LIBRARIES}
-#)
+link_libraries(
+ Camellia
+ ${Trilinos_LIBRARIES}
+ ${Trilinos_TPL_LIBRARIES}
+ ${ADDITIONAL_LIBRARIES}
+)
 
 FILE(GLOB ALL_HEADER_FILES "${HEADERS}/*.h" "${HEADERS}/*.hpp")
 install (TARGETS Camellia DESTINATION lib)
