@@ -14,6 +14,7 @@
 #include "CellCharacteristicFunction.h"
 #include "ConstantScalarFunction.h"
 #include "ConstantVectorFunction.h"
+#include "CubatureFactory.h"
 #include "GlobalDofAssignment.h"
 #include "hFunction.h"
 #include "Mesh.h"
@@ -1152,6 +1153,406 @@ Scalar TFunction<Scalar>::integralOfJump(Teuchos::RCP<Mesh> mesh, GlobalIndexTyp
 
   // multiply by sideParity to make jump uniquely valued.
   return sideParity * cellIntegral(0);
+}
+ 
+template <typename Scalar>
+double TFunction<Scalar>::l2normOfInteriorJumps(MeshPtr mesh, int cubatureDegreeEnrichment, SolutionPtr solutionToImport)
+{
+  // Computes the L^2 norm of the jumps of this function along the interior skeleton of the mesh
+  // If this function depends on a solution, the assumption is that all neighbor coefficients are either
+  // already rank-local or they are contained in solutionToImport...  We import off-rank neighbor coefficients
+  // in solutionToImport, if one is provided...
+  
+  /*
+   We do the integration elementwise; on each face of each element, we decide whether the
+   element "owns" the face, so that the term is only integrated once, and only on the side
+   with finer quadrature, in the case of a locally refined mesh.
+   */
+  
+  using namespace Intrepid;
+  
+  Epetra_CommPtr Comm = mesh->Comm();
+  
+  MeshTopologyViewPtr meshTopo = mesh->getTopology();
+  const set<GlobalIndexType> & activeCellIDs = meshTopo->getLocallyKnownActiveCellIndices();
+  const set<GlobalIndexType> & myCellIDs = mesh->cellIDsInPartition();
+  
+  if (solutionToImport != Teuchos::null)
+  {
+    set<GlobalIndexType> offRankNeighbors;
+    for (auto myCellID : myCellIDs)
+    {
+      CellPtr cell = meshTopo->getCell(myCellID);
+      int sideCount = cell->getSideCount();
+      
+      for (int sideOrdinal = 0; sideOrdinal < sideCount; sideOrdinal++)
+      {
+        pair<GlobalIndexType,unsigned> neighborInfo = cell->getNeighborInfo(sideOrdinal, meshTopo);
+        GlobalIndexType neighborCellID = neighborInfo.first;
+        unsigned mySideOrdinalInNeighbor = neighborInfo.second;
+        if (activeCellIDs.find(neighborCellID) == activeCellIDs.end())
+        {
+          // no active neigbor on this side: either this is not an interior face (neighborCellID == -1),
+          // or the neighbor is refined and therefore inactive.  If the latter, then the neighbor's
+          // descendants will collectively "own" this side: we let them ask for the import from us
+          continue;
+        }
+        
+        // Finally, we need to check whether the neighbor is a "peer" in terms of h-refinements.
+        // If so, we use the cellID to break the tie of ownership; lower cellID owns the face.
+        CellPtr neighbor = meshTopo->getCell(neighborInfo.first);
+        pair<GlobalIndexType,unsigned> neighborNeighborInfo = neighbor->getNeighborInfo(mySideOrdinalInNeighbor, meshTopo);
+        bool neighborIsPeer = neighborNeighborInfo.first == cell->cellIndex();
+        if (neighborIsPeer && (myCellID > neighborCellID))
+        {
+          // neighbor wins the tie-breaker: neighbor can ask for import from us...
+          continue;
+        }
+        
+        // if we get here: we are the "owner" of this side, and should compute the L^2 contribution from it
+        // we should import any off-rank neighbor data
+        if (myCellIDs.find(neighborCellID) == myCellIDs.end())
+        {
+          // off-rank, active neighbor for which we're responsible: ask for import
+          offRankNeighbors.insert(neighborCellID);
+        }
+      }
+    }
+    solutionToImport->importSolutionForOffRankCells(offRankNeighbors);
+  }
+  
+  int sideDim = meshTopo->getDimension() - 1;
+  
+  FieldContainer<double> emptyRefPointsVolume(0,meshTopo->getDimension()); // (P,D)
+  FieldContainer<double> emptyRefPointsSide(0,sideDim); // (P,D)
+  FieldContainer<double> emptyCubWeights(1,0); // (C,P)
+  
+  map<pair<CellTopologyKey,int>, FieldContainer<double>> cubPointsForSideTopo;
+  map<pair<CellTopologyKey,int>, FieldContainer<double>> cubWeightsForSideTopo;
+  
+  CubatureFactory cubFactory;
+  
+  map<CellTopologyKey,BasisCachePtr> basisCacheForVolumeTopo;         // used for "my" cells
+  map<CellTopologyKey,BasisCachePtr> basisCacheForNeighborVolumeTopo; // used for neighbor cells
+  map<pair<int,CellTopologyKey>,BasisCachePtr> basisCacheForSideOnVolumeTopo;
+  map<pair<int,CellTopologyKey>,BasisCachePtr> basisCacheForSideOnNeighborVolumeTopo; // these can have permuted cubature points (i.e. we need to set them every time, so we can't share with basisCacheForSideOnVolumeTopo, which tries to avoid this)
+  
+  map<CellTopologyKey,BasisCachePtr> basisCacheForReferenceCellTopo;
+  
+  double localL2ContributionSquared = 0.0;
+  for (GlobalIndexType cellID : myCellIDs)
+  {
+    CellPtr cell = meshTopo->getCell(cellID);
+    CellTopoPtr cellTopo = cell->topology();
+    ElementTypePtr elemType = mesh->getElementType(cellID);
+    
+    FieldContainer<double> physicalCellNodes = mesh->physicalCellNodesForCell(cellID);
+    BasisCachePtr cellBasisCacheVolume;
+    if (basisCacheForVolumeTopo.find(cellTopo->getKey()) == basisCacheForVolumeTopo.end())
+    {
+      basisCacheForVolumeTopo[cellTopo->getKey()] = Teuchos::rcp( new BasisCache(physicalCellNodes, cellTopo,
+                                                                                 emptyRefPointsVolume, emptyCubWeights) );
+    }
+    
+    cellBasisCacheVolume = basisCacheForVolumeTopo[cellTopo->getKey()];
+    cellBasisCacheVolume->setPhysicalCellNodes(physicalCellNodes, {cellID}, false);
+    
+    cellBasisCacheVolume->setCellIDs({cellID});
+    cellBasisCacheVolume->setMesh(mesh);
+    
+    int sideCount = cell->getSideCount();
+    
+    for (int sideOrdinal = 0; sideOrdinal < sideCount; sideOrdinal++)
+    {
+      pair<GlobalIndexType,unsigned> neighborInfo = cell->getNeighborInfo(sideOrdinal, meshTopo);
+      GlobalIndexType neighborCellID = neighborInfo.first;
+      unsigned mySideOrdinalInNeighbor = neighborInfo.second;
+      if (activeCellIDs.find(neighborCellID) == activeCellIDs.end())
+      {
+        // no active neigbor on this side: either this is not an interior face (neighborCellID == -1),
+        // or the neighbor is refined and therefore inactive.  If the latter, then the neighbor's
+        // descendants will collectively "own" this side.
+        continue;
+      }
+      
+      // Finally, we need to check whether the neighbor is a "peer" in terms of h-refinements.
+      // If so, we use the cellID to break the tie of ownership; lower cellID owns the face.
+      CellPtr neighbor = meshTopo->getCell(neighborInfo.first);
+      pair<GlobalIndexType,unsigned> neighborNeighborInfo = neighbor->getNeighborInfo(mySideOrdinalInNeighbor, meshTopo);
+      bool neighborIsPeer = neighborNeighborInfo.first == cell->cellIndex();
+      if (neighborIsPeer && (cellID > neighborCellID))
+      {
+        // neighbor wins the tie-breaker
+        continue;
+      }
+      
+      // if we get here, we own the face and should compute its contribution.
+      
+      // figure out what the cubature degree should be
+      DofOrderingPtr neighborTrialOrder = mesh->getElementType(neighborCellID)->trialOrderPtr;
+      DofOrderingPtr neighborTestOrder = mesh->getElementType(neighborCellID)->testOrderPtr;
+      
+      int testSpaceEnrichment = mesh->testSpaceEnrichment();
+      int myTrialP = mesh->globalDofAssignment()->getH1Order(cellID)[0]; // for now, we assume isotropic in p
+      int neighborTrialP = mesh->globalDofAssignment()->getH1Order(neighborCellID)[0];
+      {
+        // assert that we are isotropic in p
+        const auto myOrder = mesh->globalDofAssignment()->getH1Order(cellID);
+        for (int d=1; d<myOrder.size(); d++)
+        {
+          if (myOrder[d] != myOrder[0])
+          {
+            std::cout << "l2NormOfInteriorJumps does not support p-anisotropy right now; anisotropy detected in cell " << cellID << ".\n";
+            TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "l2NormOfInteriorJumps does not support p-anisotropy");
+          }
+        }
+        const auto neighborOrder = mesh->globalDofAssignment()->getH1Order(neighborCellID);
+        for (int d=1; d<neighborOrder.size(); d++)
+        {
+          if (neighborOrder[d] != neighborOrder[0])
+          {
+            std::cout << "l2NormOfInteriorJumps does not support p-anisotropy right now; anisotropy detected in cell " << cellID << ".\n";
+            TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "l2NormOfInteriorJumps does not support p-anisotropy");
+          }
+        }
+      }
+      int myCubatureDegree = myTrialP + (myTrialP + testSpaceEnrichment + cubatureDegreeEnrichment);
+      int neighborCubatureDegree = neighborTrialP + (neighborTrialP + testSpaceEnrichment + cubatureDegreeEnrichment);
+      
+      int cubaturePolyOrder = std::max(myCubatureDegree, neighborCubatureDegree);
+      
+      // set up side basis cache
+      CellTopoPtr mySideTopo = cellTopo->getSide(sideOrdinal); // for non-peers, this is the descendant cell topo
+      
+      pair<int,CellTopologyKey> sideCacheKey{sideOrdinal,cellTopo->getKey()};
+      if (basisCacheForSideOnVolumeTopo.find(sideCacheKey) == basisCacheForSideOnVolumeTopo.end())
+      {
+        basisCacheForSideOnVolumeTopo[sideCacheKey] = Teuchos::rcp( new BasisCache(sideOrdinal, cellBasisCacheVolume,
+                                                                                   emptyRefPointsSide, emptyCubWeights, -1));
+      }
+      BasisCachePtr cellBasisCacheSide = basisCacheForSideOnVolumeTopo[sideCacheKey];
+      pair<CellTopologyKey,int> cubKey{mySideTopo->getKey(),cubaturePolyOrder};
+      if (cubWeightsForSideTopo.find(cubKey) == cubWeightsForSideTopo.end())
+      {
+        int cubDegree = cubKey.second;
+        if (sideDim > 0)
+        {
+          Teuchos::RCP<Cubature<double> > sideCub;
+          if (cubDegree >= 0)
+            sideCub = cubFactory.create(mySideTopo, cubDegree);
+          
+          int numCubPointsSide;
+          
+          if (sideCub != Teuchos::null)
+            numCubPointsSide = sideCub->getNumPoints();
+          else
+            numCubPointsSide = 0;
+          
+          FieldContainer<double> cubPoints(numCubPointsSide, sideDim); // cubature points from the pov of the side (i.e. a (d-1)-dimensional set)
+          FieldContainer<double> cubWeights(numCubPointsSide);
+          if (numCubPointsSide > 0)
+            sideCub->getCubature(cubPoints, cubWeights);
+          cubPointsForSideTopo[cubKey] = cubPoints;
+          cubWeightsForSideTopo[cubKey] = cubWeights;
+        }
+        else
+        {
+          int numCubPointsSide = 1;
+          FieldContainer<double> cubPoints(numCubPointsSide, 1); // cubature points from the pov of the side (i.e. a (d-1)-dimensional set)
+          FieldContainer<double> cubWeights(numCubPointsSide);
+          
+          cubPoints.initialize(0.0);
+          cubWeights.initialize(1.0);
+          cubPointsForSideTopo[cubKey] = cubPoints;
+          cubWeightsForSideTopo[cubKey] = cubWeights;
+        }
+      }
+      if (cellBasisCacheSide->cubatureDegree() != cubaturePolyOrder)
+      {
+        cellBasisCacheSide->setRefCellPoints(cubPointsForSideTopo[cubKey], cubWeightsForSideTopo[cubKey], cubaturePolyOrder, false);
+      }
+      cellBasisCacheSide->setPhysicalCellNodes(cellBasisCacheVolume->getPhysicalCellNodes(), {cellID}, false);
+      
+      int numCells = 1;
+      int numPoints = cellBasisCacheSide->getRefCellPoints().dimension(0);
+      Intrepid::FieldContainer<Scalar> myValues;
+      int spaceDim = sideDim + 1;
+      if      (this->rank() == 0) myValues.resize(numCells, numPoints);
+      else if (this->rank() == 1) myValues.resize(numCells, numPoints, spaceDim);
+      else if (this->rank() == 2) myValues.resize(numCells, numPoints, spaceDim, spaceDim);
+      else                   TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "unsupported Function rank");
+        
+      values(myValues, cellBasisCacheSide);
+      
+      // Now the geometrically challenging bit: we need to line up the physical points in
+      // the cellBasisCacheSide with those in a BasisCache for the neighbor cell
+      
+      CellTopoPtr neighborTopo = neighbor->topology();
+      CellTopoPtr sideTopo = neighborTopo->getSide(mySideOrdinalInNeighbor); // for non-peers, this is my ancestor's cell topo
+      int nodeCount = sideTopo->getNodeCount();
+      
+      unsigned permutationFromMeToNeighbor;
+      Intrepid::FieldContainer<double> myRefPoints = cellBasisCacheSide->getRefCellPoints();
+      
+      if (!neighborIsPeer) // then we have some refinements relative to neighbor
+      {
+        /*******   Map my ref points to my ancestor ******/
+        pair<GlobalIndexType,unsigned> ancestorInfo = neighbor->getNeighborInfo(mySideOrdinalInNeighbor, meshTopo);
+        GlobalIndexType ancestorCellIndex = ancestorInfo.first;
+        unsigned ancestorSideOrdinal = ancestorInfo.second;
+        
+        RefinementBranch refinementBranch = cell->refinementBranchForSide(sideOrdinal, meshTopo);
+        RefinementBranch sideRefinementBranch = RefinementPattern::sideRefinementBranch(refinementBranch, ancestorSideOrdinal);
+        FieldContainer<double> cellNodes = RefinementPattern::descendantNodesRelativeToAncestorReferenceCell(sideRefinementBranch);
+        
+        cellNodes.resize(1,cellNodes.dimension(0),cellNodes.dimension(1));
+        BasisCachePtr ancestralBasisCache = Teuchos::rcp(new BasisCache(cellNodes,sideTopo,cubaturePolyOrder,false)); // false: don't create side cache too
+        
+        ancestralBasisCache->setRefCellPoints(myRefPoints, emptyCubWeights, cubaturePolyOrder, true);
+        
+        // now, the "physical" points in ancestral cache are the ones we want
+        myRefPoints = ancestralBasisCache->getPhysicalCubaturePoints();
+        myRefPoints.resize(myRefPoints.dimension(1),myRefPoints.dimension(2)); // strip cell dimension
+        
+        /*******  Determine ancestor's permutation of the side relative to neighbor ******/
+        CellPtr ancestor = meshTopo->getCell(ancestorCellIndex);
+        vector<IndexType> ancestorSideNodes, neighborSideNodes; // this will list the indices as seen by MeshTopology
+        
+        CellTopoPtr sideTopo = ancestor->topology()->getSide(ancestorSideOrdinal);
+        nodeCount = sideTopo->getNodeCount();
+        
+        for (int node=0; node<nodeCount; node++)
+        {
+          int nodeInCell = cellTopo->getNodeMap(sideDim, sideOrdinal, node);
+          ancestorSideNodes.push_back(ancestor->vertices()[nodeInCell]);
+          int nodeInNeighborCell = neighborTopo->getNodeMap(sideDim, mySideOrdinalInNeighbor, node);
+          neighborSideNodes.push_back(neighbor->vertices()[nodeInNeighborCell]);
+        }
+        // now, we want to know what permutation of the side topology takes us from my order to neighbor's
+        // TODO: make sure I'm not going the wrong direction here; it's easy to get confused.
+        permutationFromMeToNeighbor = CamelliaCellTools::permutationMatchingOrder(sideTopo, ancestorSideNodes, neighborSideNodes);
+      }
+      else
+      {
+        nodeCount = cellTopo->getSide(sideOrdinal)->getNodeCount();
+        
+        vector<IndexType> mySideNodes, neighborSideNodes; // this will list the indices as seen by MeshTopology
+        for (int node=0; node<nodeCount; node++)
+        {
+          int nodeInCell = cellTopo->getNodeMap(sideDim, sideOrdinal, node);
+          mySideNodes.push_back(cell->vertices()[nodeInCell]);
+          int nodeInNeighborCell = neighborTopo->getNodeMap(sideDim, mySideOrdinalInNeighbor, node);
+          neighborSideNodes.push_back(neighbor->vertices()[nodeInNeighborCell]);
+        }
+        // now, we want to know what permutation of the side topology takes us from my order to neighbor's
+        // TODO: make sure I'm not going the wrong direction here; it's easy to get confused.
+        permutationFromMeToNeighbor = CamelliaCellTools::permutationMatchingOrder(sideTopo, mySideNodes, neighborSideNodes);
+      }
+      
+      Intrepid::FieldContainer<double> permutedRefNodes(nodeCount,sideDim);
+      CamelliaCellTools::refCellNodesForTopology(permutedRefNodes, sideTopo, permutationFromMeToNeighbor);
+      permutedRefNodes.resize(1,nodeCount,sideDim); // add cell dimension to make this a "physical" node container
+      if (basisCacheForReferenceCellTopo.find(sideTopo->getKey()) == basisCacheForReferenceCellTopo.end())
+      {
+        basisCacheForReferenceCellTopo[sideTopo->getKey()] = BasisCache::basisCacheForReferenceCell(sideTopo, -1);
+      }
+      BasisCachePtr referenceBasisCache = basisCacheForReferenceCellTopo[sideTopo->getKey()];
+      referenceBasisCache->setRefCellPoints(myRefPoints,emptyCubWeights,cubaturePolyOrder,false);
+      std::vector<GlobalIndexType> cellIDs = {0}; // unused
+      referenceBasisCache->setPhysicalCellNodes(permutedRefNodes, cellIDs, false);
+      // now, the "physical" points are the ones we should use as ref points for the neighbor
+      Intrepid::FieldContainer<double> neighborRefCellPoints = referenceBasisCache->getPhysicalCubaturePoints();
+      neighborRefCellPoints.resize(numPoints,sideDim); // strip cell dimension to convert to a "reference" point container
+      
+      FieldContainer<double> neighborCellNodes = mesh->physicalCellNodesForCell(neighborCellID);
+      if (basisCacheForNeighborVolumeTopo.find(neighborTopo->getKey()) == basisCacheForNeighborVolumeTopo.end())
+      {
+        basisCacheForNeighborVolumeTopo[neighborTopo->getKey()] = Teuchos::rcp( new BasisCache(neighborCellNodes, neighborTopo,
+                                                                                               emptyRefPointsVolume, emptyCubWeights) );
+      }
+      BasisCachePtr neighborVolumeCache = basisCacheForNeighborVolumeTopo[neighborTopo->getKey()];
+      neighborVolumeCache->setPhysicalCellNodes(neighborCellNodes, {neighborCellID}, false);
+      
+      pair<int,CellTopologyKey> neighborSideCacheKey{mySideOrdinalInNeighbor,neighborTopo->getKey()};
+      if (basisCacheForSideOnNeighborVolumeTopo.find(neighborSideCacheKey) == basisCacheForSideOnNeighborVolumeTopo.end())
+      {
+        basisCacheForSideOnNeighborVolumeTopo[neighborSideCacheKey]
+        = Teuchos::rcp( new BasisCache(mySideOrdinalInNeighbor, neighborVolumeCache, emptyRefPointsSide, emptyCubWeights, -1));
+      }
+      BasisCachePtr neighborSideCache = basisCacheForSideOnNeighborVolumeTopo[neighborSideCacheKey];
+      neighborSideCache->setRefCellPoints(neighborRefCellPoints, emptyCubWeights, cubaturePolyOrder, false);
+      neighborSideCache->setPhysicalCellNodes(neighborCellNodes, {neighborCellID}, false);
+      {
+        // Sanity check that the physical points agree:
+        double tol = 1e-15;
+        Intrepid::FieldContainer<double> myPhysicalPoints = cellBasisCacheSide->getPhysicalCubaturePoints();
+        Intrepid::FieldContainer<double> neighborPhysicalPoints = neighborSideCache->getPhysicalCubaturePoints();
+        
+        bool pointsMatch = (myPhysicalPoints.size() == neighborPhysicalPoints.size()); // true unless we find a point that doesn't match
+        if (pointsMatch)
+        {
+          for (int i=0; i<myPhysicalPoints.size(); i++)
+          {
+            double diff = abs(myPhysicalPoints[i]-neighborPhysicalPoints[i]);
+            if (diff > tol)
+            {
+              pointsMatch = false;
+              break;
+            }
+          }
+        }
+        
+        if (!pointsMatch)
+        {
+          cout << "ERROR: pointsMatch is false.\n";
+          cout << "myPhysicalPoints:\n" << myPhysicalPoints;
+          cout << "neighborPhysicalPoints:\n" << neighborPhysicalPoints;
+        }
+      }
+      Intrepid::FieldContainer<Scalar> neighborValues(myValues); // size according to myValues
+      this->values(neighborValues, neighborSideCache);
+      
+      // TODO: compute squared L^2 contribution for this side, summing along points using cubature weights
+      double myL2contributionSquared = 0.0;
+      auto & physCubWeights = cellBasisCacheSide->getWeightedMeasures(); // (C,P) container
+      for (int pointOrdinal=0; pointOrdinal<numPoints; pointOrdinal++)
+      {
+        const int cellOrdinal = 0; // 0 because we're in a single-cell BasisCache
+        double weight = physCubWeights(cellOrdinal,pointOrdinal);
+        if (this->rank() == 0)
+        {
+          Scalar diff = neighborValues(cellOrdinal,pointOrdinal) - myValues(cellOrdinal,pointOrdinal);
+          myL2contributionSquared += diff * diff * weight;
+          cout << "on cell " << cellID << endl;
+          cout << "neighbor value = " << neighborValues(cellOrdinal,pointOrdinal) << endl;
+          cout << "my value = " << myValues(cellOrdinal,pointOrdinal) << endl;
+          cout << "diff = " << diff << endl;
+        }
+        else if (this->rank() == 1)
+        {
+          for (int d1=0; d1<spaceDim; d1++)
+          {
+            Scalar diff = neighborValues(cellOrdinal,pointOrdinal,d1) - myValues(cellOrdinal,pointOrdinal,d1);
+            myL2contributionSquared += diff * diff * weight;
+          }
+        }
+        else if (this->rank() == 2)
+        {
+          for (int d1=0; d1<spaceDim; d1++)
+          {
+            for (int d2=0; d2<spaceDim; d2++)
+            {
+              Scalar diff = neighborValues(cellOrdinal,pointOrdinal,d1,d2) - myValues(cellOrdinal,pointOrdinal,d1,d2);
+              myL2contributionSquared += diff * diff * weight;
+            }
+          }
+        }
+      }
+      localL2ContributionSquared += myL2contributionSquared;
+    }
+  }
+  double globalSum = MPIWrapper::sum(*Comm, localL2ContributionSquared);
+  return sqrt(globalSum);
 }
 
 template <typename Scalar>

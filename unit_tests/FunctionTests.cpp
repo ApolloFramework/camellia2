@@ -14,6 +14,9 @@
 #include <CamelliaCellTools.h>
 #include "CellTopology.h"
 #include "Function.h"
+#include "MeshFactory.h"
+#include "PoissonFormulation.h"
+#include "Solution.h"
 
 using namespace Camellia;
 using namespace Intrepid;
@@ -303,6 +306,47 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     CellTopoPtr hex = CellTopology::hexahedron();
     CellTopoPtr cellTopo = CellTopology::lineTensorTopology(hex);
     testHFunction(cellTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( Function, L2NormOfJumps )
+  {
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    int H1Order = 1;
+    vector<int> elemCounts = {2,2};
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {2.0,2.0}, elemCounts, H1Order);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    
+    LinearTermPtr dummyGoal = 1.0 * form.u(); // just something to let there be two solutions...
+    solution->setGoalOrientedRHS(dummyGoal);
+    
+    solution->initializeLHSVector();
+    
+    // let's put a value of 1 into odd cells, 0 into even
+    auto myCellIDs = mesh->cellIDsInPartition();
+    
+    int solutionOrdinal = 1; // use the second solution
+    for (int cellID : myCellIDs)
+    {
+      auto trialOrdering = mesh->getElementType(cellID)->trialOrderPtr;
+      Intrepid::FieldContainer<double> solnCoefficients(trialOrdering->totalDofs());
+      if (cellID % 2 == 0) solnCoefficients.initialize(0.0);
+      else                 solnCoefficients.initialize(1.0); // this will give all variables a constant 1.0 value
+      
+      solution->setSolnCoeffsForCellID(solnCoefficients, cellID, solutionOrdinal);
+    }
+    
+    FunctionPtr u_goal = Function::solution(form.u(), solution, solutionOrdinal);
+    
+    // we expect the jumps to be 1 everywhere on the interior; each interior side has unit length,
+    // for a total contribution of 4 before taking the square root
+    double l2OfJumpExpected = sqrt(4.0);
+    double l2OfJumpActual = u_goal->l2normOfInteriorJumps(mesh, 0, solution);
+    
+    TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, l2OfJumpExpected, 1e-14, out, success);
   }
   
 TEUCHOS_UNIT_TEST( Function, MinAndMaxFunctions )
