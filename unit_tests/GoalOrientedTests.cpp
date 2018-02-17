@@ -374,7 +374,7 @@ namespace
     auto elementWidths = vector<int>(spaceDim,meshWidth);
     int H1Order = 4;
     bool useConformingTraces = true;
-    double tol = 1e-16;
+    double tol = 1e-14;
     
     testPoissonSolveMatches(elementWidths, H1Order, useConformingTraces, tol, success, out);
   }
@@ -384,9 +384,9 @@ namespace
     const int spaceDim = 2;
     const int meshWidth = 2;
     auto elementWidths = vector<int>(spaceDim,meshWidth);
-    int H1Order = 3;
+    int H1Order = 1;
     bool useConformingTraces = true;
-    double tol = 1e-16;
+    double tol = 1e-14;
     
     testPoissonSolveMatches(elementWidths, H1Order, useConformingTraces, tol, success, out);
   }
@@ -398,7 +398,7 @@ namespace
     auto elementWidths = vector<int>(spaceDim,meshWidth);
     int H1Order = 1;
     bool useConformingTraces = true;
-    double tol = 1e-16;
+    double tol = 1e-14;
     
     testPoissonSolveMatches(elementWidths, H1Order, useConformingTraces, tol, success, out);
   }

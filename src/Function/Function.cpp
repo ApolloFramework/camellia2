@@ -1331,6 +1331,7 @@ double TFunction<Scalar>::l2normOfInteriorJumps(MeshPtr mesh, int cubatureDegree
                                                                                    emptyRefPointsSide, emptyCubWeights, -1));
       }
       BasisCachePtr cellBasisCacheSide = basisCacheForSideOnVolumeTopo[sideCacheKey];
+      cellBasisCacheSide->setMesh(mesh);
       pair<CellTopologyKey,int> cubKey{mySideTopo->getKey(),cubaturePolyOrder};
       if (cubWeightsForSideTopo.find(cubKey) == cubWeightsForSideTopo.end())
       {
@@ -1480,6 +1481,7 @@ double TFunction<Scalar>::l2normOfInteriorJumps(MeshPtr mesh, int cubatureDegree
         = Teuchos::rcp( new BasisCache(mySideOrdinalInNeighbor, neighborVolumeCache, emptyRefPointsSide, emptyCubWeights, -1));
       }
       BasisCachePtr neighborSideCache = basisCacheForSideOnNeighborVolumeTopo[neighborSideCacheKey];
+      neighborSideCache->setMesh(mesh);
       neighborSideCache->setRefCellPoints(neighborRefCellPoints, emptyCubWeights, cubaturePolyOrder, false);
       neighborSideCache->setPhysicalCellNodes(neighborCellNodes, {neighborCellID}, false);
       {
@@ -1523,10 +1525,10 @@ double TFunction<Scalar>::l2normOfInteriorJumps(MeshPtr mesh, int cubatureDegree
         {
           Scalar diff = neighborValues(cellOrdinal,pointOrdinal) - myValues(cellOrdinal,pointOrdinal);
           myL2contributionSquared += diff * diff * weight;
-          cout << "on cell " << cellID << endl;
-          cout << "neighbor value = " << neighborValues(cellOrdinal,pointOrdinal) << endl;
-          cout << "my value = " << myValues(cellOrdinal,pointOrdinal) << endl;
-          cout << "diff = " << diff << endl;
+//          cout << "on cell " << cellID << endl;
+//          cout << "neighbor value = " << neighborValues(cellOrdinal,pointOrdinal) << endl;
+//          cout << "my value = " << myValues(cellOrdinal,pointOrdinal) << endl;
+//          cout << "diff = " << diff << endl;
         }
         else if (this->rank() == 1)
         {

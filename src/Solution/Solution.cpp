@@ -1784,14 +1784,14 @@ void TSolution<Scalar>::importSolutionForOffRankCells(std::set<GlobalIndexType> 
 
   const std::set<GlobalIndexType>* myCells = &_mesh->globalDofAssignment()->cellsInPartition(-1);
   
-  vector<int> sizes(numCellsToExport);
+  vector<int> sizes(numCellsToExport,0);
   vector<Scalar> dataToExport;
   
   int solutionCount = numSolutions();
   
-  for (int solutionOrdinal=0; solutionOrdinal < solutionCount; solutionOrdinal++)
+  for (int cellOrdinal=0; cellOrdinal<numCellsToExport; cellOrdinal++)
   {
-    for (int cellOrdinal=0; cellOrdinal<numCellsToExport; cellOrdinal++)
+    for (int solutionOrdinal=0; solutionOrdinal < solutionCount; solutionOrdinal++)
     {
       GlobalIndexType cellID = cellIDsToExport[cellOrdinal];
       if (myCells->find(cellID) == myCells->end())
@@ -1802,9 +1802,13 @@ void TSolution<Scalar>::importSolutionForOffRankCells(std::set<GlobalIndexType> 
         Camellia::print(myRankDescriptor.str().c_str(), *myCells);
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "requested cellID does not belong to this rank!");
       }
+      if (_solutionForCellID[solutionOrdinal].find(cellID) == _solutionForCellID[solutionOrdinal].end())
+      {
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "solution not found for cell");
+      }
 
       Intrepid::FieldContainer<Scalar>* solnCoeffs = &_solutionForCellID[solutionOrdinal][cellID];
-      sizes[cellOrdinal] = solnCoeffs->size();
+      sizes[cellOrdinal] += solnCoeffs->size();
       for (int dofOrdinal=0; dofOrdinal < solnCoeffs->size(); dofOrdinal++)
       {
         dataToExport.push_back((*solnCoeffs)[dofOrdinal]);
@@ -1827,14 +1831,24 @@ void TSolution<Scalar>::importSolutionForOffRankCells(std::set<GlobalIndexType> 
   const char* copyFromLocation = importedData;
   int numDofsImport = importLength / objSize;
   int dofsImported = 0;
-  for (int solutionOrdinal=0; solutionOrdinal < solutionCount; solutionOrdinal++)
+  for (GlobalIndexType cellID : myRequest)
   {
-    for (vector<GlobalIndexTypeToCast>::iterator cellIDIt = myRequest.begin(); cellIDIt != myRequest.end(); cellIDIt++)
+    for (int solutionOrdinal=0; solutionOrdinal < solutionCount; solutionOrdinal++)
     {
-      GlobalIndexType cellID = *cellIDIt;
       Intrepid::FieldContainer<Scalar> cellDofs(_mesh->getElementType(cellID)->trialOrderPtr->totalDofs());
       if (cellDofs.size() + dofsImported > numDofsImport)
       {
+        cout << "myRequest: ";
+        for (auto requestID : myRequest)
+        {
+          cout << requestID << " ";
+        }
+        cout << endl;
+        cout << "solutionOrdinal: " << solutionOrdinal << endl;
+        cout << "cellID: " << cellID << endl;
+        cout << "cellDofs.size(): " << cellDofs.size() << endl;
+        cout << "dofsImported: " << dofsImported << endl;
+        cout << "numDofsImport: " << numDofsImport << endl;
         cout << "ERROR: not enough dofs provided to this rank!\n";
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Attempt to go beyond array bounds because not enough dofs were imported.");
       }
@@ -2825,25 +2839,11 @@ void TSolution<Scalar>::solutionValues(Intrepid::FieldContainer<Scalar> &values,
     Teuchos::RCP<const Intrepid::FieldContainer<Scalar> > transformedValues;
     if (weightForCubature)
     {
-      if (forceVolumeCoords)
-      {
-        transformedValues = basisCache->getVolumeBasisCache()->getTransformedWeightedValues(basis,op,sideIndex,true);
-      }
-      else
-      {
-        transformedValues = basisCache->getTransformedWeightedValues(basis, op);
-      }
+      transformedValues = basisCache->getTransformedWeightedValues(basis,op,forceVolumeCoords);
     }
     else
     {
-      if (forceVolumeCoords)
-      {
-        transformedValues = basisCache->getVolumeBasisCache()->getTransformedValues(basis, op, sideIndex, true);
-      }
-      else
-      {
-        transformedValues = basisCache->getTransformedValues(basis, op);
-      }
+      transformedValues = basisCache->getTransformedValues(basis,op,forceVolumeCoords);
     }
 
 //    cout << "solnCoeffs:\n" << solnCoeffs;

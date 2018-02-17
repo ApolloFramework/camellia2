@@ -310,12 +310,17 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
   
   TEUCHOS_UNIT_TEST( Function, L2NormOfJumps )
   {
+    // In this test, we set up a 2x2 mesh with unit solution values on the lower-left and upper-right cells,
+    // and zero solutions in the others.  The lower-left cell has ID 0; the upper-right, 3.
+    // With this setup, the solution jumps should be 1.0 everywhere on the interior of the mesh.  The interior
+    // mesh skeleton has total length of 4.0, so that the squared L^2 norm of the jumps is 4.0...
     int spaceDim = 2;
     bool conformingTraces = true;
     PoissonFormulation form(spaceDim,conformingTraces);
     
     int H1Order = 1;
     vector<int> elemCounts = {2,2};
+    set<int> unitCellIDs = {0,3};
     
     MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {2.0,2.0}, elemCounts, H1Order);
     SolutionPtr solution = Solution::solution(form.bf(), mesh);
@@ -325,21 +330,28 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     
     solution->initializeLHSVector();
     
-    // let's put a value of 1 into odd cells, 0 into even
     auto myCellIDs = mesh->cellIDsInPartition();
     
-    int solutionOrdinal = 1; // use the second solution
+    int solutionOrdinal = 1; // use the second solution for our actual test
     for (int cellID : myCellIDs)
     {
       auto trialOrdering = mesh->getElementType(cellID)->trialOrderPtr;
       Intrepid::FieldContainer<double> solnCoefficients(trialOrdering->totalDofs());
-      if (cellID % 2 == 0) solnCoefficients.initialize(0.0);
-      else                 solnCoefficients.initialize(1.0); // this will give all variables a constant 1.0 value
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      if (hasUnitSolution) solnCoefficients.initialize(1.0);
+      else                 solnCoefficients.initialize(0.0); // this will give all variables a constant 1.0 value
       
       solution->setSolnCoeffsForCellID(solnCoefficients, cellID, solutionOrdinal);
+      
+      // to emulate a solve context, there should be solution values for both solutions;
+      // we just put 0 values for the other solution
+      int otherSolutionOrdinal = 1 - solutionOrdinal;
+      solnCoefficients.initialize(0.0);
+      solution->setSolnCoeffsForCellID(solnCoefficients, cellID, otherSolutionOrdinal);
     }
     
-    FunctionPtr u_goal = Function::solution(form.u(), solution, solutionOrdinal);
+    bool weightByParity = false;
+    FunctionPtr u_goal = Function::solution(form.u(), solution, weightByParity, solutionOrdinal);
     
     // we expect the jumps to be 1 everywhere on the interior; each interior side has unit length,
     // for a total contribution of 4 before taking the square root
