@@ -154,7 +154,7 @@ public:
   TLinearTermPtr<Scalar> testFunctional(TSolutionPtr<Scalar> trialSolution, bool excludeBoundaryTerms=false, bool overrideMeshCheck=false,
                                         int solutionOrdinal=0);
 
-  map<int, TFunctionPtr<Scalar> > TBF<Scalar>::applyAdjointOperatorDPGstar(TRieszRepPtr<double> dualSolution);
+  map<int, TFunctionPtr<Scalar> > applyAdjointOperatorDPGstar(TRieszRepPtr<double> dualSolution);
 
   virtual bool trialTestOperator(int trialID, int testID,
                                  Camellia::EOperator &trialOperator,
