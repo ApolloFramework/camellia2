@@ -38,6 +38,41 @@ string SimpleSolutionFunction<Scalar>::displayString()
 }
 
 template <typename Scalar>
+size_t SimpleSolutionFunction<Scalar>::getCellDataSize(GlobalIndexType cellID)
+{
+  bool warnAboutOffRankImports = true;
+  auto & cellDofs = _soln->allCoefficientsForCellID(cellID, warnAboutOffRankImports, _solutionOrdinal);
+  return cellDofs.size() * sizeof(Scalar); // size in bytes
+}
+
+template <typename Scalar>
+void SimpleSolutionFunction<Scalar>::packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength)
+{
+  size_t requiredLength = getCellDataSize(cellID);
+  TEUCHOS_TEST_FOR_EXCEPTION(requiredLength > bufferLength, std::invalid_argument, "Buffer length too small");
+  bool warnAboutOffRankImports = true;
+  auto & cellDofs = _soln->allCoefficientsForCellID(cellID, warnAboutOffRankImports, _solutionOrdinal);
+  size_t objSize = sizeof(Scalar);
+  const Scalar* copyFromLocation = &cellDofs[0];
+  memcpy(cellData, copyFromLocation, objSize * cellDofs.size());
+}
+
+template <typename Scalar>
+size_t SimpleSolutionFunction<Scalar>::unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength)
+{
+//  Epetra_CommPtr Comm = _soln->mesh()->Comm();
+//  int rank = Comm->MyPID();
+  int numDofs = _soln->mesh()->getElementType(cellID)->trialOrderPtr->totalDofs();
+  size_t numBytes = numDofs * sizeof(Scalar);
+  TEUCHOS_TEST_FOR_EXCEPTION(numBytes > bufferLength, std::invalid_argument, "buffer is too short");
+  Intrepid::FieldContainer<Scalar> cellDofs(numDofs);
+  Scalar* copyToLocation = &cellDofs[0];
+  memcpy(copyToLocation, cellData, numBytes);
+  _soln->setSolnCoeffsForCellID(cellDofs,cellID,_solutionOrdinal);
+  return numBytes;
+}
+
+template <typename Scalar>
 void SimpleSolutionFunction<Scalar>::importCellData(std::vector<GlobalIndexType> cells)
 {
   int rank = Teuchos::GlobalMPISession::getRank();

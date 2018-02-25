@@ -40,6 +40,10 @@ public:
 
   void importCellData(std::vector<GlobalIndexType> cellIDs);
 
+  size_t getCellDataSize(GlobalIndexType cellID); // size in bytes
+  void packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength);
+  size_t unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength); // returns bytes consumed
+  
   std::string displayString();
   bool boundaryValueOnly();
 };

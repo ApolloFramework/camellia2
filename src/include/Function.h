@@ -158,6 +158,11 @@ public:
   static Scalar evaluate(TFunctionPtr<Scalar> f, double x, double y); // for testing
   static Scalar evaluate(TFunctionPtr<Scalar> f, double x, double y, double z); // for testing
 
+  // ! Data packing mechanism for mesh-dependent Function subclasses.  Default implementations provide no data; mesh-dependent subclasses should override.
+  virtual size_t getCellDataSize(GlobalIndexType cellID); // size in bytes
+  virtual void   packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength);
+  virtual size_t unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength);
+  
   static bool isNull(TFunctionPtr<Scalar> f);
 
   // static Function construction methods:

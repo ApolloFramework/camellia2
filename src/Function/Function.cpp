@@ -526,6 +526,23 @@ Scalar TFunction<Scalar>::evaluate(TFunctionPtr<Scalar> f, double x, double y, d
 }
 
 template <typename Scalar>
+size_t TFunction<Scalar>::getCellDataSize(GlobalIndexType cellID)
+{
+  // size in bytes
+  return 0; // default: no mesh-dependent information
+}
+
+template <typename Scalar>
+void TFunction<Scalar>::packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength)
+{}
+  
+template <typename Scalar>
+size_t TFunction<Scalar>::unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength)
+{
+  return 0; // no data consumed
+}
+
+template <typename Scalar>
 TFunctionPtr<Scalar> TFunction<Scalar>::x()
 {
   return TFunction<Scalar>::null();
@@ -1176,50 +1193,210 @@ double TFunction<Scalar>::l2normOfInteriorJumps(MeshPtr mesh, int cubatureDegree
   MeshTopologyViewPtr meshTopo = mesh->getTopology();
   const set<GlobalIndexType> & activeCellIDs = meshTopo->getLocallyKnownActiveCellIndices();
   const set<GlobalIndexType> & myCellIDs = mesh->cellIDsInPartition();
-  
-  if (solutionToImport != Teuchos::null)
+
+  set<GlobalIndexType> offRankNeighbors;
+  for (auto myCellID : myCellIDs)
   {
-    set<GlobalIndexType> offRankNeighbors;
-    for (auto myCellID : myCellIDs)
+    CellPtr cell = meshTopo->getCell(myCellID);
+    int sideCount = cell->getSideCount();
+    
+    for (int sideOrdinal = 0; sideOrdinal < sideCount; sideOrdinal++)
     {
-      CellPtr cell = meshTopo->getCell(myCellID);
-      int sideCount = cell->getSideCount();
-      
-      for (int sideOrdinal = 0; sideOrdinal < sideCount; sideOrdinal++)
+      pair<GlobalIndexType,unsigned> neighborInfo = cell->getNeighborInfo(sideOrdinal, meshTopo);
+      GlobalIndexType neighborCellID = neighborInfo.first;
+      unsigned mySideOrdinalInNeighbor = neighborInfo.second;
+      if (activeCellIDs.find(neighborCellID) == activeCellIDs.end())
       {
-        pair<GlobalIndexType,unsigned> neighborInfo = cell->getNeighborInfo(sideOrdinal, meshTopo);
-        GlobalIndexType neighborCellID = neighborInfo.first;
-        unsigned mySideOrdinalInNeighbor = neighborInfo.second;
-        if (activeCellIDs.find(neighborCellID) == activeCellIDs.end())
-        {
-          // no active neigbor on this side: either this is not an interior face (neighborCellID == -1),
-          // or the neighbor is refined and therefore inactive.  If the latter, then the neighbor's
-          // descendants will collectively "own" this side: we let them ask for the import from us
-          continue;
-        }
-        
-        // Finally, we need to check whether the neighbor is a "peer" in terms of h-refinements.
-        // If so, we use the cellID to break the tie of ownership; lower cellID owns the face.
-        CellPtr neighbor = meshTopo->getCell(neighborInfo.first);
-        pair<GlobalIndexType,unsigned> neighborNeighborInfo = neighbor->getNeighborInfo(mySideOrdinalInNeighbor, meshTopo);
-        bool neighborIsPeer = neighborNeighborInfo.first == cell->cellIndex();
-        if (neighborIsPeer && (myCellID > neighborCellID))
-        {
-          // neighbor wins the tie-breaker: neighbor can ask for import from us...
-          continue;
-        }
-        
-        // if we get here: we are the "owner" of this side, and should compute the L^2 contribution from it
-        // we should import any off-rank neighbor data
-        if (myCellIDs.find(neighborCellID) == myCellIDs.end())
-        {
-          // off-rank, active neighbor for which we're responsible: ask for import
-          offRankNeighbors.insert(neighborCellID);
-        }
+        // no active neigbor on this side: either this is not an interior face (neighborCellID == -1),
+        // or the neighbor is refined and therefore inactive.  If the latter, then the neighbor's
+        // descendants will collectively "own" this side: we let them ask for the import from us
+        continue;
+      }
+      
+      // Finally, we need to check whether the neighbor is a "peer" in terms of h-refinements.
+      // If so, we use the cellID to break the tie of ownership; lower cellID owns the face.
+      CellPtr neighbor = meshTopo->getCell(neighborInfo.first);
+      pair<GlobalIndexType,unsigned> neighborNeighborInfo = neighbor->getNeighborInfo(mySideOrdinalInNeighbor, meshTopo);
+      bool neighborIsPeer = neighborNeighborInfo.first == cell->cellIndex();
+      if (neighborIsPeer && (myCellID > neighborCellID))
+      {
+        // neighbor wins the tie-breaker: neighbor can ask for import from us...
+        continue;
+      }
+      
+      // if we get here: we are the "owner" of this side, and should compute the L^2 contribution from it
+      // we should import any off-rank neighbor data
+      if (myCellIDs.find(neighborCellID) == myCellIDs.end())
+      {
+        // off-rank, active neighbor for which we're responsible: ask for import
+        offRankNeighbors.insert(neighborCellID);
       }
     }
-    solutionToImport->importSolutionForOffRankCells(offRankNeighbors);
   }
+  // the following block should be pulled out into its own method, perhaps called importDataForOffRankCells()
+  {
+    // code below is adapted from Solution::importSolutionForOffRankCells
+    Epetra_CommPtr Comm = mesh->Comm();
+    int rank = Comm->MyPID();
+    
+    // we require that all the cellIDs be locally known in terms of the geometry
+    // (for distributed MeshTopology, this basically means that we only allow importing
+    // Solution coefficients in the halo of the cells owned by this rank.)
+    const set<IndexType>* locallyKnownActiveCells = &mesh->getTopology()->getLocallyKnownActiveCellIndices();
+    for (GlobalIndexType cellID : offRankNeighbors)
+    {
+      if (locallyKnownActiveCells->find(cellID) == locallyKnownActiveCells->end())
+      {
+        cout << "Requested cell " << cellID << " is not locally known on rank " << rank << endl;
+        print("locally known cells", *locallyKnownActiveCells);
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "importDataForOffRankCells requires cells to have locally available geometry.");
+      }
+    }
+    
+    // it appears to be important that the requests be sorted by MPI rank number
+    // the requestMap below accomplishes that.
+    
+    map<int, vector<GlobalIndexTypeToCast>> requestMap;
+    
+    for (GlobalIndexType cellID : offRankNeighbors)
+    {
+      int partitionForCell = mesh->globalDofAssignment()->partitionForCellID(cellID);
+      if (partitionForCell != rank)
+      {
+        requestMap[partitionForCell].push_back(cellID);
+      }
+    }
+    
+    vector<int> myRequestOwners;
+    vector<GlobalIndexTypeToCast> myRequest;
+    
+    for (auto entry : requestMap)
+    {
+      int partition = entry.first;
+      for (auto cellIDInPartition : entry.second)
+      {
+        myRequest.push_back(cellIDInPartition);
+        myRequestOwners.push_back(partition);
+      }
+    }
+    
+    int myRequestCount = myRequest.size();
+    Teuchos::RCP<Epetra_Distributor> distributor = MPIWrapper::getDistributor(*mesh->Comm());
+    
+    GlobalIndexTypeToCast* myRequestPtr = NULL;
+    int *myRequestOwnersPtr = NULL;
+    if (myRequest.size() > 0)
+    {
+      myRequestPtr = &myRequest[0];
+      myRequestOwnersPtr = &myRequestOwners[0];
+    }
+    int numCellsToExport = 0;
+    GlobalIndexTypeToCast* cellIDsToExport = NULL;  // we are responsible for deleting the allocated arrays
+    int* exportRecipients = NULL;
+    
+//    std::cout << "On rank " << rank << ", about to call CreateFromRecvs\n";
+    distributor->CreateFromRecvs(myRequestCount, myRequestPtr, myRequestOwnersPtr, true, numCellsToExport, cellIDsToExport, exportRecipients);
+    
+    const std::set<GlobalIndexType>* myCells = &mesh->globalDofAssignment()->cellsInPartition(-1);
+    
+    vector<int> sizes(numCellsToExport,0);
+    vector<char> dataToExport; // bytes
+    
+//    std::cout << "On rank " << rank << ", numCellsToExport = " << numCellsToExport << std::endl;
+    for (int cellOrdinal=0; cellOrdinal<numCellsToExport; cellOrdinal++)
+    {
+      GlobalIndexType cellID = cellIDsToExport[cellOrdinal];
+      if (myCells->find(cellID) == myCells->end())
+      {
+        cout << "cellID " << cellID << " does not belong to rank " << rank << endl;
+        ostringstream myRankDescriptor;
+        myRankDescriptor << "rank " << rank << ", cellID ownership";
+        Camellia::print(myRankDescriptor.str().c_str(), *myCells);
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "requested cellID does not belong to this rank!");
+      }
+      size_t dataSize = this->getCellDataSize(cellID);
+      if (dataSize == 0) continue;
+      vector<char> cellData(dataSize);
+      this->packCellData(cellID, &cellData[0], dataSize);
+      sizes[cellOrdinal] = dataSize;
+      for (int byteOrdinal=0; byteOrdinal < dataSize; byteOrdinal++)
+      {
+        dataToExport.push_back(cellData[byteOrdinal]); // we could make this more efficient by resizing dataToExport and then doing a memcpy, or even resizing dataToExport and then calling packCellData(cellID, &dataToExport[offset], dataSize).  But this is a little less safe against programmer error.
+      }
+    }
+    
+//    std::cout << "On rank " << rank << ", finished processing dataToExport.\n";
+    int objSize = sizeof(char) / sizeof(char); // i.e., 1
+    
+    int importLength = 0;
+    char* importedData = NULL;
+    int* sizePtr = NULL;
+    char* dataToExportPtr = NULL;
+    if (numCellsToExport > 0)
+    {
+      sizePtr = &sizes[0];
+      dataToExportPtr = (char *) &dataToExport[0];
+    }
+//    std::cout << "On rank " << rank << ", about to call distributor->Do().\n";
+    distributor->Do(dataToExportPtr, objSize, sizePtr, importLength, importedData);
+//    std::cout << "On rank " << rank << ", returned from distributor->Do().\n";
+    const char* copyFromLocation = importedData;
+    for (GlobalIndexType cellID : myRequest)
+    {
+      size_t bytesConsumed = this->unpackCellData(cellID, copyFromLocation, importLength);
+      importLength -= bytesConsumed;
+      copyFromLocation += bytesConsumed;
+    }
+    
+//    std::cout << "On rank " << rank << ", about to delete cellIDsToExport, etc.\n";
+    if( cellIDsToExport != 0 ) delete [] cellIDsToExport;
+    if( exportRecipients != 0 ) delete [] exportRecipients;
+    if (importedData != 0 ) delete [] importedData;
+  }
+  
+//  if (solutionToImport != Teuchos::null)
+//  {
+//    set<GlobalIndexType> offRankNeighbors;
+//    for (auto myCellID : myCellIDs)
+//    {
+//      CellPtr cell = meshTopo->getCell(myCellID);
+//      int sideCount = cell->getSideCount();
+//
+//      for (int sideOrdinal = 0; sideOrdinal < sideCount; sideOrdinal++)
+//      {
+//        pair<GlobalIndexType,unsigned> neighborInfo = cell->getNeighborInfo(sideOrdinal, meshTopo);
+//        GlobalIndexType neighborCellID = neighborInfo.first;
+//        unsigned mySideOrdinalInNeighbor = neighborInfo.second;
+//        if (activeCellIDs.find(neighborCellID) == activeCellIDs.end())
+//        {
+//          // no active neigbor on this side: either this is not an interior face (neighborCellID == -1),
+//          // or the neighbor is refined and therefore inactive.  If the latter, then the neighbor's
+//          // descendants will collectively "own" this side: we let them ask for the import from us
+//          continue;
+//        }
+//
+//        // Finally, we need to check whether the neighbor is a "peer" in terms of h-refinements.
+//        // If so, we use the cellID to break the tie of ownership; lower cellID owns the face.
+//        CellPtr neighbor = meshTopo->getCell(neighborInfo.first);
+//        pair<GlobalIndexType,unsigned> neighborNeighborInfo = neighbor->getNeighborInfo(mySideOrdinalInNeighbor, meshTopo);
+//        bool neighborIsPeer = neighborNeighborInfo.first == cell->cellIndex();
+//        if (neighborIsPeer && (myCellID > neighborCellID))
+//        {
+//          // neighbor wins the tie-breaker: neighbor can ask for import from us...
+//          continue;
+//        }
+//
+//        // if we get here: we are the "owner" of this side, and should compute the L^2 contribution from it
+//        // we should import any off-rank neighbor data
+//        if (myCellIDs.find(neighborCellID) == myCellIDs.end())
+//        {
+//          // off-rank, active neighbor for which we're responsible: ask for import
+//          offRankNeighbors.insert(neighborCellID);
+//        }
+//      }
+//    }
+//    solutionToImport->importSolutionForOffRankCells(offRankNeighbors);
+//  }
   
   int sideDim = meshTopo->getDimension() - 1;
   
