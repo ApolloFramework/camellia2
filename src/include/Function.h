@@ -114,11 +114,12 @@ public:
 
   double l1norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0, bool spatialSidesOnly = false);
   double l2norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0, bool spatialSidesOnly = false);
-
+  
   // ! computes the L^2 norm of the jumps of this Function along the interior of the mesh skeleton
-  // ! If solutionToImport is not null, then off-rank neighbor data will be imported prior to computation of the jumps.
-  // ! (Use this feature if this Function depends on a solution.)
-  double l2normOfInteriorJumps(MeshPtr mesh, int cubatureDegreeEnrichment, SolutionPtr solutionToImport);
+  // ! if weightBySideMeasure is true, then the edge lengths (2D) or face area will be used to weight the integral of the squared jump.
+  // ! cubatureDegreeEnrichment is relative to the H^1 order of the mesh's trial space.
+  // ! Returned map will have as keys the cell IDs of MPI-local cells.
+  std::map<GlobalIndexType, double> l2normOfInteriorJumps(MeshPtr mesh, bool weightBySideMeasure, int cubatureDegreeEnrichment);
   
   // divide values by this function (supported only when this is a scalar--otherwise values would change rank...)
   virtual void scalarMultiplyFunctionValues(Intrepid::FieldContainer<Scalar> &functionValues, BasisCachePtr basisCache);
@@ -162,6 +163,7 @@ public:
   virtual size_t getCellDataSize(GlobalIndexType cellID); // size in bytes
   virtual void   packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength);
   virtual size_t unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength);
+  void importDataForOffRankCells(MeshPtr mesh, const std::set<GlobalIndexType> &offRankCells);
   
   static bool isNull(TFunctionPtr<Scalar> f);
 
