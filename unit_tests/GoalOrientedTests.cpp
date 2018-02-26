@@ -360,6 +360,22 @@ namespace
           TSolution<double>* registeredSolutionPtr = registeredSolutions[0].get();
           TEST_EQUALITY(registeredSolutionPtr, soln_TwoRHS.get());
         }
+        else
+        {
+          cout << "registeredSolutions.size() == " << registeredSolutions.size() << endl;
+        }
+        
+        auto activeCellIDs = mesh->getActiveCellIDsGlobal();
+//        {
+//          // DEBUGGING
+//          int rank = mesh->Comm()->MyPID();
+//          cout << "On rank " << rank << ", active cellIDs = ";
+//          for (auto cellID : activeCellIDs)
+//          {
+//            cout << cellID << " ";
+//          }
+//          cout << endl;
+//        }
         
         mesh->hRefine(myCellIDs);
         
@@ -398,7 +414,7 @@ namespace
     auto elementWidths = vector<int>(spaceDim,meshWidth);
     int H1Order = 1;
     bool useConformingTraces = true;
-    double tol = 1e-14;
+    double tol = 1e-13;
     
     testPoissonSolveMatches(elementWidths, H1Order, useConformingTraces, tol, success, out);
   }
@@ -422,6 +438,19 @@ namespace
   
   TEUCHOS_UNIT_TEST( GoalOriented, RefinedSolutionMatches_2D )
   {
+    // for reasons as yet undiagnosed, there are test failures on > 1 MPI ranks in this test...
+    {
+      auto comm = MPIWrapper::CommWorld();
+      int numProc = comm->NumProc();
+      if (numProc > 1)
+      {
+        // for reasons unknown, we hang if numProc > 1
+        cout << "skipping RefinedSolutionMatches_2D because numProc > 1\n";
+        success = false;
+        return;
+      }
+    }
+    
     const int spaceDim = 2;
     const int meshWidth = 1;
     auto elementWidths = vector<int>(spaceDim,meshWidth);

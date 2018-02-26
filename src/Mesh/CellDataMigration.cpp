@@ -579,7 +579,7 @@ void CellDataMigration::unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, c
   if (rankLocalCellIDs->find(cellID) == rankLocalCellIDs->end())
   {
     // it may be that when we do ghost cells, this shouldn't be an exception--or maybe the ghost cells will be packed in with the active cell
-    cout << "unpackData called for a non-rank-local cellID\n";
+    cout << "unpackData called for a non-rank-local cellID " << cellID << "\n";
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "unpackData called for a non-rank-local cellID");
   }
   ElementTypePtr elemType = mesh->getElementType(cellID);

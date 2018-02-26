@@ -16,6 +16,7 @@
 #include "Function.h"
 #include "MeshFactory.h"
 #include "PoissonFormulation.h"
+#include "RieszRep.h"
 #include "Solution.h"
 
 using namespace Camellia;
@@ -306,6 +307,58 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     CellTopoPtr hex = CellTopology::hexahedron();
     CellTopoPtr cellTopo = CellTopology::lineTensorTopology(hex);
     testHFunction(cellTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( Function, L2NormOfJumps_RepFunction )
+  {
+    // In this test, we set up a 2x2 mesh with unit RepFunction values on the lower-left and upper-right cells,
+    // and zero solutions in the others.  The lower-left cell has ID 0; the upper-right, 3.
+    // With this setup, the solution jumps should be 1.0 everywhere on the interior of the mesh.  The interior
+    // mesh skeleton has total length of 4.0, so that the squared L^2 norm of the jumps is 4.0...
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    int H1Order = 1;
+    vector<int> elemCounts = {2,2};
+    set<int> unitCellIDs = {0,3};
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {2.0,2.0}, elemCounts, H1Order);
+    
+    LinearTermPtr residual; // leave as a null pointer for now; we shouldn't actually use this...
+    IPPtr ip = form.bf()->graphNorm(); // we actually shouldn't use this either
+    RieszRepPtr rieszRep = Teuchos::rcp(new RieszRep(mesh, ip, residual));
+    
+    auto myCellIDs = mesh->cellIDsInPartition();
+    
+    for (int cellID : myCellIDs)
+    {
+      auto testOrdering = mesh->getElementType(cellID)->testOrderPtr;
+      Intrepid::FieldContainer<double> rieszCoefficients(testOrdering->totalDofs());
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      if (hasUnitSolution) rieszCoefficients.initialize(1.0);
+      else                 rieszCoefficients.initialize(0.0); // this will give all variables a constant 1.0 value
+      
+      rieszRep->setCoefficientsForCell(cellID, rieszCoefficients);
+    }
+    
+    // v has scalar nodal H^1 basis, for which the unit coefficients definitely give us a unit function
+    // (I'm not sure that that's true for the H(div) basis we use for tau.)
+    FunctionPtr repFunction = RieszRep::repFunction(form.v(), rieszRep);
+    
+    // we expect the jumps to be 1 everywhere on the interior; each interior side has unit length,
+    // and each cell has two interior sides, so that we have a total cell contribution of 2.0 before
+    // taking the square root
+    double l2OfJumpExpectedOnEachCell = sqrt(2.0);
+    bool weightBySideMeasure = false;
+    int cubatureDegreeEnrichment = 0;
+    map<GlobalIndexType, double> cellL2Norms = repFunction->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+    
+    for (auto entry : cellL2Norms)
+    {
+      double l2OfJumpActual = entry.second;
+      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, l2OfJumpExpectedOnEachCell, 1e-14, out, success);
+    }
   }
   
   TEUCHOS_UNIT_TEST( Function, L2NormOfJumps_SolutionFunction )
