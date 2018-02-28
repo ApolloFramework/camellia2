@@ -155,7 +155,7 @@ int main(int argc, char *argv[])
   string problemChoice = "SquareDomain";
   string formulationChoice = "ULTRAWEAK";
   int spaceDim = 2;
-  int numRefs = 1;
+  int numRefs = 3;
   int k = 2, delta_k = 2;
   string norm = "Graph";
   string errorIndicator = "Uniform";
@@ -304,8 +304,8 @@ int main(int argc, char *argv[])
   // u_exact = one;
   // u_exact = x * x + 2 * x * y;
   // u_exact = x * x * x * y + 2 * x * y * y;
-  // u_exact = sin_pix * sin_piy;
-  u_exact = xx * (1.0 - xx) * (xx/4.0 + (1.0 - 4.0*xx)*(1.0 - 4.0*xx) ) * yy * (1.0 - yy) * (yy/4.0 + (1.0 - 4.0*yy)*(1.0 - 4.0*yy) );
+  u_exact = sin_pix * sin_piy;
+  // u_exact = xx * (1.0 - xx) * (xx/4.0 + (1.0 - 4.0*xx)*(1.0 - 4.0*xx) ) * yy * (1.0 - yy) * (yy/4.0 + (1.0 - 4.0*yy)*(1.0 - 4.0*yy) );
 
   xx = (width-x)/width;
   yy = (height-y)/height;
@@ -314,8 +314,9 @@ int main(int argc, char *argv[])
   // v_exact = x * x + 2 * x * y;
   // v_exact = xx * (1.0 - xx) * (xx/4.0 + (1.0 - 4.0*xx)*(1.0 - 4.0*xx) ) * yy * (1.0 - yy) * (yy/4.0 + (1.0 - 4.0*yy)*(1.0 - 4.0*yy) );
   // v_exact = x * x * x * y + 2 * x * y * y;
-  // v_exact = sin_pix * sin_piy;
-  v_exact = cos_pix * cos_piy;
+  // v_exact = x * (1.0 - x) * y * (1.0 - y);
+  v_exact = sin_pix * sin_piy;
+  // v_exact = cos_pix * cos_piy;
 
 
   ////////////////////////////  DECLARE RHS  ///////////////////////////
@@ -422,7 +423,7 @@ int main(int argc, char *argv[])
   functionExporter = Teuchos::rcp(new HDF5Exporter(mesh, exporterName));
 
   SolverPtr solver = solvers[solverChoice];
-  double energyErrorPrvs, solnErrorPrvs, solnErrorL2Prvs, dualSolnErrorPrvs, dualSolnErrorL2Prvs, dualSolnResidualPrvs, outputErrorPrvs, numGlobalDofsPrvs;
+  double energyErrorPrvs, solnErrorPrvs, solnErrorL2Prvs, dualSolnErrorPrvs, dualSolnErrorL2Prvs, dualSolnResidualPrvs, jump_v_Prvs, jump_tau_Prvs, outputErrorPrvs, numGlobalDofsPrvs;
   for (int refIndex=0; refIndex <= numRefs; refIndex++)
   {
     solverTime->start(true);
@@ -477,15 +478,48 @@ int main(int argc, char *argv[])
     FunctionPtr res1 = dualSoln_tau->div() - g_u;
     FunctionPtr res2 = dualSoln_v->dx() - dualSoln_tau->x();  
     FunctionPtr res3 = dualSoln_v->dy() - dualSoln_tau->y();
-    FunctionPtr dualSolnResidualFunction = res1*res1 + res2*res2 + res3*res3;
+    FunctionPtr dualSolnResFxn = res1*res1 + res2*res2 + res3*res3;
 
     map<int, FunctionPtr > opDualSoln = bf()->applyAdjointOperatorDPGstar(dualSoln);
 
     FunctionPtr res1_2 = opDualSoln[u->ID()] - g_u;
-    FunctionPtr res2_2 = opDualSoln[sigma->ID()];  
+    FunctionPtr res2_2 = opDualSoln[sigma->ID()];
 
-    FunctionPtr dualSolnResFxn = res1_2*res1_2 + res2_2*res2_2;
-    // FunctionPtr dualSolnResidualFunction = dualSolnResFxn;
+    FunctionPtr dualSolnResidualFunction = res1_2*res1_2 + res2_2*res2_2;
+
+    bool weightBySideMeasure = false;
+    int cubatureEnrichmentDegree = delta_k;
+    FunctionPtr v_minus_BC = dualSoln_v - g_sigma_hat;
+    // FunctionPtr Dt_v_minus_BC = dualSoln_v-> - g_sigma_hat;
+    FunctionPtr boundaryRestriction = Function::meshBoundaryCharacteristic();
+    FunctionPtr tauDotNml_minus_BC = dualSoln_tau * n;
+    tauDotNml_minus_BC = (1.0 - boundaryRestriction) * tauDotNml_minus_BC;
+    std::map<GlobalIndexType, double> l2Jump_v = v_minus_BC->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree);
+    std::map<GlobalIndexType, double> l2Jump_tau = tauDotNml_minus_BC->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree);
+
+
+
+    const set<GlobalIndexType> & myCellIDs = mesh->cellIDsInPartition();
+    double jump_v=0.0;
+    double jump_tau=0.0;
+    for (auto cellID: myCellIDs)
+    {
+      if (weightBySideMeasure)
+      {
+        jump_v += pow(l2Jump_v[cellID], 2.0);
+        jump_tau += pow(l2Jump_tau[cellID], 2.0);
+      }
+      else
+      {
+        double vol = mesh->getCellMeasure(cellID);
+        double h = pow(vol, 1.0 / spaceDim);
+        jump_v += pow(h, -1.0)*pow(l2Jump_v[cellID], 2.0);
+        jump_tau += h*pow(l2Jump_tau[cellID], 2.0);
+      }
+    }
+    jump_v = sqrt(jump_v);
+    jump_tau = sqrt(jump_tau);
+
 
     vector<FunctionPtr> functionsToExport = {psi_v, psi_tau, dualSoln_v, dualSoln_tau, dualSolnResidualFunction, dualSolnResFxn};
     vector<string> functionsToExportNames = {"psi_v", "psi_tau", "dual_v", "dual_tau", "dualSolnResidualFunction", "dualSolnResFxn"};
@@ -505,6 +539,8 @@ int main(int argc, char *argv[])
     double dualSolnErrorRate = 0;
     double dualSolnErrorL2Rate = 0;
     double dualSolnResidualRate = 0;
+    double jump_v_Rate = 0;
+    double jump_tau_Rate = 0;
     double outputErrorRate = 0;
     if (refIndex != 0)
     {
@@ -515,6 +551,8 @@ int main(int argc, char *argv[])
       dualSolnErrorRate =-spaceDim*log(dualSolnErrorPrvs/dualSolnError)/denom;
       dualSolnErrorL2Rate =-spaceDim*log(dualSolnErrorL2Prvs/dualSolnErrorL2)/denom;
       dualSolnResidualRate =-spaceDim*log(dualSolnResidualPrvs/dualSolnResidual)/denom;
+      jump_v_Rate =-spaceDim*log(jump_v_Prvs/jump_v)/denom;
+      jump_tau_Rate =-spaceDim*log(jump_tau_Prvs/jump_tau)/denom;
       outputErrorRate =-spaceDim*log(outputErrorPrvs/outputError)/denom;
     }
 
@@ -539,6 +577,10 @@ int main(int argc, char *argv[])
       cout << setprecision(4) 
         << " \nDPG* Residual:       " << dualSolnResidual
         << " \tRate: " << dualSolnResidualRate
+        << " \nDPG* jump in v:      " << jump_v
+        << " \tRate: " << jump_v_Rate
+        << " \nDPG* jump in tau:    " << jump_tau
+        << " \tRate: " << jump_tau_Rate
         << " \nDPG* Error: (total): " << dualSolnError
         << " \tRate: " << dualSolnErrorRate
         << " \nDPG* Error (v-comp): " << dualSolnErrorL2
@@ -568,6 +610,8 @@ int main(int argc, char *argv[])
     dualSolnErrorPrvs = dualSolnError;
     dualSolnErrorL2Prvs = dualSolnErrorL2;
     dualSolnResidualPrvs = dualSolnResidual;
+    jump_v_Prvs = jump_v;
+    jump_tau_Prvs = jump_tau;
     outputErrorPrvs = outputError;
     numGlobalDofsPrvs = numGlobalDofs;
 

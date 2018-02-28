@@ -239,8 +239,9 @@ public:
     rank     = Teuchos::GlobalMPISession::getRank();
     numProcs = Teuchos::GlobalMPISession::getNProc();
     mumps->SetICNTL( 1, 6); // set output stream for errors
+    mumps->SetICNTL( 7, 5);
     mumps->SetICNTL(10, 1);
-    mumps->SetICNTL(14, 100);
+    mumps->SetICNTL(14, 250);
     // mumps->SetICNTL(28, 2); // 2: parallel analysis
     // mumps->SetICNTL(28, 0); // 0: automatic choice between parallel and sequential analysis
     mumps->SetICNTL(29, 2); // 2: use PARMETIS; 1: use PT-SCOTCH
