@@ -347,9 +347,8 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     FunctionPtr repFunction = RieszRep::repFunction(form.v(), rieszRep);
     
     // we expect the jumps to be 1 everywhere on the interior; each interior side has unit length,
-    // and each cell has two interior sides, so that we have a total cell contribution of 2.0 before
-    // taking the square root
-    double l2OfJumpExpectedOnEachCell = sqrt(2.0);
+    // and each cell has two interior sides, so that we have a total cell contribution of 2.0
+    double l2OfJumpExpectedOnEachCell = 2.0;
     bool weightBySideMeasure = false;
     int cubatureDegreeEnrichment = 0;
     map<GlobalIndexType, double> cellL2Norms = repFunction->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
@@ -407,9 +406,8 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     FunctionPtr u_goal = Function::solution(form.u(), solution, weightByParity, solutionOrdinal);
     
     // we expect the jumps to be 1 everywhere on the interior; each interior side has unit length,
-    // and each cell has two interior sides, so that we have a total cell contribution of 2.0 before
-    // taking the square root
-    double l2OfJumpExpectedOnEachCell = sqrt(2.0);
+    // and each cell has two interior sides, so that we have a total cell contribution of 2.0
+    double l2OfJumpExpectedOnEachCell = 2.0;
     bool weightBySideMeasure = false;
     int cubatureDegreeEnrichment = 0;
     map<GlobalIndexType, double> cellL2Norms = u_goal->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
@@ -427,7 +425,7 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     // and zero solutions in the others.  The lower-left cell has ID 0; the upper-right, 3.
     // With this setup, the solution jumps should be 1.0 everywhere on the interior of the mesh.
     // Each element has two interior edges of length 0.5, so the edge-weighted L^2 norm of the jump is
-    //  sqrt(2 * 0.5 * 0.5).
+    //  2 * 0.5 * 0.5.
     int spaceDim = 2;
     bool conformingTraces = true;
     PoissonFormulation form(spaceDim,conformingTraces);
@@ -468,9 +466,8 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     FunctionPtr u_goal = Function::solution(form.u(), solution, weightByParity, solutionOrdinal);
     
     // we expect the jumps to be 1 everywhere on the interior; each interior side has length 0.5,
-    // and each cell has two interior sides, so that we have a total cell contribution of (2 * 0.5 * 0.5) before
-    // taking the square root
-    double l2OfJumpExpectedOnEachCell = sqrt(2 * 0.5 * 0.5);
+    // and each cell has two interior sides, so that we have a total cell contribution of (2 * 0.5 * 0.5)
+    double l2OfJumpExpectedOnEachCell = 2 * 0.5 * 0.5;
     bool weightBySideMeasure = true;
     int cubatureDegreeEnrichment = 0;
     map<GlobalIndexType, double> cellL2Norms = u_goal->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
