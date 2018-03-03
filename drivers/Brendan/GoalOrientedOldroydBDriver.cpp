@@ -842,8 +842,8 @@ int main(int argc, char *argv[])
         {
           // dualSoln_v1 = dualSoln_v1 + v1_0;
           bool weightBySideMeasure = false;
-          std::map<GlobalIndexType, double> l2Jump_v1 = dualSoln_v1->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
-          std::map<GlobalIndexType, double> l2Jump_v2 = dualSoln_v2->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+          std::map<GlobalIndexType, double> l2Jump_v1 = dualSoln_v1->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+          std::map<GlobalIndexType, double> l2Jump_v2 = dualSoln_v2->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
 
           std::map<GlobalIndexType, double> l2Jump_total;
           const set<GlobalIndexType> & myCellIDs = mesh->cellIDsInPartition();

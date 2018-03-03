@@ -528,8 +528,8 @@ int main(int argc, char *argv[])
     FunctionPtr boundaryRestriction = Function::meshBoundaryCharacteristic();
     FunctionPtr tauDotNml_minus_BC = dualSoln_tau * n;
     tauDotNml_minus_BC = (1.0 - boundaryRestriction) * tauDotNml_minus_BC;
-    std::map<GlobalIndexType, double> l2Jump_v = v_minus_BC->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree);
-    std::map<GlobalIndexType, double> l2Jump_tau = tauDotNml_minus_BC->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree, Function::AVERAGE);
+    std::map<GlobalIndexType, double> l2Jump_v = v_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree);
+    std::map<GlobalIndexType, double> l2Jump_tau = tauDotNml_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree, Function::AVERAGE);
 
     std::map<GlobalIndexType, double> l2Jump_total;
     const set<GlobalIndexType> & myCellIDs = mesh->cellIDsInPartition();

@@ -347,16 +347,29 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     FunctionPtr repFunction = RieszRep::repFunction(form.v(), rieszRep);
     
     // we expect the jumps to be 1 everywhere on the interior; each interior side has unit length,
-    // and each cell has two interior sides, so that we have a total cell contribution of 2.0
-    double l2OfJumpExpectedOnEachCell = 2.0;
+    // and each cell has two interior sides, so that we have a total cell contribution of 2.0 on
+    // the cells that are not set to unity, and a contribution of 4.0 on those that are
+    map<GlobalIndexType,double> squaredL2NormOfJumpOnCell;
+    for (auto cellID : myCellIDs)
+    {
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      
+      double squaredL2ValueExpected;
+      
+      if (hasUnitSolution) squaredL2ValueExpected = 4.0;
+      else                 squaredL2ValueExpected = 2.0;
+      
+      squaredL2NormOfJumpOnCell[cellID] = squaredL2ValueExpected;
+    }
     bool weightBySideMeasure = false;
     int cubatureDegreeEnrichment = 0;
-    map<GlobalIndexType, double> cellL2Norms = repFunction->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+    map<GlobalIndexType, double> cellL2Norms = repFunction->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
     
     for (auto entry : cellL2Norms)
     {
+      auto cellID = entry.first;
       double l2OfJumpActual = entry.second;
-      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, l2OfJumpExpectedOnEachCell, 1e-14, out, success);
+      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, squaredL2NormOfJumpOnCell[cellID], 1e-14, out, success);
     }
   }
   
@@ -385,7 +398,7 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     auto myCellIDs = mesh->cellIDsInPartition();
     
     int solutionOrdinal = 1; // use the second solution for our actual test
-    for (int cellID : myCellIDs)
+    for (GlobalIndexType cellID : myCellIDs)
     {
       auto trialOrdering = mesh->getElementType(cellID)->trialOrderPtr;
       Intrepid::FieldContainer<double> solnCoefficients(trialOrdering->totalDofs());
@@ -406,16 +419,29 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     FunctionPtr u_goal = Function::solution(form.u(), solution, weightByParity, solutionOrdinal);
     
     // we expect the jumps to be 1 everywhere on the interior; each interior side has unit length,
-    // and each cell has two interior sides, so that we have a total cell contribution of 2.0
-    double l2OfJumpExpectedOnEachCell = 2.0;
+    // and each cell has two interior sides, so that we have a total cell contribution of 2.0 on
+    // the cells that are not set to unity, and a contribution of 4.0 on those that are
+    map<GlobalIndexType,double> squaredL2NormOfJumpOnCell;
+    for (auto cellID : myCellIDs)
+    {
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      
+      double squaredL2ValueExpected;
+      
+      if (hasUnitSolution) squaredL2ValueExpected = 4.0;
+      else                 squaredL2ValueExpected = 2.0;
+      
+      squaredL2NormOfJumpOnCell[cellID] = squaredL2ValueExpected;
+    }
     bool weightBySideMeasure = false;
     int cubatureDegreeEnrichment = 0;
-    map<GlobalIndexType, double> cellL2Norms = u_goal->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+    map<GlobalIndexType, double> cellL2Norms = u_goal->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
     
     for (auto entry : cellL2Norms)
     {
+      auto cellID = entry.first;
       double l2OfJumpActual = entry.second;
-      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, l2OfJumpExpectedOnEachCell, 1e-14, out, success);
+      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, squaredL2NormOfJumpOnCell[cellID], 1e-14, out, success);
     }
   }
   
@@ -466,17 +492,31 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     FunctionPtr u_goal = Function::solution(form.u(), solution, weightByParity, solutionOrdinal);
     
     // we expect the jumps to be 1 everywhere on the interior; each interior side has length 0.5,
-    // and each cell has two interior sides, so that we have a total cell contribution of (2 * 0.5 * 0.5)
-    double l2OfJumpExpectedOnEachCell = 2 * 0.5 * 0.5;
+    // and each cell has two interior sides, so that we have a total cell contribution of (2 * 0.5 * 0.5) = 0.5
+    // on the cells that are not set to unity, and a contribution of (4 * 0.5 * 0.5) = 1.0 on those that are
+    map<GlobalIndexType,double> squaredL2NormOfJumpOnCell;
+    for (auto cellID : myCellIDs)
+    {
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      
+      double squaredL2ValueExpected;
+      
+      if (hasUnitSolution) squaredL2ValueExpected = 1.0;
+      else                 squaredL2ValueExpected = 0.5;
+      
+      squaredL2NormOfJumpOnCell[cellID] = squaredL2ValueExpected;
+    }
     bool weightBySideMeasure = true;
     int cubatureDegreeEnrichment = 0;
-    map<GlobalIndexType, double> cellL2Norms = u_goal->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+    map<GlobalIndexType, double> cellL2Norms = u_goal->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
     
     for (auto entry : cellL2Norms)
     {
+      auto cellID = entry.first;
       double l2OfJumpActual = entry.second;
-      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, l2OfJumpExpectedOnEachCell, 1e-14, out, success);
+      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, squaredL2NormOfJumpOnCell[cellID], 1e-14, out, success);
     }
+    
   }
   
 TEUCHOS_UNIT_TEST( Function, MinAndMaxFunctions )
