@@ -529,17 +529,78 @@ template <typename Scalar>
 size_t TFunction<Scalar>::getCellDataSize(GlobalIndexType cellID)
 {
   // size in bytes
-  return 0; // default: no mesh-dependent information
+  auto members = this->memberFunctions();
+  for (auto &f : members)
+  {
+    if (f == Teuchos::null)
+    {
+      std::cout << "ERROR: Function " << this->displayString() << " return a null FunctionPtr among its members in memberFunctions()...\n";
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "ERROR: Function " << this->displayString() << " return a null FunctionPtr among its members in memberFunctions()...");
+    }
+  }
+  return getCellDataSize(members, cellID);
 }
 
 template <typename Scalar>
 void TFunction<Scalar>::packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength)
-{}
+{
+  auto members = this->memberFunctions();
+  packCellData(members, cellID, cellData, bufferLength);
+}
   
 template <typename Scalar>
 size_t TFunction<Scalar>::unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength)
 {
-  return 0; // no data consumed
+  auto members = this->memberFunctions();
+  return unpackCellData(members, cellID, cellData, bufferLength);
+}
+
+template <typename Scalar>
+size_t TFunction<Scalar>::getCellDataSize(const std::vector<FunctionPtr> &functions, GlobalIndexType cellID)
+{
+  size_t total = 0;
+  for (auto &f : functions)
+  {
+    if (f == Teuchos::null)
+    {
+      std::cout << "getCellDataSize(functions, cellID) called with a null function in functions.\n";
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "getCellDataSize(functions, cellID) called with a null function in functions.");
+    }
+    total += f->getCellDataSize(cellID);
+  }
+  return total;
+}
+  
+template <typename Scalar>
+void TFunction<Scalar>::packCellData(const std::vector<FunctionPtr> &functions, GlobalIndexType cellID, char* cellData, size_t bufferLength)
+{
+  char *dataPtr = cellData;
+  for (auto &f : functions)
+  {
+    size_t cellDataSize = f->getCellDataSize(cellID);
+    if (cellDataSize > bufferLength)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "bufferLength too small");
+    }
+    f->packCellData(cellID, dataPtr, cellDataSize);
+    dataPtr += cellDataSize;
+    bufferLength -= cellDataSize;
+  }
+}
+
+template <typename Scalar>
+size_t TFunction<Scalar>::unpackCellData(const std::vector<FunctionPtr> &functions, GlobalIndexType cellID, const char* cellData, size_t bufferLength)
+{
+  const char *dataPtr = cellData;
+  size_t totalBytesConsumed = 0;
+  for (auto &f : functions)
+  {
+    size_t bytesConsumed = f->unpackCellData(cellID, dataPtr, bufferLength);
+    dataPtr            += bytesConsumed;
+    bufferLength       -= bytesConsumed;
+    totalBytesConsumed += bytesConsumed;
+  }
+  return totalBytesConsumed;
 }
 
 template <typename Scalar>
@@ -1342,6 +1403,17 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshP
     return true;
   };
   
+  // lambda for combining values
+  auto combineValues = [&](Scalar v1, Scalar v2) {
+    switch (jumpCombination)
+    {
+      case DIFFERENCE:
+        return v1-v2;
+      case AVERAGE:
+        return v1+v2; // is this right?  Shouldn't it be (v1+v2)/2.0?
+    }
+  };
+  
   map<GlobalIndexType, vector<double> > sidel2norms; // key is cellID; values are the (squared) side contributions for that cell
   
   set<GlobalIndexType> offRankNeighbors;
@@ -1659,11 +1731,7 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshP
         sideMeasure += weight;
         if (this->rank() == 0)
         {
-          Scalar diff;
-          if (jumpCombination == DIFFERENCE)
-            diff = neighborValues(cellOrdinal,pointOrdinal) - myValues(cellOrdinal,pointOrdinal);
-          else if (jumpCombination == AVERAGE)
-            diff = neighborValues(cellOrdinal,pointOrdinal) + myValues(cellOrdinal,pointOrdinal);
+          Scalar diff = combineValues(neighborValues(cellOrdinal,pointOrdinal), myValues(cellOrdinal,pointOrdinal));
           sideL2Jump += diff * diff * weight;
 //          cout << "on cell " << cellID << endl;
 //          cout << "neighbor value = " << neighborValues(cellOrdinal,pointOrdinal) << endl;
@@ -1674,11 +1742,7 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshP
         {
           for (int d1=0; d1<spaceDim; d1++)
           {
-            Scalar diff;
-            if (jumpCombination == DIFFERENCE)
-              diff = neighborValues(cellOrdinal,pointOrdinal,d1) - myValues(cellOrdinal,pointOrdinal,d1);
-            else if (jumpCombination == AVERAGE)
-              diff = neighborValues(cellOrdinal,pointOrdinal,d1) + myValues(cellOrdinal,pointOrdinal,d1);
+            Scalar diff = combineValues(neighborValues(cellOrdinal,pointOrdinal,d1), myValues(cellOrdinal,pointOrdinal,d1));
             sideL2Jump += diff * diff * weight;
           }
         }
@@ -1688,11 +1752,7 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshP
           {
             for (int d2=0; d2<spaceDim; d2++)
             {
-              Scalar diff;
-              if (jumpCombination == DIFFERENCE)
-                diff = neighborValues(cellOrdinal,pointOrdinal,d1,d2) - myValues(cellOrdinal,pointOrdinal,d1,d2);
-              else if (jumpCombination == AVERAGE)
-                diff = neighborValues(cellOrdinal,pointOrdinal,d1,d2) + myValues(cellOrdinal,pointOrdinal,d1,d2);
+              Scalar diff = combineValues(neighborValues(cellOrdinal,pointOrdinal,d1,d2), myValues(cellOrdinal,pointOrdinal,d1,d2));
               sideL2Jump += diff * diff * weight;
             }
           }
@@ -1889,6 +1949,12 @@ double TFunction<Scalar>::l2norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnri
   return sqrt( abs((thisPtr * thisPtr)->integrate(mesh, cubatureDegreeEnrichment, testVsTest, requireSideCaches, spatialSidesOnly)) );
 }
 
+template <typename Scalar>
+std::vector<TFunctionPtr<Scalar>> TFunction<Scalar>::memberFunctions()
+{
+  return std::vector<TFunctionPtr<Scalar>>();
+}
+  
 // divide values by this function (supported only when this is a scalar--otherwise values would change rank...)
 template <typename Scalar>
 void TFunction<Scalar>::scalarMultiplyFunctionValues(Intrepid::FieldContainer<Scalar> &functionValues, BasisCachePtr basisCache)

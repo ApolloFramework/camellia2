@@ -46,6 +46,8 @@ public:
   bool isZero(BasisCachePtr basisCache);
   
   string displayString(); // _f1->displayString() << " " << _f2->displayString();
+  
+  std::vector<TFunctionPtr<Scalar>> memberFunctions();
 };
 }
 

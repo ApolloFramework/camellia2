@@ -90,6 +90,12 @@ TFunctionPtr<Scalar> QuotientFunction<Scalar>::dt()
   return _f->dt() / _scalarDivisor - _f * _scalarDivisor->dt() / (_scalarDivisor * _scalarDivisor);
 }
 
+template <typename Scalar>
+std::vector<TFunctionPtr<Scalar>> QuotientFunction<Scalar>::memberFunctions()
+{
+  return {{_f}};
+}
+
 namespace Camellia
 {
 template class QuotientFunction<double>;

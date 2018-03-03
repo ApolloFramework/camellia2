@@ -190,6 +190,12 @@ bool ProductFunction<Scalar>::boundaryValueOnly()
 }
 
 template <typename Scalar>
+std::vector<TFunctionPtr<Scalar>> ProductFunction<Scalar>::memberFunctions()
+{
+  return {{_f1, _f2}};
+}
+
+template <typename Scalar>
 void ProductFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
 {
   this->CHECK_VALUES_RANK(values);

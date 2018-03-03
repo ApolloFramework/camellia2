@@ -143,6 +143,12 @@ TFunctionPtr<Scalar> SumFunction<Scalar>::div()
   }
 }
 
+template <typename Scalar>
+std::vector<TFunctionPtr<Scalar>> SumFunction<Scalar>::memberFunctions()
+{
+  return {{_f1, _f2}};
+}
+
 namespace Camellia
 {
 template class SumFunction<double>;

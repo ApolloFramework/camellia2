@@ -32,6 +32,8 @@ public:
   TFunctionPtr<Scalar> dz();
   TFunctionPtr<Scalar> dt();
   std::string displayString();
+  
+  std::vector<TFunctionPtr<Scalar>> memberFunctions();
 };
 }
 

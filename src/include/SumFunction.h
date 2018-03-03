@@ -43,6 +43,8 @@ public:
   bool boundaryValueOnly();
 
   string displayString();
+  
+  std::vector< TFunctionPtr<Scalar> > memberFunctions();
 };
 }
 

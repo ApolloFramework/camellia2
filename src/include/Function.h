@@ -168,6 +168,16 @@ public:
   virtual size_t getCellDataSize(GlobalIndexType cellID); // size in bytes
   virtual void   packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength);
   virtual size_t unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength);
+  
+  // ! Data packing helper methods for Function subclasses that compose other Function subclasses, which may in turn be mesh-dependent.
+  static size_t getCellDataSize(const std::vector<FunctionPtr> &functions, GlobalIndexType cellID);
+  static void   packCellData(const std::vector<FunctionPtr> &functions, GlobalIndexType cellID, char* cellData, size_t bufferLength);
+  static size_t unpackCellData(const std::vector<FunctionPtr> &functions,GlobalIndexType cellID, const char* cellData, size_t bufferLength);
+  
+  // ! Functions that are compositions of other Functions should implement this...
+  // ! (Used initially in data migration logic for mesh-dependent Functions.)
+  virtual std::vector< TFunctionPtr<Scalar> > memberFunctions();
+  
   void importDataForOffRankCells(MeshPtr mesh, const std::set<GlobalIndexType> &offRankCells);
   
   static bool isNull(TFunctionPtr<Scalar> f);
