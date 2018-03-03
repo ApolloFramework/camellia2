@@ -286,6 +286,7 @@ int main(int argc, char *argv[])
   ///////////////////////  COMMAND LINE PARAMETERS  ////////////////////
   //////////////////////////////////////////////////////////////////////
   string problemChoice = "LidDriven";
+  int spaceDim = 2;
   double rho = 1;
   double lambda = 1;
   double muS = 1; // solvent viscosity
@@ -298,6 +299,7 @@ int main(int argc, char *argv[])
   bool stokesOnly = false;
   bool enforceLocalConservation = false;
   bool useConformingTraces = true;
+  bool evaluateJumps = false;
   string solverChoice = "KLU";
   string multigridStrategyString = "V-cycle";
   bool useCondensedSolve = false;
@@ -334,6 +336,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("errorIndicator", &errorIndicator, "Energy,CylinderBoundary,GoalOrientedDragCoeff");
   cmdp.setOption("enforceLocalConservation", "noLocalConservation", &enforceLocalConservation, "enforce local conservation principles at the element level");
   cmdp.setOption("conformingTraces", "nonconformingTraces", &useConformingTraces, "use conforming traces");
+  cmdp.setOption("evaluateJumps", "DONOTevaluateJumps", &evaluateJumps, "evaluate the jump terms in the DPG* error estimator");
   cmdp.setOption("solver", &solverChoice, "KLU, SuperLUDist, MUMPS, Pardiso");
   cmdp.setOption("multigridStrategy", &multigridStrategyString, "Multigrid strategy: V-cycle, W-cycle, Full, or Two-level");
   cmdp.setOption("useCondensedSolve", "useStandardSolve", &useCondensedSolve);
@@ -372,7 +375,7 @@ int main(int argc, char *argv[])
 
   ///////////////////////  SET PROBLEM PARAMETERS  /////////////////////
   Teuchos::ParameterList parameters;
-  parameters.set("spaceDim", 2);
+  parameters.set("spaceDim", spaceDim);
   parameters.set("spatialPolyOrder", k);
   parameters.set("delta_k", delta_k);
   parameters.set("norm", norm);
@@ -792,12 +795,13 @@ int main(int argc, char *argv[])
         // define goal functional
         SpatialFilterPtr cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius) );
         FunctionPtr boundaryRestriction = Function::meshBoundaryCharacteristic();
-        FunctionPtr cylinderNormal_x, cylinderNormal_y;
-        cylinderNormal_x = Teuchos::rcp( new SpatiallyFilteredFunction<double>( n->x()*boundaryRestriction, cylinderBoundary) );
-        cylinderNormal_y = Teuchos::rcp( new SpatiallyFilteredFunction<double>( n->y()*boundaryRestriction, cylinderBoundary) );
+        // FunctionPtr cylinderNormal_x, cylinderNormal_y;
+        // cylinderNormal_x = Teuchos::rcp( new SpatiallyFilteredFunction<double>( n->x()*boundaryRestriction, cylinderBoundary) );
+        // cylinderNormal_y = Teuchos::rcp( new SpatiallyFilteredFunction<double>( n->y()*boundaryRestriction, cylinderBoundary) );
+        FunctionPtr v1_0 = Teuchos::rcp( new SpatiallyFilteredFunction<double>( 1.0 * boundaryRestriction, cylinderBoundary) );
 
-        LinearTermPtr g_functional;
-        g_functional = cylinderNormal_x * form.sigman_hat(1) + cylinderNormal_y * form.sigman_hat(2);
+        LinearTermPtr g_functional = v1_0 * form.sigman_hat(1);
+        // g_functional = cylinderNormal_x * form.sigman_hat(1) + cylinderNormal_y * form.sigman_hat(2);
 
         // set second RHS
         solutionIncrement->setGoalOrientedRHS(g_functional);
@@ -824,8 +828,6 @@ int main(int argc, char *argv[])
         dualSoln_S22 =  Teuchos::rcp( new RepFunction<double>(form.S(2,2), dualSoln) );
 
         // construct DPG* residual
-        // FunctionPtr res1 = dualSoln_v1->dx() + dualSoln_v2->dy();
-        // FunctionPtr dualSolnResFxn = res1*res1;
         map<int, FunctionPtr > opDualSoln = bf()->applyAdjointOperatorDPGstar(dualSoln);
         FunctionPtr dualSolnResFxn = zero;
         for ( auto opDualSolnComponent  : opDualSoln  )
@@ -834,13 +836,48 @@ int main(int argc, char *argv[])
           dualSolnResFxn = dualSolnResFxn + f * f;
         }
 
+        // evaluate all jump terms
         int cubatureDegreeEnrichment = delta_k;
-        double dualSolnRes = sqrt(dualSolnResFxn->l1norm(mesh, cubatureDegreeEnrichment));
-        if (commRank == 0)
+        if (evaluateJumps == true)
         {
-          cout << setprecision(8) 
-            << "DPG* residual: " << dualSolnRes
-            << endl;
+          // dualSoln_v1 = dualSoln_v1 + v1_0;
+          bool weightBySideMeasure = false;
+          std::map<GlobalIndexType, double> l2Jump_v1 = dualSoln_v1->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+          std::map<GlobalIndexType, double> l2Jump_v2 = dualSoln_v2->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+
+          std::map<GlobalIndexType, double> l2Jump_total;
+          const set<GlobalIndexType> & myCellIDs = mesh->cellIDsInPartition();
+          double jump_v1=0.0;
+          double jump_v2=0.0;
+          for (auto cellID: myCellIDs)
+          {
+            l2Jump_total[cellID] = l2Jump_v1[cellID] + l2Jump_v2[cellID];
+            if (weightBySideMeasure)
+            {
+              jump_v1 += l2Jump_v1[cellID];
+              jump_v2 += l2Jump_v2[cellID];
+            }
+            else
+            {
+              double vol = mesh->getCellMeasure(cellID);
+              double h = pow(vol, 1.0 / spaceDim);
+              jump_v1 += pow(h, -1.0)*l2Jump_v1[cellID];
+              jump_v2 += pow(h, -1.0)*l2Jump_v2[cellID];
+            }
+          }
+          jump_v1 = sqrt(jump_v1);
+          jump_v2 = sqrt(jump_v2);
+
+          // print outputs
+          double dualSolnRes = sqrt(dualSolnResFxn->l1norm(mesh, cubatureDegreeEnrichment));
+          if (commRank == 0)
+          {
+            cout << setprecision(8) 
+              << "\nDPG* residual: " << dualSolnRes
+              << "\njump in v1:    " << jump_v1
+              << "\njump in v2:    " << jump_v2
+              << endl;
+          }
         }
 
         // export DPG* solution
@@ -866,139 +903,6 @@ int main(int argc, char *argv[])
         RefinementStrategyPtr refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, refThreshold) );
         refStrategy->refine();
 
-//         // define spatial filters for the H1-projection problems
-//         SpatialFilterPtr cylinderBoundary, topBoundary, bottomBoundary, leftBoundary, 
-// rightBoundary;
-//         if (problemChoice == "Benchmark" || problemChoice == "HalfHemker")
-//         {
-//           cylinderBoundary = Teuchos::rcp( new CylinderBoundary(cylinderRadius));
-//           topBoundary = SpatialFilter::matchingY(yMax);
-//           if (problemChoice == "Benchmark")
-//           {
-//             bottomBoundary = SpatialFilter::matchingY(-yMax);
-//           }
-//           else
-//           {
-//             bottomBoundary = SpatialFilter::matchingY(0.0);
-//           }
-//           leftBoundary = SpatialFilter::matchingX(xLeft);
-//           rightBoundary = SpatialFilter::matchingX(xRight);
-//         }
-//         else
-//         {
-//           cout << "ERROR: Error indicator type not currently supported for this mesh. Returning null.\n";
-//           return Teuchos::null;
-//         }
-        
-//         // Set up Galerkin H1-projection problem(s)
-//         bool H1ProjectionConformingTraces = true; // no difference for primal/continuous formulations
-//         int spaceDim = 2;
-//         double lengthScale = 1.0;
-//         H1ProjectionFormulation formPhi(spaceDim, H1ProjectionConformingTraces, H1ProjectionFormulation::CONTINUOUS_GALERKIN, lengthScale);
-//         VarPtr phi = formPhi.phi();
-//         BFPtr phiBF = formPhi.bf();
-//         MeshTopologyPtr phiMeshTopo = spatialMeshTopo->deepCopy();
-//         vector<int> H1Order = {k+1+delta_k}; // = order of the test space velocity
-//         int phiTestEnrichment = 0;
-//         MeshPtr phiMesh = Teuchos::rcp( new Mesh(phiMeshTopo, phiBF, H1Order, phiTestEnrichment) ) ;
-//         phiMesh->registerObserver(mesh);
-//         IPPtr phiIP = Teuchos::null;
-//         RHSPtr phiRHS = RHS::rhs();
-//         // BCPtr qBC = BC::bc(); // necessary for scaling factor
-//         // BCPtr phiBC = BC::bc(); // necessary for scaling factor
-//         BCPtr phiPlusBC = BC::bc();
-//         BCPtr phiMinusBC = BC::bc();
-
-//         // compute error representation function from solution increment
-//         bool excludeBoundaryTerms = false;
-//         LinearTermPtr residual = solutionIncrement->rhs()->linearTerm() - bf->testFunctional(solutionIncrement,excludeBoundaryTerms);
-//         RieszRepPtr rieszResidual = Teuchos::rcp(new RieszRep(mesh, solutionIncrement->ip(), residual));
-//         rieszResidual->computeRieszRep();
-//         // extract the component of psi corresponding to the first test velocity component
-//         FunctionPtr psi_v1 =  Teuchos::rcp( new RepFunction<double>(form.v(1), rieszResidual) );
-
-
-//         // compute scaling factor
-//         double scale; // skipping this for now since it doesn't vastly affect the outcome
-//         // // use phiPlus for scale of q
-//         // qBC->addDirichlet(phi, cylinderBoundary, one);
-//         // qBC->addDirichlet(phi, topBoundary, zero);
-//         // qBC->addDirichlet(phi, bottomBoundary, zero);
-//         // SolutionPtr qSolution = Solution::solution(phiBF, phiMesh, qBC, phiRHS, phiIP);
-//         // qSolution->solve();
-//         // FunctionPtr extension = TFunction<double>::solution(phi, qSolution);
-//         // FunctionPtr dx_extension = extension->dx();
-//         // FunctionPtr dy_extension = extension->dy();
-//         // FunctionPtr d_extensionNorm = extension * extension + (lengthScale * lengthScale) * (dx_extension * dx_extension + dy_extension * dy_extension);
-//         // double extensionNorm = d_extensionNorm->integrate(phiMesh);
-//         // double qExtensionNorm = sqrt(extensionNorm);
-//         // // use phiPlus for scale of psi_v1
-//         // phiBC->addDirichlet(phi, cylinderBoundary, psi_v1);
-//         // phiBC->addDirichlet(phi, topBoundary, psi_v1);
-//         // phiBC->addDirichlet(phi, bottomBoundary, psi_v1);
-//         // SolutionPtr phiSolution = Solution::solution(phiBF, phiMesh, phiBC, phiRHS, phiIP);
-//         // phiSolution->solve();
-//         // extension = TFunction<double>::solution(phi, phiSolution);
-//         // dx_extension = extension->dx();
-//         // dy_extension = extension->dy();
-//         // d_extensionNorm = extension * extension + (lengthScale * lengthScale) * (dx_extension * dx_extension + dy_extension * dy_extension);
-//         // extensionNorm = d_extensionNorm->integrate(phiMesh);
-//         // double psiExtensionNorm = sqrt(extensionNorm);
-
-//         // scale = psiExtensionNorm / qExtensionNorm;
-//         // cout << "scale = " << scale << endl;
-//         scale = 1.0;
-
-
-//         // drag error ~ (e_1,psi_{v})_{1/2} = (1, psi_{v1})_{1/2}
-//         phiPlusBC->addDirichlet(phi, cylinderBoundary, 1.0/scale*psi_v1+scale*one);
-//         phiPlusBC->addDirichlet(phi, topBoundary, 1.0/scale*psi_v1);
-//         phiPlusBC->addDirichlet(phi, bottomBoundary, 1.0/scale*psi_v1);
-//         phiPlusBC->addDirichlet(phi, leftBoundary, 1.0/scale*psi_v1);
-//         phiPlusBC->addDirichlet(phi, rightBoundary, 1.0/scale*psi_v1);
-
-//         phiMinusBC->addDirichlet(phi, cylinderBoundary, 1.0/scale*psi_v1-scale*one);
-//         phiMinusBC->addDirichlet(phi, topBoundary, 1.0/scale*psi_v1);
-//         phiMinusBC->addDirichlet(phi, bottomBoundary, 1.0/scale*psi_v1);
-//         phiMinusBC->addDirichlet(phi, leftBoundary, 1.0/scale*psi_v1);
-//         phiMinusBC->addDirichlet(phi, rightBoundary, 1.0/scale*psi_v1);
-
-
-//         // if (problemChoice == "Benchmark")
-//         // {
-//         //   phiPlusBC->addDirichlet(phi, bottomBoundary, 1.0/scale*psi_v1);
-//         //   phiMinusBC->addDirichlet(phi, bottomBoundary, 1.0/scale*psi_v1);
-//         // }
-
-//         SolutionPtr phiPlusSolution = Solution::solution(phiBF, phiMesh, phiPlusBC, phiRHS, phiIP);
-//         SolutionPtr phiMinusSolution = Solution::solution(phiBF, phiMesh, phiMinusBC, phiRHS, phiIP);
-
-//         int outputLevel = 1;
-//         phiPlusSolution->setWarnAboutDiscontinuousBCs(outputLevel);
-//         phiPlusSolution->solve();
-//         phiMinusSolution->setWarnAboutDiscontinuousBCs(outputLevel);
-//         phiMinusSolution->solve();
-
-
-//         FunctionPtr phiP_fxn = TFunction<double>::solution(phi, phiPlusSolution);
-//         FunctionPtr dx_phiP_fxn = phiP_fxn->dx();
-//         FunctionPtr dy_phiP_fxn = phiP_fxn->dy();
-//         FunctionPtr d_eta = phiP_fxn * phiP_fxn + (lengthScale * lengthScale) * (dx_phiP_fxn * dx_phiP_fxn + dy_phiP_fxn * dy_phiP_fxn);
-
-//         FunctionPtr phiM_fxn = TFunction<double>::solution(phi, phiMinusSolution);
-//         FunctionPtr dx_phiM_fxn = phiM_fxn->dx();
-//         FunctionPtr dy_phiM_fxn = phiM_fxn->dy();
-//         d_eta = d_eta - phiM_fxn * phiM_fxn - (lengthScale * lengthScale) * (dx_phiM_fxn * dx_phiM_fxn + dy_phiM_fxn * dy_phiM_fxn);
-
-//         double energyThreshold = 0.01;
-//         ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new DragOrientedErrorIndicator<double>(phiMesh, d_eta) );
-//         RefinementStrategyPtr refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, energyThreshold) );
-
-//         refStrategy->refine();
-
-
-        // just refines based on energy error for debugging
-        // form.refine();
       }
     }
   }

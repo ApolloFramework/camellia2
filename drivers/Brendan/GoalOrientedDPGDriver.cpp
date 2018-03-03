@@ -51,11 +51,13 @@ class DPGstarErrorIndicator : public ErrorIndicator
   SolutionPtr _solution;
   FunctionPtr _dualSolnResidualFunction;
   int _cubatureDegreeEnrichment;
+  std::map<GlobalIndexType, double> _l2Jump_total;
 public:
-  DPGstarErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
+  DPGstarErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, std::map<GlobalIndexType, double> l2Jump_total, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
   {
     _solution = soln;
     _dualSolnResidualFunction = dualSolnResidualFunction;
+    _l2Jump_total = l2Jump_total;
     _cubatureDegreeEnrichment = cubatureDegreeEnrichment;
   }
 
@@ -71,8 +73,9 @@ public:
     for (auto entry : *rankLocalEnergyError)
     {
       GlobalIndexType cellID = entry.first;
-      double dualresidual = sqrt(_dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment));
-      _localErrorMeasures[cellID] = dualresidual;
+      double dualresidual = _dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment);
+      dualresidual += _l2Jump_total[cellID];
+      _localErrorMeasures[cellID] = sqrt(dualresidual);
     }
 
     // calculate max
@@ -91,12 +94,14 @@ class GoalOrientedErrorIndicator : public ErrorIndicator
 {
   SolutionPtr _solution;
   FunctionPtr _dualSolnResidualFunction;
+  std::map<GlobalIndexType, double> _l2Jump_total;
   int _cubatureDegreeEnrichment;
 public:
-  GoalOrientedErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
+  GoalOrientedErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, std::map<GlobalIndexType, double> l2Jump_total, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
   {
     _solution = soln;
     _dualSolnResidualFunction = dualSolnResidualFunction;
+    _l2Jump_total = l2Jump_total;
     _cubatureDegreeEnrichment = cubatureDegreeEnrichment;
   }
 
@@ -113,7 +118,8 @@ public:
     {
       GlobalIndexType cellID = entry.first;
       double residual = energyErrorIsSquared ? sqrt(entry.second) : entry.second;
-      double dualresidual = sqrt(_dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment));
+      double dualresidual = _dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment);
+      dualresidual = sqrt(dualresidual + _l2Jump_total[cellID]);
       _localErrorMeasures[cellID] = residual*dualresidual;
     }
 
@@ -161,6 +167,8 @@ int main(int argc, char *argv[])
   string errorIndicator = "Uniform";
   bool useConformingTraces = true;
   bool enrichTrial = false;
+  bool liftedBC = false;
+  int liftChoice = 2;
   string solverChoice = "KLU";
   bool exportSolution = false;
   string outputDir = ".";
@@ -173,9 +181,11 @@ int main(int argc, char *argv[])
   cmdp.setOption("delta_k", &delta_k, "test space polynomial order enrichment");
   cmdp.setOption("numRefs",&numRefs,"number of refinements");
   cmdp.setOption("norm", &norm, "norm");
-  cmdp.setOption("errorIndicator", &errorIndicator, "Energy,Uniform,GoalOriented");
+  cmdp.setOption("errorIndicator", &errorIndicator, "Energy, Uniform, GoalOriented, DPGstar");
   cmdp.setOption("conformingTraces", "nonconformingTraces", &useConformingTraces, "use conforming traces");
   cmdp.setOption("enrichTrial", "classictrial", &enrichTrial, "use enriched u-variable");
+  cmdp.setOption("liftedBC", "naive BC", &liftedBC, "lifted BC");
+  cmdp.setOption("liftChoice",&liftChoice,"choice of lifting function");
   cmdp.setOption("solver", &solverChoice, "KLU, SuperLUDist, MUMPS");
   cmdp.setOption("exportSolution", "skipExport", &exportSolution, "export solution to HDF5");
   cmdp.setOption("outputDir", &outputDir, "output directory");
@@ -301,6 +311,7 @@ int main(int argc, char *argv[])
   //////////////////////  DECLARE EXACT SOLUTIONS  /////////////////////
   FunctionPtr u_exact, v_exact;
   FunctionPtr xx = x/width, yy = y/height;
+  // u_exact = zero;
   // u_exact = one;
   // u_exact = x * x + 2 * x * y;
   // u_exact = x * x * x * y + 2 * x * y * y;
@@ -316,12 +327,15 @@ int main(int argc, char *argv[])
   // v_exact = x * x * x * y + 2 * x * y * y;
   // v_exact = x * (1.0 - x) * y * (1.0 - y);
   v_exact = sin_pix * sin_piy;
+  // v_exact = sin_pix * sin_piy + one;
+  // v_exact = sin_pix * sin_piy + x*x;
   // v_exact = cos_pix * cos_piy;
 
 
   ////////////////////////////  DECLARE RHS  ///////////////////////////
   FunctionPtr f;
   f = u_exact->dx()->dx() + u_exact->dy()->dy();
+  // RHSPtr rhs = form.rhs(one);
   RHSPtr rhs = form.rhs(f);
 
 
@@ -355,14 +369,29 @@ int main(int argc, char *argv[])
   g_u = v_exact->dx()->dx() + v_exact->dy()->dy(); // field type
   g_functional = g_u * u;
 
-  bool liftedBC = false;
+
+  // bool liftedBC = false;
+  FunctionPtr v_lift;
   if (liftedBC)
   {
-    g_sigma_x = v_exact->dx(); // LIFTED Dirichlet boundary data
-    g_sigma_y = v_exact->dy(); // LIFTED Dirichlet boundary data
+    // LIFTED Dirichlet boundary data
+    if (liftChoice == 1)
+      v_lift = x*x;
+    // else if (liftChoice == 2)
+    //   v_lift = 1 - x * (1 - x) * y * (1 - y);
+    // else if (liftChoice == 3)
+    //   v_lift = 1 - x * (1 - x*x) * y * (1 - y*y);
+    // else if (liftChoice == 4)
+    //   v_lift = 1 - x * (1 - x) * y * (1 - y) * x * x * x * x;
+    else
+    {
+      cout << "ERROR: not a supported lift.\n";
+      return Teuchos::null;
+    }
     bool overrideTypeCheck = true;
-    g_functional->addTerm( - g_sigma_x * sigma->x(), overrideTypeCheck); // add flux type to field type
-    g_functional->addTerm( - g_sigma_y * sigma->y(), overrideTypeCheck); // add flux type to field type
+    g_functional->addTerm( v_lift->dx() * sigma->x(), overrideTypeCheck); // add flux type to field type
+    g_functional->addTerm( v_lift->dy() * sigma->y(), overrideTypeCheck); // add flux type to field type
+    g_sigma_hat = zero;
   }
   else
   {
@@ -451,6 +480,11 @@ int main(int argc, char *argv[])
     psi_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), rieszResidual) );
     dualSoln_v =  Teuchos::rcp( new RepFunction<double>(form.v(), dualSoln) );
     dualSoln_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), dualSoln) );
+    if (liftedBC)
+    {
+      dualSoln_v = dualSoln_v + v_lift;
+      // dualSoln_tau = dualSoln_tau - v_lift->grad();
+    }
 
     // compute error in DPG solution
     FunctionPtr soln_u = Function::solution(u, soln);
@@ -495,26 +529,26 @@ int main(int argc, char *argv[])
     FunctionPtr tauDotNml_minus_BC = dualSoln_tau * n;
     tauDotNml_minus_BC = (1.0 - boundaryRestriction) * tauDotNml_minus_BC;
     std::map<GlobalIndexType, double> l2Jump_v = v_minus_BC->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree);
-    std::map<GlobalIndexType, double> l2Jump_tau = tauDotNml_minus_BC->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree);
+    std::map<GlobalIndexType, double> l2Jump_tau = tauDotNml_minus_BC->l2normOfInteriorJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree, Function::AVERAGE);
 
-
-
+    std::map<GlobalIndexType, double> l2Jump_total;
     const set<GlobalIndexType> & myCellIDs = mesh->cellIDsInPartition();
     double jump_v=0.0;
     double jump_tau=0.0;
     for (auto cellID: myCellIDs)
     {
+      l2Jump_total[cellID] = l2Jump_v[cellID] + l2Jump_tau[cellID];
       if (weightBySideMeasure)
       {
-        jump_v += pow(l2Jump_v[cellID], 2.0);
-        jump_tau += pow(l2Jump_tau[cellID], 2.0);
+        jump_v += l2Jump_v[cellID];
+        jump_tau += l2Jump_tau[cellID];
       }
       else
       {
         double vol = mesh->getCellMeasure(cellID);
         double h = pow(vol, 1.0 / spaceDim);
-        jump_v += pow(h, -1.0)*pow(l2Jump_v[cellID], 2.0);
-        jump_tau += h*pow(l2Jump_tau[cellID], 2.0);
+        jump_v += pow(h, -1.0)*l2Jump_v[cellID];
+        jump_tau += h*l2Jump_tau[cellID];
       }
     }
     jump_v = sqrt(jump_v);
@@ -587,7 +621,7 @@ int main(int argc, char *argv[])
         << " \tRate: " << dualSolnErrorL2Rate
         << endl;
       cout << setprecision(4) 
-        << " \nGoal Error:          " << outputError
+        << " \nQOI Error:          " << outputError
         << " \tRate: " << outputErrorRate
         << endl;
       dataFile << setprecision(8)
@@ -640,9 +674,16 @@ int main(int argc, char *argv[])
       {
         double refThreshold = 0.2;
         int cubatureDegreeEnrichment = delta_k;
-        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new GoalOrientedErrorIndicator<double>(soln, dualSolnResidualFunction, cubatureDegreeEnrichment) );
+        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new GoalOrientedErrorIndicator<double>(soln, dualSolnResidualFunction, l2Jump_total, cubatureDegreeEnrichment) );
         refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, refThreshold) );
-      }  
+      }
+      else if (errorIndicator == "DPGstar")
+      {
+        double refThreshold = 0.2;
+        int cubatureDegreeEnrichment = delta_k;
+        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new DPGstarErrorIndicator<double>(soln, dualSolnResidualFunction, l2Jump_total, cubatureDegreeEnrichment) );
+        refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, refThreshold) );
+      } 
       else
       {
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "unrecognized refinement strategy");

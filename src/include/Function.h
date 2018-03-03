@@ -39,6 +39,11 @@ protected:
   void CHECK_VALUES_RANK(Intrepid::FieldContainer<Scalar> &values); // throws exception on bad values rank
   double _time;
 public:
+  enum JumpCombinationType
+  {
+    DIFFERENCE,
+    AVERAGE
+  };
   TFunction();
   TFunction(int rank);
   virtual ~TFunction() {}
@@ -119,7 +124,7 @@ public:
   // ! if weightBySideMeasure is true, then the edge lengths (2D) or face area will be used to weight the integral of the squared jump.
   // ! cubatureDegreeEnrichment is relative to the H^1 order of the mesh's trial space.
   // ! Returned map will have as keys the cell IDs of MPI-local cells.
-  std::map<GlobalIndexType, double> l2normOfInteriorJumps(MeshPtr mesh, bool weightBySideMeasure, int cubatureDegreeEnrichment);
+  std::map<GlobalIndexType, double> l2normOfInteriorJumps(MeshPtr mesh, bool weightBySideMeasure, int cubatureDegreeEnrichment, JumpCombinationType jumpCombination=DIFFERENCE);
   
   // divide values by this function (supported only when this is a scalar--otherwise values would change rank...)
   virtual void scalarMultiplyFunctionValues(Intrepid::FieldContainer<Scalar> &functionValues, BasisCachePtr basisCache);

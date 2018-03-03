@@ -1295,7 +1295,7 @@ Scalar TFunction<Scalar>::integralOfJump(Teuchos::RCP<Mesh> mesh, GlobalIndexTyp
 }
  
 template <typename Scalar>
-std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshPtr mesh, bool weightBySideMeasure, int cubatureDegreeEnrichment)
+std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshPtr mesh, bool weightBySideMeasure, int cubatureDegreeEnrichment, JumpCombinationType jumpCombination)
 {
   // Computes the L^2 norm of the jumps of this function along the interior skeleton of the mesh
   
@@ -1659,7 +1659,11 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshP
         sideMeasure += weight;
         if (this->rank() == 0)
         {
-          Scalar diff = neighborValues(cellOrdinal,pointOrdinal) - myValues(cellOrdinal,pointOrdinal);
+          Scalar diff;
+          if (jumpCombination == DIFFERENCE)
+            diff = neighborValues(cellOrdinal,pointOrdinal) - myValues(cellOrdinal,pointOrdinal);
+          else if (jumpCombination == AVERAGE)
+            diff = neighborValues(cellOrdinal,pointOrdinal) + myValues(cellOrdinal,pointOrdinal);
           sideL2Jump += diff * diff * weight;
 //          cout << "on cell " << cellID << endl;
 //          cout << "neighbor value = " << neighborValues(cellOrdinal,pointOrdinal) << endl;
@@ -1670,7 +1674,11 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshP
         {
           for (int d1=0; d1<spaceDim; d1++)
           {
-            Scalar diff = neighborValues(cellOrdinal,pointOrdinal,d1) - myValues(cellOrdinal,pointOrdinal,d1);
+            Scalar diff;
+            if (jumpCombination == DIFFERENCE)
+              diff = neighborValues(cellOrdinal,pointOrdinal,d1) - myValues(cellOrdinal,pointOrdinal,d1);
+            else if (jumpCombination == AVERAGE)
+              diff = neighborValues(cellOrdinal,pointOrdinal,d1) + myValues(cellOrdinal,pointOrdinal,d1);
             sideL2Jump += diff * diff * weight;
           }
         }
@@ -1680,7 +1688,11 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshP
           {
             for (int d2=0; d2<spaceDim; d2++)
             {
-              Scalar diff = neighborValues(cellOrdinal,pointOrdinal,d1,d2) - myValues(cellOrdinal,pointOrdinal,d1,d2);
+              Scalar diff;
+              if (jumpCombination == DIFFERENCE)
+                diff = neighborValues(cellOrdinal,pointOrdinal,d1,d2) - myValues(cellOrdinal,pointOrdinal,d1,d2);
+              else if (jumpCombination == AVERAGE)
+                diff = neighborValues(cellOrdinal,pointOrdinal,d1,d2) + myValues(cellOrdinal,pointOrdinal,d1,d2);
               sideL2Jump += diff * diff * weight;
             }
           }
@@ -1817,7 +1829,9 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::l2normOfInteriorJumps(MeshP
     {
       cellTotal += sideContribution;
     }
-    cellNorms[cellID] = sqrt(cellTotal);
+    // BK: For most cases we need, it is actually better not to perform the square root
+    cellNorms[cellID] = cellTotal;
+    // cellNorms[cellID] = sqrt(cellTotal);
   }
   return cellNorms;
 }
