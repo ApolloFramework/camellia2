@@ -23,7 +23,7 @@ template <typename Scalar>
 class VectorizedFunction : public TFunction<Scalar>
 {
 private:
-  vector< TFunctionPtr<Scalar> > _fxns;
+  std::vector< TFunctionPtr<Scalar> > _fxns;
   TFunctionPtr<Scalar> di(int i); // derivative in the ith coordinate direction
 public:
   virtual TFunctionPtr<Scalar> x();
@@ -36,12 +36,14 @@ public:
   virtual TFunctionPtr<Scalar> dz();
   virtual TFunctionPtr<Scalar> dt();
 
-  VectorizedFunction(const vector< TFunctionPtr<Scalar> > &fxns);
+  VectorizedFunction(const std::vector< TFunctionPtr<Scalar> > &fxns);
   VectorizedFunction(TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2);
   VectorizedFunction(TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2, TFunctionPtr<Scalar> f3);
   VectorizedFunction(TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2, TFunctionPtr<Scalar> f3, TFunctionPtr<Scalar> f4);
   void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
 
+  std::vector< TFunctionPtr<Scalar> > memberFunctions();
+  
   virtual string displayString();
   int dim();
 

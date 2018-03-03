@@ -26,6 +26,11 @@ public:
       curves[i]->value(0, _vertices[i].first, _vertices[i].second);
     }
   }
+  std::vector< TFunctionPtr<double> > memberFunctions()
+  {
+    return std::vector< TFunctionPtr<double> >();
+  }
+  
   void value(double t1, double t2, double &x, double &y);
 };
 
@@ -166,6 +171,15 @@ public:
     }
     TFunctionPtr<double> parametricGradient = Function::vectorize(dt1(), dt2());
     return ParametricCurve::parametricGradientWrapper(parametricGradient);
+  }
+  std::vector< TFunctionPtr<double> > memberFunctions()
+  {
+    std::vector< TFunctionPtr<double> > members;
+    for (auto curve : _curves)
+    {
+      members.push_back(curve);
+    }
+    return members;
   }
 };
 

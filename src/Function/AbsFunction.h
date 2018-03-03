@@ -27,6 +27,8 @@ namespace Camellia
     bool boundaryValueOnly();
     
     string displayString();
+    
+    std::vector< TFunctionPtr<double> > memberFunctions();
   };
 }
 

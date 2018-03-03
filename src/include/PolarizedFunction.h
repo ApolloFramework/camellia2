@@ -36,6 +36,8 @@ public:
 
   Teuchos::RCP<PolarizedFunction<Scalar> > dtheta();
   Teuchos::RCP<PolarizedFunction<Scalar> > dr();
+  
+  std::vector< TFunctionPtr<Scalar> > memberFunctions();
 
   virtual string displayString(); // for PolarizedFunction, this should be _f->displayString() + "(r,theta)";
 

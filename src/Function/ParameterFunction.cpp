@@ -76,6 +76,11 @@ TFunctionPtr<double> ParameterFunction::div()
   return _fxn->div();
 }
 
+std::vector< TFunctionPtr<double> > ParameterFunction::memberFunctions()
+{
+  return {{_fxn}};
+}
+
 void ParameterFunction::values(FieldContainer<double> &values, BasisCachePtr basisCache)
 {
   _fxn->values(values, basisCache);

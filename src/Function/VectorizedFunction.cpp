@@ -62,6 +62,12 @@ int VectorizedFunction<Scalar>::dim()
 }
 
 template <typename Scalar>
+std::vector<TFunctionPtr<Scalar>> VectorizedFunction<Scalar>::memberFunctions()
+{
+  return _fxns;
+}
+
+template <typename Scalar>
 void VectorizedFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
 {
   this->CHECK_VALUES_RANK(values);

@@ -61,6 +61,11 @@ bool UpwindIndicatorFunction::isZero(BasisCachePtr basisCache)
   return true;
 }
 
+std::vector< TFunctionPtr<double> > UpwindIndicatorFunction::memberFunctions()
+{
+  return {{_beta}};
+}
+
 void UpwindIndicatorFunction::values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache)
 {
   int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);

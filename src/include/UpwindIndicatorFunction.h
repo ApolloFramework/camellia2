@@ -24,6 +24,8 @@ namespace Camellia
     
     void values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache);
     
+    std::vector< TFunctionPtr<double> > memberFunctions();
+    
     // ! returns an upwind indicator that functions as the DG "-" operator for the given
     // ! convective direction.
     static FunctionPtr minus(FunctionPtr beta);

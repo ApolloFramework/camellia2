@@ -10,14 +10,6 @@ using namespace Camellia;
 using namespace Intrepid;
 using namespace std;
 
-// explicitly instantiate double constructor and member functions
-template Exp<double>::Exp(TFunctionPtr<double> power);
-template TFunctionPtr<double> Exp<double>::dx();
-template TFunctionPtr<double> Exp<double>::dy();
-template TFunctionPtr<double> Exp<double>::dz();
-template string Exp<double>::displayString();
-template void Exp<double>::values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache);
-
 template<class Scalar>
 Exp<Scalar>::Exp(TFunctionPtr<Scalar> power) : _power(power)
 {}
@@ -70,6 +62,12 @@ std::string Exp<Scalar>::displayString()
   ostringstream str;
   str << "e^{" << _power->displayString() << "}";
   return str.str();
+}
+
+template<class Scalar>
+std::vector< TFunctionPtr<Scalar> > Exp<Scalar>::memberFunctions()
+{
+  return {{_power}};
 }
 
 string Exp_x::displayString()
@@ -219,3 +217,6 @@ string Exp_at::displayString()
   ss << "\\exp( " << _a << " t )";
   return ss.str();
 }
+
+// explicitly instantiate Exp<double> class:
+template class Camellia::Exp<double>;

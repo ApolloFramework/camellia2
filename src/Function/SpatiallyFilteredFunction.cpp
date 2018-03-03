@@ -22,6 +22,12 @@ bool SpatiallyFilteredFunction<Scalar>::boundaryValueOnly()
 }
 
 template <typename Scalar>
+std::vector< TFunctionPtr<Scalar> > SpatiallyFilteredFunction<Scalar>::memberFunctions()
+{
+  return {{_f}};
+}
+
+template <typename Scalar>
 void SpatiallyFilteredFunction<Scalar>::values(FieldContainer<Scalar> &values, BasisCachePtr basisCache)
 {
 //  cout << "Entered SpatiallyFilteredFunction<Scalar>::values()\n";
