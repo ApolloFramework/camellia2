@@ -1705,11 +1705,12 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::squaredL2NormOfJumps(MeshPt
         neighborSideCache->setPhysicalCellNodes(neighborCellNodes, {neighborCellID}, false);
         {
           // Sanity check that the physical points agree:
-          double tol = 1e-15;
+          double tol = 1e-10;
           Intrepid::FieldContainer<double> myPhysicalPoints = cellBasisCacheSide->getPhysicalCubaturePoints();
           Intrepid::FieldContainer<double> neighborPhysicalPoints = neighborSideCache->getPhysicalCubaturePoints();
           
           bool pointsMatch = (myPhysicalPoints.size() == neighborPhysicalPoints.size()); // true unless we find a point that doesn't match
+          double maxDiff = 0.0;
           if (pointsMatch)
           {
             for (int i=0; i<myPhysicalPoints.size(); i++)
@@ -1718,16 +1719,16 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::squaredL2NormOfJumps(MeshPt
               if (diff > tol)
               {
                 pointsMatch = false;
-                break;
+                maxDiff = std::max(diff,maxDiff);
               }
             }
           }
           
           if (!pointsMatch)
           {
-            cout << "ERROR: pointsMatch is false.\n";
-            cout << "myPhysicalPoints:\n" << myPhysicalPoints;
-            cout << "neighborPhysicalPoints:\n" << neighborPhysicalPoints;
+            cout << "WARNING: pointsMatch is false; maxDiff = " << maxDiff << "\n";
+//            cout << "myPhysicalPoints:\n" << myPhysicalPoints;
+//            cout << "neighborPhysicalPoints:\n" << neighborPhysicalPoints;
           }
         }
         this->values(neighborValues, neighborSideCache);
