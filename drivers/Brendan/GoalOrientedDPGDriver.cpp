@@ -51,13 +51,13 @@ class DPGstarErrorIndicator : public ErrorIndicator
   SolutionPtr _solution;
   FunctionPtr _dualSolnResidualFunction;
   int _cubatureDegreeEnrichment;
-  std::map<GlobalIndexType, double> _l2Jump_total;
+  std::map<GlobalIndexType, double> _jumpMap_total;
 public:
-  DPGstarErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, std::map<GlobalIndexType, double> l2Jump_total, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
+  DPGstarErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, std::map<GlobalIndexType, double> jumpMap_total, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
   {
     _solution = soln;
     _dualSolnResidualFunction = dualSolnResidualFunction;
-    _l2Jump_total = l2Jump_total;
+    _jumpMap_total = jumpMap_total;
     _cubatureDegreeEnrichment = cubatureDegreeEnrichment;
   }
 
@@ -74,7 +74,7 @@ public:
     {
       GlobalIndexType cellID = entry.first;
       double dualresidual = _dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment);
-      dualresidual += _l2Jump_total[cellID];
+      dualresidual += _jumpMap_total[cellID];
       _localErrorMeasures[cellID] = sqrt(dualresidual);
     }
 
@@ -94,14 +94,14 @@ class GoalOrientedErrorIndicator : public ErrorIndicator
 {
   SolutionPtr _solution;
   FunctionPtr _dualSolnResidualFunction;
-  std::map<GlobalIndexType, double> _l2Jump_total;
+  std::map<GlobalIndexType, double> _jumpMap_total;
   int _cubatureDegreeEnrichment;
 public:
-  GoalOrientedErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, std::map<GlobalIndexType, double> l2Jump_total, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
+  GoalOrientedErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, std::map<GlobalIndexType, double> jumpMap_total, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
   {
     _solution = soln;
     _dualSolnResidualFunction = dualSolnResidualFunction;
-    _l2Jump_total = l2Jump_total;
+    _jumpMap_total = jumpMap_total;
     _cubatureDegreeEnrichment = cubatureDegreeEnrichment;
   }
 
@@ -119,7 +119,7 @@ public:
       GlobalIndexType cellID = entry.first;
       double residual = energyErrorIsSquared ? sqrt(entry.second) : entry.second;
       double dualresidual = _dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment);
-      dualresidual = sqrt(dualresidual + _l2Jump_total[cellID]);
+      dualresidual = sqrt(dualresidual + _jumpMap_total[cellID]);
       _localErrorMeasures[cellID] = residual*dualresidual;
     }
 
@@ -168,6 +168,7 @@ int main(int argc, char *argv[])
   bool useConformingTraces = true;
   bool enrichTrial = false;
   bool liftedBC = false;
+  bool jumpTermEdgeScaling = false;
   int liftChoice = 2;
   string solverChoice = "KLU";
   bool exportSolution = false;
@@ -185,6 +186,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("conformingTraces", "nonconformingTraces", &useConformingTraces, "use conforming traces");
   cmdp.setOption("enrichTrial", "classictrial", &enrichTrial, "use enriched u-variable");
   cmdp.setOption("liftedBC", "naive BC", &liftedBC, "lifted BC");
+  cmdp.setOption("edgeScaling", "interiorScaling", &jumpTermEdgeScaling, "weight by edge length for jump terms");
   cmdp.setOption("liftChoice",&liftChoice,"choice of lifting function");
   cmdp.setOption("solver", &solverChoice, "KLU, SuperLUDist, MUMPS");
   cmdp.setOption("exportSolution", "skipExport", &exportSolution, "export solution to HDF5");
@@ -371,14 +373,15 @@ int main(int argc, char *argv[])
 
 
   // bool liftedBC = false;
-  FunctionPtr v_lift;
+  FunctionPtr v_lift = v_exact;
   if (liftedBC)
   {
     // LIFTED Dirichlet boundary data
     if (liftChoice == 1)
-      v_lift = x*x;
-    // else if (liftChoice == 2)
-    //   v_lift = 1 - x * (1 - x) * y * (1 - y);
+      v_lift = one;
+      // v_lift = x*x;
+    else if (liftChoice == 2)
+      v_lift = 1 - x * (1 - x) * y * (1 - y);
     // else if (liftChoice == 3)
     //   v_lift = 1 - x * (1 - x*x) * y * (1 - y*y);
     // else if (liftChoice == 4)
@@ -522,34 +525,45 @@ int main(int argc, char *argv[])
     FunctionPtr dualSolnResidualFunction = res1_2*res1_2 + res2_2*res2_2;
 
     bool weightBySideMeasure = false;
+    if (jumpTermEdgeScaling == true)
+      weightBySideMeasure = true;
     int cubatureEnrichmentDegree = delta_k;
     FunctionPtr v_minus_BC = dualSoln_v - g_sigma_hat;
     // FunctionPtr Dt_v_minus_BC = dualSoln_v-> - g_sigma_hat;
     FunctionPtr boundaryRestriction = Function::meshBoundaryCharacteristic();
     FunctionPtr tauDotNml_minus_BC = dualSoln_tau * n;
     tauDotNml_minus_BC = (1.0 - boundaryRestriction) * tauDotNml_minus_BC;
-    std::map<GlobalIndexType, double> l2Jump_v = v_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree);
-    std::map<GlobalIndexType, double> l2Jump_tau = tauDotNml_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree, Function::AVERAGE);
+    std::map<GlobalIndexType, double> jumpMap_v = v_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree);
+    std::map<GlobalIndexType, double> jumpMap_gradv;
+    if (weightBySideMeasure)
+    {
+      FunctionPtr gradv = dualSoln_v->dx()*n->y() - dualSoln_v->dy()*n->x();
+      FunctionPtr gradv_BC = v_lift->dx()*n->y() - v_lift->dy()*n->x();
+      gradv_BC = gradv_BC*boundaryRestriction;
+      FunctionPtr gradv_minus_BC = gradv - gradv_BC;
+      jumpMap_gradv = gradv_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree, Function::AVERAGE);
+    }
+    std::map<GlobalIndexType, double> jumpMap_tau = tauDotNml_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree, Function::AVERAGE);
 
-    std::map<GlobalIndexType, double> l2Jump_total;
+    std::map<GlobalIndexType, double> jumpMap_total;
     const set<GlobalIndexType> & myCellIDs = mesh->cellIDsInPartition();
     double jump_v=0.0;
     double jump_tau=0.0;
     for (auto cellID: myCellIDs)
     {
-      l2Jump_total[cellID] = l2Jump_v[cellID] + l2Jump_tau[cellID];
       if (weightBySideMeasure)
       {
-        jump_v += l2Jump_v[cellID];
-        jump_tau += l2Jump_tau[cellID];
+        jump_v += jumpMap_v[cellID] + jumpMap_gradv[cellID];
+        jump_tau += jumpMap_tau[cellID];
       }
       else
       {
         double vol = mesh->getCellMeasure(cellID);
         double h = pow(vol, 1.0 / spaceDim);
-        jump_v += pow(h, -1.0)*l2Jump_v[cellID];
-        jump_tau += h*l2Jump_tau[cellID];
+        jump_v += pow(h, -1.0)*jumpMap_v[cellID];
+        jump_tau += h*jumpMap_tau[cellID];
       }
+      jumpMap_total[cellID] = jump_v + jump_tau;
     }
     jump_v = sqrt(jump_v);
     jump_tau = sqrt(jump_tau);
@@ -674,14 +688,14 @@ int main(int argc, char *argv[])
       {
         double refThreshold = 0.2;
         int cubatureDegreeEnrichment = delta_k;
-        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new GoalOrientedErrorIndicator<double>(soln, dualSolnResidualFunction, l2Jump_total, cubatureDegreeEnrichment) );
+        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new GoalOrientedErrorIndicator<double>(soln, dualSolnResidualFunction, jumpMap_total, cubatureDegreeEnrichment) );
         refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, refThreshold) );
       }
       else if (errorIndicator == "DPGstar")
       {
         double refThreshold = 0.2;
         int cubatureDegreeEnrichment = delta_k;
-        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new DPGstarErrorIndicator<double>(soln, dualSolnResidualFunction, l2Jump_total, cubatureDegreeEnrichment) );
+        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new DPGstarErrorIndicator<double>(soln, dualSolnResidualFunction, jumpMap_total, cubatureDegreeEnrichment) );
         refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, refThreshold) );
       } 
       else
