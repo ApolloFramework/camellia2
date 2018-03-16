@@ -11,6 +11,7 @@
 
 #include "BasisCache.h"
 #include "CamelliaCellTools.h"
+#include "CamelliaDebugUtility.h"
 #include "CellCharacteristicFunction.h"
 #include "ConstantScalarFunction.h"
 #include "ConstantVectorFunction.h"
@@ -876,15 +877,37 @@ bool TFunction<Scalar>::isPositive(BasisCachePtr basisCache)
   Intrepid::FieldContainer<double> fxnValues(numCells,numPoints);
   this->values(fxnValues, basisCache);
 
+//  print("Cells on which we're checking positivity", basisCache->cellIDs());
+//  std::cout << "Function values on those cells: \n";
+//  std::cout << fxnValues;
+  
   for (int i = 0; i<fxnValues.size(); i++)
   {
     if (fxnValues[i] <= 0.0)
     {
-      isPositive=false;
-      break;
+      return false;
     }
   }
-  return isPositive;
+  
+  // since we're using quadrature points (which do not touch the sides of the cell),
+  // good to check the sides as well.  Better still would be to explicitly include
+  // quadrature points for each subcell topology in the points that we check, all
+  // the way down to vertices.
+  if (!basisCache->isSideCache())
+  {
+    int numSides = basisCache->cellTopology()->getSideCount();
+    for (int sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
+    {
+      auto sideCache = basisCache->getSideBasisCache(sideOrdinal);
+      if (! this->isPositive(sideCache) )
+      {
+        return false;
+      }
+    }
+  }
+  
+  // if we get here, no point has bee negative or zero.
+  return true;
 }
 
 // this should only be defined for doubles, but leaving it be for the moment

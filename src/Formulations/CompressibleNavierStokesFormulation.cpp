@@ -58,7 +58,6 @@ class SqrtFunction : public Function {
 
       _function->values(values, basisCache);
 
-      const Intrepid::FieldContainer<double> *points = &(basisCache->getPhysicalCubaturePoints());
       for (int cellIndex=0; cellIndex<numCells; cellIndex++) {
         for (int ptIndex=0; ptIndex<numPoints; ptIndex++) {
           values(cellIndex, ptIndex) = sqrt(values(cellIndex, ptIndex));
@@ -79,7 +78,6 @@ class BoundedSqrtFunction : public Function {
 
       _function->values(values, basisCache);
 
-      const Intrepid::FieldContainer<double> *points = &(basisCache->getPhysicalCubaturePoints());
       for (int cellIndex=0; cellIndex<numCells; cellIndex++) {
         for (int ptIndex=0; ptIndex<numPoints; ptIndex++) {
           values(cellIndex, ptIndex) = sqrt(std::max(values(cellIndex, ptIndex),_bound));
@@ -3436,7 +3434,6 @@ double CompressibleNavierStokesFormulation::solveAndAccumulate()
 {
   _solveCode = _solnIncrement->solve(_solver);
 
-  bool allowEmptyCells = false;
   set<int> nlVars;
   set<int> lVars;
   nlVars.insert(rho()->ID());
@@ -3491,14 +3488,15 @@ double CompressibleNavierStokesFormulation::solveAndAccumulate()
     lVars.insert(u_hat(2)->ID());
     lVars.insert(u_hat(3)->ID());
   }
+  
+  FunctionPtr rhoPrevious  = Function::solution(rho(),_backgroundFlow);
+  FunctionPtr rhoIncrement = Function::solution(rho(),_solnIncrement);
+  FunctionPtr TPrevious    = Function::solution(T(),  _backgroundFlow);
+  FunctionPtr TIncrement   = Function::solution(T(),  _solnIncrement);
 
-  vector<FunctionPtr> positiveFunctions;
-  vector<FunctionPtr> positiveUpdates;
-  // positiveFunctions.push_back(Function::solution(rho(),_backgroundFlow));
-  // positiveUpdates.push_back(Function::solution(rho(),_backgroundFlow));
-  // positiveFunctions.push_back(Function::solution(T(),_backgroundFlow));
-  // positiveUpdates.push_back(Function::solution(T(),_backgroundFlow));
-
+  vector<FunctionPtr> positiveFunctions = {rhoPrevious,  TPrevious};
+  vector<FunctionPtr> positiveUpdates   = {rhoIncrement, TIncrement};
+  
   double alpha = 1;
   bool useLineSearch = true;
   int posEnrich = 5;
