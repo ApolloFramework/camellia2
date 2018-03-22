@@ -169,13 +169,6 @@ public:
   // use default of 0.0 as initial value for u
 };
 
-
-
-
-
-
-
-
 Teuchos::RCP<CompressibleNavierStokesProblem> CompressibleNavierStokesProblem::noh()
 {
   return Teuchos::rcp( new NohProblem() );
@@ -192,6 +185,22 @@ Teuchos::RCP<CompressibleNavierStokesProblem> CompressibleNavierStokesProblem::t
 
 Teuchos::RCP<CompressibleNavierStokesProblem> CompressibleNavierStokesProblem::namedProblem(const string &problemName)
 {
-  
+  if (problemName == "Noh")
+  {
+    return noh();
+  }
+  else if (problemName == "RayleighTaylor")
+  {
+    return rayleighTaylor();
+  }
+  else if (problemName == "TriplePoint")
+  {
+    return triplePoint();
+  }
+  else
+  {
+    std::cout << "Unknown problem name: " << problemName << std::endl;
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unknown problem name");
+  }
 }
 

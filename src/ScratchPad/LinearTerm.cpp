@@ -152,11 +152,11 @@ void TLinearTerm<Scalar>::addVar(vector<Scalar> vector_weight, VarPtr var)   // 
 }
 
 template<typename Scalar>
-double TLinearTerm<Scalar>::computeNorm(TIPPtr<Scalar> ip, MeshPtr mesh)
+double TLinearTerm<Scalar>::computeNorm(TIPPtr<Scalar> ip, MeshPtr mesh, int cubatureEnrichment)
 {
   TLinearTermPtr<Scalar> thisPtr = Teuchos::rcp(this, false);
   TRieszRepPtr<Scalar> rieszRep = Teuchos::rcp( new TRieszRep<Scalar>(mesh, ip, thisPtr) );
-  rieszRep->computeRieszRep();
+  rieszRep->computeRieszRep(cubatureEnrichment);
   return rieszRep->getNorm();
 }
 

@@ -106,25 +106,19 @@ namespace Camellia
     // ! the compressible Navier-Stokes formulation rhs
     RHSPtr rhs();
     
-    void addXVelocityTraceCondition(SpatialFilterPtr region, FunctionPtr u1_exact);
-    void addYVelocityTraceCondition(SpatialFilterPtr region, FunctionPtr u2_exact);
-    void addZVelocityTraceCondition(SpatialFilterPtr region, FunctionPtr u3_exact);
-    void addVelocityTraceCondition(SpatialFilterPtr region, FunctionPtr u_exact);
+    void addVelocityTraceComponentCondition(SpatialFilterPtr region, FunctionPtr ui_exact, int i); // i is 1-based (1,2, or 3)
+    void addVelocityTraceCondition(SpatialFilterPtr region, FunctionPtr u_exact); // vector u_exact
     
     void addTemperatureTraceCondition(SpatialFilterPtr region, FunctionPtr T_exact);
     
-    void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact);
-    
+    void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact); // vector u_exact
     void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr value);
-    void addXMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr value);
-    void addYMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr value);
-    void addZMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr value);
-    void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr value);
-    void addXMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact);
-    void addYMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact);
-    void addZMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact);
+    
+    void addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr tm_i_exact, int i);
+    void addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact, int i);
     void addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact);
     
+    void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr value);
     void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact);
     
     // ! returns true if this is a space-time formulation; false otherwise.
@@ -162,7 +156,7 @@ namespace Camellia
     double mu();
     
     // ! Set viscosity
-    void setmu(double value);
+    void setMu(double value);
     
     // ! Returns gamma
     double gamma();
@@ -269,6 +263,18 @@ namespace Camellia
     VarPtr ve();
     VarPtr S(int i);
     VarPtr tau();
+    
+    // ! For an exact solution (u, rho, T), produces a map that includes these as well as solution variables that depend on them (fields, traces, fluxes).
+    std::map<int, FunctionPtr> exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    
+    // ! For an exact solution (u, rho, T), returns the corresponding tc flux
+    FunctionPtr exactSolution_tc(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    
+    // ! For an exact solution (u, rho, T), returns the corresponding tm flux.  (Since this is in general vector-valued, returns components in a std::vector.)
+    std::vector<FunctionPtr> exactSolution_tm(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    
+    // ! For an exact solution (u, rho, T), returns the corresponding te flux
+    FunctionPtr exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
     
     // ! returns a std::map indicating any trial variables that have adjusted polynomial orders relative to the standard poly order for the element.  Keys are variable IDs, values the difference between the indicated variable and the standard polynomial order.
     const std::map<int,int> &getTrialVariablePolyOrderAdjustments();

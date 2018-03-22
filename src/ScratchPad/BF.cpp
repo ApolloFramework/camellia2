@@ -1630,6 +1630,20 @@ namespace Camellia
     }
     return functional;
   }
+  
+  template <typename Scalar>
+  TLinearTermPtr<Scalar> TBF<Scalar>::testFunctional(const std::map<int,FunctionPtr> &solnMap)
+  {
+    TLinearTermPtr<Scalar> functional = Teuchos::rcp(new LinearTerm());
+    for (auto bilinearTerm : _terms)
+    {
+      TLinearTermPtr<Scalar> trialTerm = bilinearTerm.first;
+      TLinearTermPtr<Scalar> testTerm = bilinearTerm.second;
+      TFunctionPtr<Scalar> trialValue = trialTerm->evaluate(solnMap);
+      functional = functional + trialValue * testTerm;
+    }
+    return functional;
+  }
 
   // BK: function returns the adjoint operator in an uweak BF (i.e. A* in (u,A*v) = (f,v) for all v) applied to the DPG* solution (i.e. A*v, when v is a fixed DPG* soln)
   template <typename Scalar>

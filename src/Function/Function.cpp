@@ -665,6 +665,16 @@ TFunctionPtr<Scalar> TFunction<Scalar>::dt()
   return TFunction<Scalar>::null();
 }
 template <typename Scalar>
+TFunctionPtr<Scalar> TFunction<Scalar>::di(int i) // 1-based: 1 for dx, 2 for dy(), 3 for dz()
+{
+  switch (i) {
+    case 1: return dx();
+    case 2: return dy();
+    case 3: return dz();
+    default: TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported component number");
+  }
+}
+template <typename Scalar>
 TFunctionPtr<Scalar> TFunction<Scalar>::curl()
 {
   TFunctionPtr<Scalar> dxFxn = dx();

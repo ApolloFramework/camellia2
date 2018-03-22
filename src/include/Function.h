@@ -78,6 +78,7 @@ public:
   virtual TFunctionPtr<Scalar> dy();
   virtual TFunctionPtr<Scalar> dz();
   virtual TFunctionPtr<Scalar> dt();
+  virtual TFunctionPtr<Scalar> di(int i); // 1 for dx(), 2 for dy(), 3 for dz()
 
   virtual TFunctionPtr<Scalar> div();
   virtual TFunctionPtr<Scalar> curl();

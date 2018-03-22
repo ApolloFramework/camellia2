@@ -8,6 +8,7 @@
 #include "HDF5Exporter.h"
 #include "MeshFactory.h"
 #include "CompressibleNavierStokesFormulation.h"
+#include "CompressibleNavierStokesFormulationRefactor.hpp"
 #include "SimpleFunction.h"
 #include "SuperLUDistSolver.h"
 
@@ -31,36 +32,56 @@ int main(int argc, char *argv[])
    E_b   = (u_b ^ 2) / 2 + p_b / ( (gamma - 1) * rho_b)
    */
   
-  int meshWidth = 4;
+  int meshWidth = 16;
   int polyOrder = 1;
   int delta_k   = 2; // 1 is likely sufficient in 1D
-  bool useCondensedSolve = false;
-  
+  bool useCondensedSolve = true;
   int spaceDim = 1;
-  double gamma = 1.4;
-  double rho_a = 1.0; // prescribed density at left
-  double u_a   = 2.0; // Mach number
-  double Re    = 1e2; // Reynolds number
-
-  double p_a   = rho_a / gamma;
-  double p_b   = p_a * (1. + (2. * gamma) / (gamma +  1.) * (u_a * u_a - 1) );
-  double rho_b = rho_a * ( (gamma - 1.) + (gamma + 1.) * p_b / p_a ) / ( (gamma + 1.) + (gamma - 1.) * p_b / p_a );
-  double u_b   = rho_a * u_a / rho_b;
-//  double E_a   = (u_a * u_a) / 2 + p_a / ( (gamma-1.) * rho_a);
-//  double E_b   = (u_b * u_b) / 2 + p_b / ( (gamma-1.) * rho_b);
-
-  // T = gamma * p / rho (ideal gas law)
-  double T_a = gamma * p_a / rho_a;
-  double T_b = gamma * p_b / rho_b;
   
   double x_a   = 0.0;
   double x_b   = 1.0;
   MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
+
+  double rho_a = 1.0; // prescribed density at left
+  double u_a   = 2.0; // Mach number
+  double Re    = 1e2; // Reynolds number
   
   bool useConformingTraces = true;
-  auto form = CompressibleNavierStokesFormulation::steadyFormulation(spaceDim, Re, useConformingTraces,
-                                                                     meshTopo, polyOrder, delta_k);
+  auto form = CompressibleNavierStokesFormulationRefactor::steadyFormulation(spaceDim, Re, useConformingTraces,
+                                                                             meshTopo, polyOrder, delta_k);
   form.solutionIncrement()->setUseCondensedSolve(useCondensedSolve);
+  
+  
+  double gamma = form.gamma();
+
+  double p_a   = rho_a / gamma;
+  // T = gamma * p / rho (ideal gas law)
+  double T_a = gamma * p_a / rho_a;
+
+  double p_b, rho_b, u_b, T_b;
+  
+  bool computeShockSolution = true;
+  if (computeShockSolution)
+  {
+    p_b   = p_a * (1. + (2. * gamma) / (gamma +  1.) * (u_a * u_a - 1) );
+    rho_b = rho_a * ( (gamma - 1.) + (gamma + 1.) * p_b / p_a ) / ( (gamma + 1.) + (gamma - 1.) * p_b / p_a );
+    u_b   = rho_a * u_a / rho_b;
+    T_b = gamma * p_b / rho_b;
+    
+    cout << "rho_b / rho_a = " <<  rho_b / rho_a << endl;
+    cout << "u_b / u_a = " << u_b / u_a << endl;
+    cout << "p_b / p_a = " << p_b / p_a << endl;
+    cout << "T_b / T_a = " << T_b / T_a << endl;
+  }
+  else
+  {
+    p_b   = p_a;
+    rho_b = rho_a;
+    u_b   = u_a;
+    T_b   = T_a;
+  }
+//  double E_a   = (u_a * u_a) / 2 + p_a / ( (gamma-1.) * rho_a);
+//  double E_b   = (u_b * u_b) / 2 + p_b / ( (gamma-1.) * rho_b);
   
   FunctionPtr x = Function::xn(1);
   // lambdas for determining a linear interpolant
@@ -166,11 +187,11 @@ int main(int argc, char *argv[])
   
   std::cout << "T_a = " << T_a << std::endl;
   std::cout << "T_b = " << T_b << std::endl;
-  
-  form.addMassFluxCondition(         leftX, Function::constant(rho_a * u_a) );
+//  (SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
+  form.addMassFluxCondition(         leftX, Function::constant(rho_a), Function::constant(u_a), Function::constant(T_a));
   form.addVelocityTraceCondition(    leftX, Function::constant(u_a)         );
   form.addTemperatureTraceCondition( leftX, Function::constant(T_a)         );
-  form.addMassFluxCondition(        rightX, Function::constant(rho_b * u_b) );
+  form.addMassFluxCondition(        rightX, Function::constant(rho_b), Function::constant(u_b), Function::constant(T_b));
   form.addVelocityTraceCondition(   rightX, Function::constant(u_b)         );
   form.addTemperatureTraceCondition(rightX, Function::constant(T_b)         );
   
@@ -179,7 +200,7 @@ int main(int argc, char *argv[])
   double nonlinearTolerance = 1e-6;
   double l2NormOfIncrement = 1.0;
   int stepNumber = 0;
-  int maxNonlinearSteps = 10;
+  int maxNonlinearSteps = 100;
   while ((l2NormOfIncrement > nonlinearTolerance) && (stepNumber < maxNonlinearSteps))
   {
     double alpha = form.solveAndAccumulate();

@@ -34,7 +34,12 @@ template <typename Scalar>
 string QuotientFunction<Scalar>::displayString()
 {
   ostringstream ss;
-  ss << _f->displayString() << " / " << _scalarDivisor->displayString();
+  // use memberFunctions as a proxy for whether we should include parentheses (for sums and products, this does what we want)
+  bool includeParentheses = _scalarDivisor->memberFunctions().size() > 1;
+  if (includeParentheses)
+    ss << _f->displayString() << " / (" << _scalarDivisor->displayString() << ")";
+  else
+    ss << _f->displayString() << " / " << _scalarDivisor->displayString();
   return ss.str();
 }
 

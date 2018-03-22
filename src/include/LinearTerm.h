@@ -93,8 +93,9 @@ public:
   /** \brief  Computes the norm of the TLinearTerm using the Riesz representation corresponding to the inner product ip on the specified mesh.
    *  \param  ip        [in]  - inner product to use for the Riesz representation
    *  \param  mesh      [in]  - mesh over which to measure
+   *  \param  cubatureEnrichment - degree to raise the cubature over the default (2 * test poly order)
    */
-  double computeNorm(TIPPtr<Scalar> ip, MeshPtr mesh);
+  double computeNorm(TIPPtr<Scalar> ip, MeshPtr mesh, int cubatureEnrichment = 0);
 
   void evaluate(Intrepid::FieldContainer<Scalar> &values, TSolutionPtr<Scalar> solution, BasisCachePtr basisCache,
                 bool applyCubatureWeights = false, int solutionOrdinal = 0);
