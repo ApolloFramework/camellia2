@@ -22,6 +22,9 @@ namespace Camellia
     
     int _spaceDim;
     bool _useConformingTraces;
+    
+    Teuchos::RCP<ParameterFunction> _fc, _fe; // forcing functions for continuity, energy equations
+    std::vector<Teuchos::RCP<ParameterFunction> > _fm; // forcing for momentum equation(s)
     double _mu;
     FunctionPtr _muFunc;
     FunctionPtr _muSqrtFunc;
@@ -276,6 +279,15 @@ namespace Camellia
     // ! For an exact solution (u, rho, T), returns the corresponding te flux
     FunctionPtr exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
     
+    // ! For an exact solution (u, rho, T), returns the corresponding forcing in the continuity equation
+    FunctionPtr exactSolution_fc(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    
+    // ! For an exact solution (u, rho, T), returns the corresponding forcing in the momentum equation
+    std::vector<FunctionPtr> exactSolution_fm(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    
+    // ! For an exact solution (u, rho, T), returns the corresponding forcing in the energy equation
+    FunctionPtr exactSolution_fe(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    
     // ! returns a std::map indicating any trial variables that have adjusted polynomial orders relative to the standard poly order for the element.  Keys are variable IDs, values the difference between the indicated variable and the standard polynomial order.
     const std::map<int,int> &getTrialVariablePolyOrderAdjustments();
     
@@ -284,8 +296,8 @@ namespace Camellia
     
     Teuchos::ParameterList getConstructorParameters() const;
     
-    // ! Set the forcing function for problem.  Should be a vector-valued function, with number of components equal to the spatial dimension.
-    void setForcingFunction(FunctionPtr f);
+    // ! Set the forcing functions for problem.  f_momentum should have components equal to the number of spatial dimensions
+    void setForcing(FunctionPtr f_continuity, std::vector<FunctionPtr> f_momentum, FunctionPtr f_energy);
     
     // static utility functions:
     static CompressibleNavierStokesFormulationRefactor steadyFormulation(int spaceDim, double Re, bool useConformingTraces,

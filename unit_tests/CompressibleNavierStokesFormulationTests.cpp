@@ -19,6 +19,80 @@ using namespace Intrepid;
 #include "Teuchos_UnitTestHarness.hpp"
 namespace
 {
+  static const double TEST_RE = 1e2;
+  static const double TEST_PR = 0.713;
+  static const double TEST_CV = 1.000;
+  static const double TEST_GAMMA = 1.4;
+  static const double TEST_CP = TEST_GAMMA * TEST_CV;
+  static const double TEST_R = TEST_CP - TEST_CV;
+  
+  void testForcing_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr T,
+                      FunctionPtr fc, FunctionPtr fm, FunctionPtr fe,
+                      int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    int meshWidth = 1;
+    int polyOrder = 2;
+    int delta_k   = 2; // 1 is likely sufficient in 1D
+    int spaceDim = 1;
+    
+    double x_a   = 0.0;
+    double x_b   = 1.0;
+    MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
+    
+    double Re    = TEST_RE; // Reynolds number
+    
+    bool useConformingTraces = true;
+    auto form = CompressibleNavierStokesFormulationRefactor::steadyFormulation(spaceDim, Re, useConformingTraces,
+                                                                               meshTopo, polyOrder, delta_k);
+    
+    // sanity checks that the constructor has set things up the way we assume:
+    TEST_FLOATING_EQUALITY(form.Pr(),    TEST_PR,     tol);
+    TEST_FLOATING_EQUALITY(form.Cv(),    TEST_CV,     tol);
+    TEST_FLOATING_EQUALITY(form.gamma(), TEST_GAMMA,  tol);
+    TEST_FLOATING_EQUALITY(form.Cp(),    TEST_CP,     tol);
+    TEST_FLOATING_EQUALITY(form.R(),     TEST_R,      tol);
+    TEST_FLOATING_EQUALITY(form.mu(),    1.0/TEST_RE, tol);
+    
+    BFPtr bf = form.bf();
+    RHSPtr rhs = form.rhs();
+    
+    auto soln = form.solution();
+    auto solnIncrement = form.solutionIncrement();
+    auto mesh = soln->mesh();
+
+    auto exact_fc = form.exactSolution_fc(u, rho, T);
+    auto exact_fe = form.exactSolution_fe(u, rho, T);
+    auto exact_fm = form.exactSolution_fm(u, rho, T);
+    
+    double fc_err = (fc - exact_fc)->l2norm(mesh, cubatureEnrichment);
+    if (fc_err > tol)
+    {
+      success = false;
+      out << "FAILURE: fc_err " << fc_err << " > tol " << tol << endl;
+      out << "fc expected: " << fc->displayString() << endl;
+      out << "fc actual:   " << exact_fc->displayString() << endl;
+    }
+    
+    // here, we use the fact that we're operating in 1D:
+    double fm_err = (fm - exact_fm[0])->l2norm(mesh);
+    if (fm_err > tol)
+    {
+      success = false;
+      out << "FAILURE: fm_err " << fm_err << " > tol " << tol << endl;
+      out << "fm expected: " << fm->displayString() << endl;
+      out << "fm actual:   " << exact_fm[0]->displayString() << endl;
+    }
+    
+    double fe_err = (fe - exact_fe)->l2norm(mesh, cubatureEnrichment);
+    if (fe_err > tol)
+    {
+      success = false;
+      out << "FAILURE: fe_err " << fe_err << " > tol " << tol << endl;
+      out << "fe expected: " << fe->displayString() << endl;
+      out << "fe actual:   " << exact_fe->displayString() << endl;
+    }
+  }
+  
   void testResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr T, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
   {
     int meshWidth = 1;
@@ -43,6 +117,12 @@ namespace
     auto solnIncrement = form.solutionIncrement();
     
     auto exactMap = form.exactSolutionMap(u, rho, T);
+    auto f_c = form.exactSolution_fc(u, rho, T);
+    auto f_m = form.exactSolution_fm(u, rho, T);
+    auto f_e = form.exactSolution_fe(u, rho, T);
+    
+    form.setForcing(f_c, f_m, f_e);
+    
     auto vf = bf->varFactory();
     // split the exact solution into traces and fields
     // we want to project the traces onto the increment, and the fields onto the background flow (soln)
@@ -106,6 +186,101 @@ namespace
         }
       }
     }
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Forcing_1D_Steady_AllZero)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = Function::zero();
+    FunctionPtr f_c = Function::zero(); // expected forcing for continuity equation
+    FunctionPtr f_m = Function::zero(); // expected forcing for momentum equation
+    FunctionPtr f_e = Function::zero(); // expected forcing for energy equation
+    testForcing_1D(u, rho, T, f_c, f_m, f_e, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Forcing_1D_Steady_LinearTemp)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = Function::xn(1);
+    FunctionPtr f_c = Function::zero(); // expected forcing for continuity equation
+    FunctionPtr f_m = Function::zero(); // expected forcing for momentum equation
+    FunctionPtr f_e = Function::zero(); // expected forcing for energy equation
+    testForcing_1D(u, rho, T, f_c, f_m, f_e, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Forcing_1D_Steady_LinearDensityUnitVelocity)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::xn(1);
+    FunctionPtr T   = Function::zero();
+    FunctionPtr f_c = Function::constant(1.0); // expected forcing for continuity equation
+    FunctionPtr f_m = Function::constant(1.0); // expected forcing for momentum equation
+    FunctionPtr f_e = Function::constant(0.5); // expected forcing for energy equation
+    testForcing_1D(u, rho, T, f_c, f_m, f_e, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Forcing_1D_Steady_LinearVelocity)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::xn(1);
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = Function::zero();
+    FunctionPtr f_c = Function::zero(); // expected forcing for continuity equation
+    FunctionPtr f_m = Function::zero(); // expected forcing for momentum equation
+    double fe_const = -4./3. * 1. / TEST_RE;
+    FunctionPtr f_e = Function::constant(fe_const); // expected forcing for energy equation
+    testForcing_1D(u, rho, T, f_c, f_m, f_e, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Forcing_1D_Steady_LinearTempUnitDensity)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 2;
+    FunctionPtr x   = Function::xn(1);;
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = x;
+    FunctionPtr f_c = Function::zero();            // expected forcing for continuity equation
+    FunctionPtr f_m = Function::constant(TEST_R);  // expected forcing for momentum equation
+    FunctionPtr f_e = Function::zero();            // expected forcing for energy equation
+    testForcing_1D(u, rho, T, f_c, f_m, f_e, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Forcing_1D_Steady_LinearVelocityUnitDensity)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 2;
+    FunctionPtr x   = Function::xn(1);;
+    FunctionPtr u   = x;
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = Function::zero();
+    FunctionPtr f_c = Function::constant(1.0); // expected forcing for continuity equation
+    FunctionPtr f_m = 2.0 * x;                 // expected forcing for momentum equation
+    FunctionPtr f_e = 1.5 * x * x + -4./3. * 1. / TEST_RE; // expected forcing for energy equation
+    testForcing_1D(u, rho, T, f_c, f_m, f_e, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Forcing_1D_Steady_QuadraticTemp)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 0;
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = x * x;
+    FunctionPtr f_c = Function::zero(); // expected forcing for continuity equation
+    FunctionPtr f_m = Function::zero(); // expected forcing for momentum equation
+    FunctionPtr f_e = Function::constant(-TEST_CP * 2.0 / (TEST_PR * TEST_RE)); // expected forcing for energy equation
+    testForcing_1D(u, rho, T, f_c, f_m, f_e, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Steady_AllZero)

@@ -122,6 +122,10 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   
   // basic parameters
   int spaceDim = parameters.get<int>("spaceDim");
+  _spaceDim = spaceDim;
+  _fc = ParameterFunction::parameterFunction(0.0);
+  _fe = ParameterFunction::parameterFunction(0.0);
+  _fm = vector<Teuchos::RCP<ParameterFunction> >(_spaceDim, ParameterFunction::parameterFunction(0.0));
   _mu = parameters.get<double>("mu",1.0);
   _gamma = parameters.get<double>("gamma",1.4);
   _Pr = parameters.get<double>("Pr",0.713);
@@ -151,7 +155,6 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   string problemName = parameters.get<string>("problemName", "");
   string savedSolutionAndMeshPrefix = parameters.get<string>("savedSolutionAndMeshPrefix", "");
   
-  _spaceDim = spaceDim;
   _useConformingTraces = useConformingTraces;
   _spatialPolyOrder = spatialPolyOrder;
   _temporalPolyOrder =temporalPolyOrder;
@@ -481,6 +484,7 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
     _rhs->addTerm( rho_prev * u_prev[d] * vc->di(d+1));
   }
   _bf->addTerm(tc, vc);
+  _rhs->addTerm(FunctionPtr(_fc) * vc);
   
   // D is the
   double D_traceWeight = -2./3.; // In Truman's code, this is hard-coded to -2/3 for 1D, 3D, and -2/2 for 2D.  This value arises from Stokes' hypothesis, and I think he probably was implementing a variant of this for 2D.  I'm going with what I think is the more standard choice of using the same value regardless of spatial dimension.
@@ -513,9 +517,10 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
       _bf->addTerm(D_traceWeight * D[d2][d2], vm[d1]->di(d1+1));
       
       _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * vm[d1]->di(d2+1));
-      _rhs->addTerm(D_traceWeight * D_prev[d2][d2] * vm[d1]->di(d1+1));
+      _rhs->addTerm(-D_traceWeight * D_prev[d2][d2] * vm[d1]->di(d1+1));
     }
     _bf->addTerm(tm[d1], vm[d1]);
+    _rhs->addTerm(FunctionPtr(_fm[d1]) * vm[d1]);
   }
   
   // ve:
@@ -575,6 +580,7 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
     }
   }
   _bf->addTerm(te, ve);
+  _rhs->addTerm(FunctionPtr(_fe) * ve);
   
   vector<VarPtr> missingTestVars = _bf->missingTestVars();
   vector<VarPtr> missingTrialVars = _bf->missingTrialVars();
@@ -750,6 +756,126 @@ VarPtr CompressibleNavierStokesFormulationRefactor::D(int i, int j)
   return _vf->fieldVar(S_D[i-1][j-1]);
 }
 
+// ! For an exact solution (u, rho, T), returns the corresponding forcing in the continuity equation
+FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_fc(FunctionPtr u, FunctionPtr rho, FunctionPtr T)
+{
+  // strong form of the equation has
+  // d/dt rho + div ( rho u ) = f_c
+  FunctionPtr f_c = Function::zero();
+  if (rho->dt() != Teuchos::null)
+  {
+    f_c = f_c + rho->dt();
+  }
+  Camellia::EOperator divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
+  f_c = f_c + Function::op(rho * u, divOp);
+  return f_c;
+}
+
+// ! For an exact solution (u, rho, T), returns the corresponding forcing in the energy equation
+FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_fe(FunctionPtr u, FunctionPtr rho, FunctionPtr T)
+{
+  auto exactMap = this->exactSolutionMap(u, rho, T);
+  // strong form of the equation has
+  // f_e =   d/dt ( rho * ( c_v T + 0.5 * u * u) )
+  //       + div  ( rho * u * ( c_v T + 0.5 * u * u) + rho * u * R * T + q - u \dot (D + D^T - 2/3 tr(D) I) )
+  // define g_e = rho * ( c_v T + 0.5 * u * u)
+  FunctionPtr f_e = Function::zero();
+  double c_v = this->Cv();
+  double R   = this->R();
+  FunctionPtr g_e = rho * ( c_v * T + 0.5 * u * u);
+  if (g_e->dt() != Teuchos::null)
+  {
+    f_e = f_e + g_e->dt();
+  }
+  FunctionPtr q;
+  if (_spaceDim == 1)
+    q = exactMap[this->q(1)->ID()];
+  else
+  {
+    vector<FunctionPtr> q_vector(_spaceDim);
+    for (int d=0; d<_spaceDim; d++)
+    {
+      q_vector[d] = exactMap[this->q(d+1)->ID()];
+    }
+    q = (_spaceDim > 1) ? Function::vectorize(q_vector) : q_vector[0];
+  }
+  FunctionPtr D_trace = Function::zero();
+  for (int d=0; d<_spaceDim; d++)
+  {
+    VarPtr D_dd = this->D(d+1,d+1);
+    D_trace = D_trace + exactMap[D_dd->ID()];
+  }
+  FunctionPtr u_dot_sigma = Function::zero();
+  for (int d1=0; d1<_spaceDim; d1++)
+  {
+    int i = d1+1;
+    FunctionPtr u_i = exactMap[this->u(i)->ID()];
+    vector<FunctionPtr> sigmaRow_vector(_spaceDim); // sigma_i
+    for (int d2=0; d2<_spaceDim; d2++)
+    {
+      int j = d2 + 1;
+      FunctionPtr D_ij = exactMap[this->D(i,j)->ID()];
+      FunctionPtr D_ji = exactMap[this->D(j,i)->ID()];
+      FunctionPtr D_trace_contribution = (i==j)? -2./3. * D_trace : Function::zero();
+      sigmaRow_vector[d2] = D_ij + D_ji + D_trace_contribution;
+    }
+    FunctionPtr sigmaRow =  (_spaceDim > 1) ? Function::vectorize(sigmaRow_vector) : sigmaRow_vector[0];
+    u_dot_sigma = u_dot_sigma + u_i * sigmaRow;
+  }
+  FunctionPtr flux_term = u * g_e + rho * R * T * u + q - u_dot_sigma;
+  Camellia::EOperator divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
+  f_e = f_e + Function::op(flux_term, divOp);
+  return f_e;
+}
+
+// ! For an exact solution (u, rho, T), returns the corresponding forcing in the momentum equation
+std::vector<FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolution_fm(FunctionPtr u, FunctionPtr rho, FunctionPtr T)
+{
+  auto exactMap = this->exactSolutionMap(u, rho, T);
+  double R   = this->R();
+  vector<FunctionPtr> f_m(_spaceDim, Function::zero());
+  FunctionPtr rho_u = rho * u;
+  if (rho_u->dt() != Teuchos::null)
+  {
+    if (_spaceDim == 1)
+    {
+      f_m[0] = f_m[0] + rho_u->dt();
+    }
+    else
+    {
+      FunctionPtr dt_part = rho_u->dt();
+      for (int d=0; d<_spaceDim; d++)
+      {
+        f_m[d] = f_m[d] + dt_part->spatialComponent(d+1);
+      }
+    }
+  }
+  vector<FunctionPtr> u_vector(_spaceDim);
+  for (int d=0; d<_spaceDim; d++)
+  {
+    u_vector[d] = exactMap[this->u(d+1)->ID()];
+  }
+
+  for (int d2=0; d2<_spaceDim; d2++)
+  {
+    int j = d2+1;
+    vector<FunctionPtr> column_vector(_spaceDim, Function::zero());
+    for (int d1=0; d1<_spaceDim; d1++)
+    {
+      int i = d1+1;
+      column_vector[d1] = rho * u_vector[d1] * u_vector[d2];
+      if (i==j)
+      {
+        column_vector[d1] = column_vector[d1] + R * (rho * T);
+      }
+    }
+    FunctionPtr column = (_spaceDim > 1) ? Function::vectorize(column_vector) : column_vector[0];
+    Camellia::EOperator divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
+    f_m[d2] = f_m[d2] + Function::op(column, divOp);
+  }
+  return f_m;
+}
+
 FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_tc(FunctionPtr velocity, FunctionPtr rho, FunctionPtr T)
 {
   FunctionPtr n = TFunction<double>::normal(); // spatial normal
@@ -782,12 +908,23 @@ FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_te(Functi
   std::vector<std::vector<FunctionPtr>> Dij_exact(_spaceDim, std::vector<FunctionPtr>(_spaceDim));
   std::vector<FunctionPtr> u_vector(_spaceDim);
   FunctionPtr q_exact;
+  
+  
+  FunctionPtr qWeight = (-Cp()/Pr())*_muFunc;
+  if (_spaceDim == 1)
+  {
+    q_exact = qWeight * T->dx();
+  }
+  else
+  {
+    q_exact = qWeight * T->grad();
+  }
+  
   for (int d=0; d<_spaceDim; d++)
   {
     if (_spaceDim == 1)
     {
       u_vector[d] = velocity;
-      q_exact = T->dx();
       Di_exact[d] = _mu * u_vector[d]->dx();
       D_trace = Di_exact[d];
       Dij_exact[0][0] = Di_exact[0];
@@ -795,7 +932,6 @@ FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_te(Functi
     else
     {
       u_vector[d] = velocity->spatialComponent(d+1);
-      q_exact = T->grad();
       Di_exact[d] = _mu * u_vector[d]->grad();
       D_trace = D_trace + Di_exact[d]->spatialComponent(d+1);
       for (int d2=0; d2<_spaceDim; d2++)
@@ -829,7 +965,7 @@ FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_te(Functi
   {
     for (int d2=0; d2<_spaceDim; d2++)
     {
-      te_exact = te_exact + (Dij_exact[d1][d2] + Dij_exact[d2][d1]) * u_vector[d2] * n->spatialComponent(d1+1);
+      te_exact = te_exact - (Dij_exact[d1][d2] + Dij_exact[d2][d1]) * u_vector[d2] * n->spatialComponent(d1+1);
     }
   }
   
@@ -1007,6 +1143,17 @@ VarPtr CompressibleNavierStokesFormulationRefactor::S(int i)
   CHECK_VALID_COMPONENT(i);
   Space SSpace = (_spaceDim == 1) ? HGRAD : HDIV;
   return _vf->testVar(S_S[i-1], SSpace);
+}
+
+void CompressibleNavierStokesFormulationRefactor::setForcing(FunctionPtr f_continuity, vector<FunctionPtr> f_momentum, FunctionPtr f_energy)
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(f_momentum.size() != _spaceDim, std::invalid_argument, "f_momentum should have size equal to the spatial dimension");
+  _fc->setValue(f_continuity);
+  _fe->setValue(f_energy);
+  for (int d=0; d<_spaceDim; d++)
+  {
+    _fm[d]->setValue(f_momentum[d]);
+  }
 }
 
 double CompressibleNavierStokesFormulationRefactor::solveAndAccumulate()
