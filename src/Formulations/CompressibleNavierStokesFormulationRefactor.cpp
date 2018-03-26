@@ -705,20 +705,23 @@ void CompressibleNavierStokesFormulationRefactor::addEnergyFluxCondition(Spatial
 void CompressibleNavierStokesFormulationRefactor::addMassFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
 {
   VarPtr tc = this->tc();
-  auto tc_exact = this->exactSolution_tc(u_exact, rho_exact, T_exact);
+  bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
+  auto tc_exact = this->exactSolution_tc(u_exact, rho_exact, T_exact, includeParity);
   _solnIncrement->bc()->addDirichlet(tc, region, tc_exact);
 }
 
 void CompressibleNavierStokesFormulationRefactor::addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact, int i)
 {
   VarPtr tm_i = this->tm(i);
-  FunctionPtr tm_i_exact = exactSolution_tm(u_exact, rho_exact, T_exact)[i-1];
+  bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
+  FunctionPtr tm_i_exact = exactSolution_tm(u_exact, rho_exact, T_exact, includeParity)[i-1];
   _solnIncrement->bc()->addDirichlet(tm_i, region, tm_i_exact);
 }
 
 void CompressibleNavierStokesFormulationRefactor::addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
 {
-  auto tm_exact = exactSolution_tm(u_exact, rho_exact, T_exact);
+  bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
+  auto tm_exact = exactSolution_tm(u_exact, rho_exact, T_exact, includeParity);
   for (int d=0; d<_spaceDim; d++)
   {
     VarPtr tm_i = this->tm(d+1);
@@ -729,7 +732,8 @@ void CompressibleNavierStokesFormulationRefactor::addMomentumFluxCondition(Spati
 void CompressibleNavierStokesFormulationRefactor::addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
 {
   VarPtr te = this->te();
-  auto te_exact = exactSolution_te(u_exact, rho_exact, T_exact);
+  bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
+  auto te_exact = exactSolution_te(u_exact, rho_exact, T_exact, includeParity);
   _solnIncrement->bc()->addDirichlet(te, region, te_exact);
 }
 
@@ -774,7 +778,8 @@ FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_fc(Functi
 // ! For an exact solution (u, rho, T), returns the corresponding forcing in the energy equation
 FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_fe(FunctionPtr u, FunctionPtr rho, FunctionPtr T)
 {
-  auto exactMap = this->exactSolutionMap(u, rho, T);
+  bool includeParity = false; // we don't use any traces or fluxes below, so this does not matter
+  auto exactMap = this->exactSolutionMap(u, rho, T, includeParity);
   // strong form of the equation has
   // f_e =   d/dt ( rho * ( c_v T + 0.5 * u * u) )
   //       + div  ( rho * u * ( c_v T + 0.5 * u * u) + rho * u * R * T + q - u \dot (D + D^T - 2/3 tr(D) I) )
@@ -831,7 +836,8 @@ FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_fe(Functi
 // ! For an exact solution (u, rho, T), returns the corresponding forcing in the momentum equation
 std::vector<FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolution_fm(FunctionPtr u, FunctionPtr rho, FunctionPtr T)
 {
-  auto exactMap = this->exactSolutionMap(u, rho, T);
+  bool includeParity = false; // we don't use any traces or fluxes below, so this does not matter
+  auto exactMap = this->exactSolutionMap(u, rho, T, includeParity);
   double R   = this->R();
   vector<FunctionPtr> f_m(_spaceDim, Function::zero());
   FunctionPtr rho_u = rho * u;
@@ -876,7 +882,7 @@ std::vector<FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolut
   return f_m;
 }
 
-FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_tc(FunctionPtr velocity, FunctionPtr rho, FunctionPtr T)
+FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_tc(FunctionPtr velocity, FunctionPtr rho, FunctionPtr T, bool includeParity)
 {
   FunctionPtr n = TFunction<double>::normal(); // spatial normal
   FunctionPtr tc_exact = Function::zero();
@@ -892,11 +898,14 @@ FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_tc(Functi
     FunctionPtr n_t = n_xt->t();
     tc_exact = tc_exact + rho * n_t;
   }
-  tc_exact = tc_exact * Function::sideParity();
+  if (includeParity)
+  {
+    tc_exact = tc_exact * Function::sideParity();
+  }
   return tc_exact;
 }
 
-FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_te(FunctionPtr velocity, FunctionPtr rho, FunctionPtr T)
+FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_te(FunctionPtr velocity, FunctionPtr rho, FunctionPtr T, bool includeParity)
 {
   // t_e is the trace of:
   // ((c_v + R) T rho u + 0.5 * (u dot u) rho u + q - u dot (D + D^T - 2/3 tr(D) I)) dot n
@@ -908,7 +917,6 @@ FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_te(Functi
   std::vector<std::vector<FunctionPtr>> Dij_exact(_spaceDim, std::vector<FunctionPtr>(_spaceDim));
   std::vector<FunctionPtr> u_vector(_spaceDim);
   FunctionPtr q_exact;
-  
   
   FunctionPtr qWeight = (-Cp()/Pr())*_muFunc;
   if (_spaceDim == 1)
@@ -968,12 +976,14 @@ FunctionPtr CompressibleNavierStokesFormulationRefactor::exactSolution_te(Functi
       te_exact = te_exact - (Dij_exact[d1][d2] + Dij_exact[d2][d1]) * u_vector[d2] * n->spatialComponent(d1+1);
     }
   }
-  
-  te_exact = te_exact * Function::sideParity();
+  if (includeParity)
+  {
+    te_exact = te_exact * Function::sideParity();
+  }
   return te_exact;
 }
 
-std::vector<FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolution_tm(FunctionPtr velocity, FunctionPtr rho, FunctionPtr T)
+std::vector<FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolution_tm(FunctionPtr velocity, FunctionPtr rho, FunctionPtr T, bool includeParity)
 {
   vector<FunctionPtr> tm_exact(_spaceDim);
   for (int i=1; i<= _spaceDim; i++)
@@ -1026,13 +1036,16 @@ std::vector<FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolut
       tm_i_exact = tm_i_exact + rho * u_i * n_t;
     }
     
-    tm_i_exact = tm_i_exact * Function::sideParity();
+    if (includeParity)
+    {
+      tm_i_exact = tm_i_exact * Function::sideParity();
+    }
     tm_exact[i-1] = tm_i_exact;
   }
   return tm_exact;
 }
 
-std::map<int, FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolutionMap(FunctionPtr velocity, FunctionPtr rho, FunctionPtr T)
+std::map<int, FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolutionMap(FunctionPtr velocity, FunctionPtr rho, FunctionPtr T, bool includeFluxParity)
 {
   using namespace std;
   vector<FunctionPtr> q(_spaceDim);
@@ -1057,9 +1070,9 @@ std::map<int, FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSol
       }
     }
   }
-  vector<FunctionPtr> tm = exactSolution_tm(velocity, rho, T);
-  FunctionPtr         te = exactSolution_te(velocity, rho, T);
-  FunctionPtr         tc = exactSolution_tc(velocity, rho, T);
+  vector<FunctionPtr> tm = exactSolution_tm(velocity, rho, T, includeFluxParity);
+  FunctionPtr         te = exactSolution_te(velocity, rho, T, includeFluxParity);
+  FunctionPtr         tc = exactSolution_tc(velocity, rho, T, includeFluxParity);
   
   map<int, FunctionPtr> solnMap;
   solnMap[this->T()->ID()]     = T;

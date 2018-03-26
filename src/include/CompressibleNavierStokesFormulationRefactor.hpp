@@ -268,16 +268,24 @@ namespace Camellia
     VarPtr tau();
     
     // ! For an exact solution (u, rho, T), produces a map that includes these as well as solution variables that depend on them (fields, traces, fluxes).
-    std::map<int, FunctionPtr> exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
+    // ! If includeFluxParity is false, fluxes do not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
+    std::map<int, FunctionPtr> exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr T, bool includeFluxParity);
     
     // ! For an exact solution (u, rho, T), returns the corresponding tc flux
-    FunctionPtr exactSolution_tc(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
+    // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
+    FunctionPtr exactSolution_tc(FunctionPtr u, FunctionPtr rho, FunctionPtr T, bool includeParity);
     
     // ! For an exact solution (u, rho, T), returns the corresponding tm flux.  (Since this is in general vector-valued, returns components in a std::vector.)
-    std::vector<FunctionPtr> exactSolution_tm(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
+    // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
+    std::vector<FunctionPtr> exactSolution_tm(FunctionPtr u, FunctionPtr rho, FunctionPtr T, bool includeParity);
     
     // ! For an exact solution (u, rho, T), returns the corresponding te flux
-    FunctionPtr exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
+    // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
+    FunctionPtr exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr T, bool includeParity);
     
     // ! For an exact solution (u, rho, T), returns the corresponding forcing in the continuity equation
     FunctionPtr exactSolution_fc(FunctionPtr u, FunctionPtr rho, FunctionPtr T);

@@ -30,7 +30,7 @@ namespace
                       FunctionPtr fc, FunctionPtr fm, FunctionPtr fe,
                       int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
   {
-    int meshWidth = 1;
+    int meshWidth = 2;
     int polyOrder = 2;
     int delta_k   = 2; // 1 is likely sufficient in 1D
     int spaceDim = 1;
@@ -95,7 +95,7 @@ namespace
   
   void testResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr T, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
   {
-    int meshWidth = 1;
+    int meshWidth = 2;
     int polyOrder = 2;
     int delta_k   = 2; // 1 is likely sufficient in 1D
     int spaceDim = 1;
@@ -116,7 +116,8 @@ namespace
     auto soln = form.solution();
     auto solnIncrement = form.solutionIncrement();
     
-    auto exactMap = form.exactSolutionMap(u, rho, T);
+    bool includeFluxParity = false; // for fluxes, we will substitute fluxes into the bf object, meaning that we want them to flip sign with the normal.
+    auto exactMap = form.exactSolutionMap(u, rho, T, includeFluxParity);
     auto f_c = form.exactSolution_fc(u, rho, T);
     auto f_m = form.exactSolution_fm(u, rho, T);
     auto f_e = form.exactSolution_fe(u, rho, T);
@@ -142,7 +143,6 @@ namespace
     }
     int solnOrdinal = 0; // no goal-oriented stuff here...
     soln->projectOntoMesh(fieldMap, solnOrdinal);
-//    solnIncrement->projectOntoMesh(traceMap, solnOrdinal);
     
     auto residual = bf->testFunctional(traceMap) - rhs->linearTerm();
     
@@ -343,6 +343,16 @@ namespace
     testResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
   
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Steady_LinearDensityUnitVelocity)
+  {
+    double tol = 1e-14;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::xn(1);
+    FunctionPtr T   = Function::zero();
+    testResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Steady_LinearTemp)
   {
     double tol = 1e-15;
@@ -350,6 +360,17 @@ namespace
     FunctionPtr u   = Function::zero();
     FunctionPtr rho = Function::zero();
     FunctionPtr T   = Function::xn(1);
+    testResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Steady_LinearTempUnitDensity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 2;
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = x;
     testResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
   
@@ -363,6 +384,38 @@ namespace
     testResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
   
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Steady_LinearVelocityLinearDensityLinearTemp)
+  {
+    double tol = 1e-13;
+    int cubatureEnrichment = 4;
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = x;
+    FunctionPtr rho = x;
+    FunctionPtr T   = x;
+    testResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Steady_LinearVelocityUnitDensity)
+  {
+    double tol = 1e-14;
+    int cubatureEnrichment = 3;
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = x;
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = Function::zero();
+    testResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Steady_QuadraticTemp)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 2;
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = x * x;
+    testResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
   
 //  TEUCHOS_UNIT_TEST( NavierStokesVGPFormulation, Consistency_Steady_2D )
 //  {
