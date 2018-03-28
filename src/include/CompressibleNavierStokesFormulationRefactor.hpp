@@ -308,11 +308,11 @@ namespace Camellia
     void setForcing(FunctionPtr f_continuity, std::vector<FunctionPtr> f_momentum, FunctionPtr f_energy);
     
     // static utility functions:
-    static CompressibleNavierStokesFormulationRefactor steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                                         MeshTopologyPtr meshTopo, int polyOrder, int delta_k);
+    static Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
+                                                                                       MeshTopologyPtr meshTopo, int polyOrder, int delta_k);
     
-    static CompressibleNavierStokesFormulationRefactor timeSteppingFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                                               MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
+    static Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> timeSteppingFormulation(int spaceDim, double Re, bool useConformingTraces,
+                                                                                             MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
   };
 }
 

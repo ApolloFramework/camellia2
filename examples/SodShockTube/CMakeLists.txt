@@ -7,3 +7,9 @@ target_link_libraries(SodShockTubeExample
   Camellia
 )
 
+set( STANDING_SHOCK_EXAMPLE "StandingShockExample.cpp" )
+add_executable(StandingShockExample ${STANDING_SHOCK_EXAMPLE})
+target_link_libraries(StandingShockExample
+  Camellia
+)
+

@@ -1,5 +1,5 @@
 //
-//  CompressibleNavierStokesFormulationRefactorRefactor.cpp
+//  CompressibleNavierStokesFormulationRefactor.cpp
 //  Camellia
 //
 //  Created by Roberts, Nathan V on 3/15/18.
@@ -81,7 +81,7 @@ void CompressibleNavierStokesFormulationRefactor::CHECK_VALID_COMPONENT(int i) /
 }
 
 
-CompressibleNavierStokesFormulationRefactor CompressibleNavierStokesFormulationRefactor::steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
+Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> CompressibleNavierStokesFormulationRefactor::steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
                                                                                                            MeshTopologyPtr meshTopo, int polyOrder, int delta_k)
 {
   Teuchos::ParameterList parameters;
@@ -94,10 +94,10 @@ CompressibleNavierStokesFormulationRefactor CompressibleNavierStokesFormulationR
   parameters.set("spatialPolyOrder", polyOrder);
   parameters.set("delta_k", delta_k);
   
-  return CompressibleNavierStokesFormulationRefactor(meshTopo, parameters);
+  return Teuchos::rcp(new CompressibleNavierStokesFormulationRefactor(meshTopo, parameters));
 }
 
-CompressibleNavierStokesFormulationRefactor CompressibleNavierStokesFormulationRefactor::timeSteppingFormulation(int spaceDim, double Re, bool useConformingTraces,
+Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> CompressibleNavierStokesFormulationRefactor::timeSteppingFormulation(int spaceDim, double Re, bool useConformingTraces,
                                                                                                                  MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k)
 {
   Teuchos::ParameterList parameters;
@@ -113,7 +113,7 @@ CompressibleNavierStokesFormulationRefactor CompressibleNavierStokesFormulationR
   parameters.set("spatialPolyOrder", spatialPolyOrder);
   parameters.set("delta_k", delta_k);
   
-  return CompressibleNavierStokesFormulationRefactor(meshTopo, parameters);
+  return Teuchos::rcp(new CompressibleNavierStokesFormulationRefactor(meshTopo, parameters));
 }
 
 CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulationRefactor(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters)
@@ -997,19 +997,27 @@ std::vector<FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolut
     
     FunctionPtr D_trace = Function::zero();
     std::vector<FunctionPtr> Di_exact(_spaceDim);
+    std::vector<std::vector<FunctionPtr>> Dij_exact(_spaceDim, std::vector<FunctionPtr>(_spaceDim));
     std::vector<FunctionPtr> u_vector(_spaceDim);
     for (int d=0; d<_spaceDim; d++)
     {
       if (_spaceDim == 1)
       {
         u_vector[d] = velocity;
+        Di_exact[d] = _mu * u_vector[d]->dx();
+        D_trace = Di_exact[d];
+        Dij_exact[0][0] = Di_exact[0];
       }
       else
       {
         u_vector[d] = velocity->spatialComponent(d+1);
+        Di_exact[d] = _mu * u_vector[d]->grad();
+        D_trace = D_trace + Di_exact[d]->spatialComponent(d+1);
+        for (int d2=0; d2<_spaceDim; d2++)
+        {
+          Dij_exact[d][d2] = Di_exact[d]->spatialComponent(d2+1);
+        }
       }
-      Di_exact[d] = _mu * u_vector[d]->grad();
-      D_trace = D_trace + Di_exact[d]->spatialComponent(d+1);
     }
     
     double R = this->R();
@@ -1021,7 +1029,7 @@ std::vector<FunctionPtr> CompressibleNavierStokesFormulationRefactor::exactSolut
       // rho (u xx u) n
       tm_i_exact = tm_i_exact + rho * u_vector[d] * u_vector[i-1] * n->spatialComponent(d+1);
       // - (D + D^T) n
-      tm_i_exact = tm_i_exact - (Di_exact[d]->spatialComponent(i) + Di_exact[i-1]->spatialComponent(d+1)) * n->spatialComponent(d+1);
+      tm_i_exact = tm_i_exact - (Dij_exact[d][i-1] + Dij_exact[i-1][d]) * n->spatialComponent(d+1);
     }
     // rho R T I n
     tm_i_exact = tm_i_exact + rho * R * T * n->spatialComponent(i);
@@ -1167,6 +1175,12 @@ void CompressibleNavierStokesFormulationRefactor::setForcing(FunctionPtr f_conti
   {
     _fm[d]->setValue(f_momentum[d]);
   }
+}
+
+// ! set current time step used for transient solve
+void CompressibleNavierStokesFormulationRefactor::setTimeStep(double dt)
+{
+  _dt->setValue(dt);
 }
 
 double CompressibleNavierStokesFormulationRefactor::solveAndAccumulate()
