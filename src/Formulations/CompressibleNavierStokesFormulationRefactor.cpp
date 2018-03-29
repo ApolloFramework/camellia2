@@ -141,24 +141,17 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   
   // time-related parameters:
   bool useTimeStepping = parameters.get<bool>("useTimeStepping",false);
-  double dt = parameters.get<double>("dt",1.0);
+  double initialDt = parameters.get<double>("dt",1.0);
   bool useSpaceTime = parameters.get<bool>("useSpaceTime",false);
   TimeStepType timeStepType = parameters.get<TimeStepType>("timeStepType", BACKWARD_EULER); // Backward Euler is immune to oscillations (which Crank-Nicolson can/does exhibit)
-  
-  double rhoInit = parameters.get<double>("rhoInit", 1.);
-  double uInit[3];
-  uInit[0] = parameters.get<double>("u1Init", 0.);
-  uInit[1] = parameters.get<double>("u2Init", 0.);
-  uInit[2] = parameters.get<double>("u3Init", 0.);
-  double TInit = parameters.get<double>("TInit", 1.);
-  
+    
   string problemName = parameters.get<string>("problemName", "");
   string savedSolutionAndMeshPrefix = parameters.get<string>("savedSolutionAndMeshPrefix", "");
   
   _useConformingTraces = useConformingTraces;
   _spatialPolyOrder = spatialPolyOrder;
   _temporalPolyOrder =temporalPolyOrder;
-  _dt = ParameterFunction::parameterFunction(dt);
+  _dt = ParameterFunction::parameterFunction(initialDt);
   _t = ParameterFunction::parameterFunction(0);
   _t0 = parameters.get<double>("t0",0);
   _neglectFluxesOnRHS = neglectFluxesOnRHS;
@@ -318,84 +311,6 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
     _backgroundFlow = Solution::solution(_bf, mesh, bc);
     _solnIncrement = Solution::solution(_bf, mesh, bc);
     _solnPrevTime = Solution::solution(_bf, mesh, bc);
-    
-    // Project ones as initial guess
-    FunctionPtr rho_init, T_init;
-    vector<FunctionPtr> u_init(3);
-    rho_init = Function::constant(rhoInit);
-    T_init = Function::constant(TInit);
-    
-    for (int d=0; d<spaceDim; d++)
-    {
-      u_init[d] = Function::constant(uInit[d]);
-    }
-    
-    if (problem != Teuchos::null)
-    {
-      u_init   = problem->uInitial();
-      rho_init = problem->rhoInitial();
-      T_init   = problem->TInitial();
-    }
-    
-    FunctionPtr spatialNormalTimesParity = n_x * Function::sideParity();
-    
-    FunctionPtr zero = Function::zero();
-    FunctionPtr tc_init = zero;
-    FunctionPtr te_init = zero;
-    vector<FunctionPtr> tm_init(spaceDim,zero);
-    
-    double R = this->R();
-    double Cv = this->Cv();
-    
-    FunctionPtr u_dot_u = zero;
-    for (int d=0; d<spaceDim; d++)
-    {
-      u_dot_u = u_dot_u + u_init[d] * u_init[d];
-    }
-    for (int d=0; d<spaceDim; d++)
-    {
-      auto n_comp = spatialNormalTimesParity->spatialComponent(d+1);
-      tc_init    = tc_init + rho_init * u_init[d] * n_comp;
-      te_init = te_init + ((Cv + R) * T_init + 0.5 * u_dot_u) * rho_init * u_init[d] * n_comp;
-    }
-    for (int d1=0; d1<spaceDim; d1++)
-    {
-      tm_init[d1] = (R * rho_init * T_init) * spatialNormalTimesParity->spatialComponent(d1+1);
-      for (int d2=0; d2<spaceDim; d2++)
-      {
-        tm_init[d1] = tm_init[d1] + rho_init * u_init[d1] * u_init[d2] * spatialNormalTimesParity->spatialComponent(d2+1);
-      }
-    }
-    if (_spaceTime)
-    {
-      FunctionPtr n_t = n_xt->t() * Function::sideParity();
-      tc_init = tc_init + rho_init * n_t;
-      for (int d=0; d<spaceDim; d++)
-      {
-        tm_init[d] = tm_init[d] + rho_init * u_init[d] * n_t;
-      }
-      te_init = te_init + (Cv * rho_init * T_init + 0.5 * u_dot_u)*n_t;
-    }
-    
-    map<int, FunctionPtr> initialGuess;
-    initialGuess[rho->ID()]   = rho_init;
-    initialGuess[T->ID()]     = T_init;
-    initialGuess[T_hat->ID()] = T_init;
-    initialGuess[tc->ID()]    = tc_init;
-    initialGuess[te->ID()]    = te_init;
-    for (int d=0; d<spaceDim; d++)
-    {
-      initialGuess[u[d]->ID()]     = u_init[d];
-      initialGuess[u_hat[d]->ID()] = u_init[d];
-      initialGuess[tm[d]->ID()]    = tm_init[d];
-    }
-    
-    TEUCHOS_ASSERT(_backgroundFlow->numSolutions() == 1);
-    TEUCHOS_ASSERT(_solnPrevTime->numSolutions() == 1);
-    const int solutionOrdinal = 0;
-    
-    _backgroundFlow->projectOntoMesh(initialGuess, solutionOrdinal);
-    _solnPrevTime->projectOntoMesh(initialGuess, solutionOrdinal);
   }
   else
   {
@@ -409,10 +324,17 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   }
   
   // Previous solution values
-  FunctionPtr rho_prev = Function::solution(rho, _backgroundFlow);
-  FunctionPtr rho_prev_time = Function::solution(rho, _solnPrevTime);
-  FunctionPtr T_prev       = Function::solution(T, _backgroundFlow);
-  FunctionPtr T_prev_time  = Function::solution(T, _solnPrevTime);
+  std::string backgroundFlowIdentifierExponent = "";
+  std::string previousTimeIdentifierExponent = "";
+  if (_timeStepping)
+  {
+    backgroundFlowIdentifierExponent = "k";
+    previousTimeIdentifierExponent = "k-1";
+  }
+  FunctionPtr rho_prev = Function::solution(rho, _backgroundFlow, backgroundFlowIdentifierExponent);
+  FunctionPtr rho_prev_time = Function::solution(rho, _solnPrevTime, previousTimeIdentifierExponent);
+  FunctionPtr T_prev       = Function::solution(T, _backgroundFlow, backgroundFlowIdentifierExponent);
+  FunctionPtr T_prev_time  = Function::solution(T, _solnPrevTime, previousTimeIdentifierExponent);
   
   vector<FunctionPtr> q_prev(spaceDim);
   vector<FunctionPtr> u_prev(spaceDim);
@@ -421,12 +343,12 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   
   for (int d1=0; d1<spaceDim; d1++)
   {
-    u_prev[d1]      = Function::solution(u[d1], _backgroundFlow);
-    u_prev_time[d1] = Function::solution(u[d1], _solnPrevTime);
-    q_prev[d1]      = Function::solution(q[d1], _backgroundFlow);
+    u_prev[d1]      = Function::solution(u[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
+    u_prev_time[d1] = Function::solution(u[d1], _solnPrevTime, previousTimeIdentifierExponent);
+    q_prev[d1]      = Function::solution(q[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
     for (int d2=0; d2<spaceDim; d2++)
     {
-      D_prev[d1][d2] = Function::solution(D[d1][d2], _backgroundFlow);
+      D_prev[d1][d2] = Function::solution(D[d1][d2], _backgroundFlow, backgroundFlowIdentifierExponent);
     }
   }
   
@@ -464,6 +386,9 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
     _rhs->addTerm(-Pr/(Cp*_muFunc) * q_prev[d] * tau_d);
   }
 
+  // to avoid needing a bunch of casts below, do a cast once here:
+  FunctionPtr dt = (FunctionPtr)_dt;
+  
   // vc terms:
   if (_spaceTime)
   {
@@ -472,11 +397,8 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   }
   else if (_timeStepping)
   {
-    cout << "timestepping" << endl;
-    _bf->addTerm (rho/_dt,            vc); // TODO: add theta weight here and anywhere else it should go...
-//    FunctionPtr rho_prev_time_dt = rho_prev_time/_dt;
-    _rhs->addTerm(rho_prev_time/(FunctionPtr)_dt  * vc); // cast _dt to FunctionPtr because otherwise compiler complains of operator overloading ambiguity
-    _rhs->addTerm(-rho_prev/(FunctionPtr)_dt * vc); // ditto here
+    _bf->addTerm (rho/dt,            vc);
+    _rhs->addTerm(- (rho_prev - rho_prev_time) / dt * vc);
   }
   for (int d=0; d<spaceDim; d++)
   {
@@ -486,7 +408,7 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   _bf->addTerm(tc, vc);
   _rhs->addTerm(FunctionPtr(_fc) * vc);
   
-  // D is the
+  // D is the mu-weighted gradient of u
   double D_traceWeight = -2./3.; // In Truman's code, this is hard-coded to -2/3 for 1D, 3D, and -2/2 for 2D.  This value arises from Stokes' hypothesis, and I think he probably was implementing a variant of this for 2D.  I'm going with what I think is the more standard choice of using the same value regardless of spatial dimension.
   // vm
   for (int d1=0; d1<spaceDim; d1++)
@@ -498,10 +420,8 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
     }
     if (_timeStepping)
     {
-      _bf->addTerm( (u_prev[d1]*rho+rho_prev*u[d1]),   vm[d1]); // TODO: add theta weight here and anywhere else it should go...
-      
-      _rhs->addTerm( rho_prev_time * u_prev_time[d1] * vm[d1] );
-      _rhs->addTerm(-rho_prev      * u_prev[d1]      * vm[d1] );
+      _bf->addTerm( (2 * rho_prev - rho_prev_time) * u[d1] + (2 * u_prev[d1] - u_prev_time[d1]) * rho, vm[d1] / dt);
+      _rhs->addTerm(-(rho_prev * (u_prev[d1] - u_prev_time[d1]) + u_prev_time[d1] * (rho_prev - rho_prev_time )) / dt * vm[d1] );
     }
     _bf->addTerm(-R * T_prev * rho, vm[d1]->di(d1+1));
     _bf->addTerm(-R * rho_prev * T, vm[d1]->di(d1+1));
@@ -532,8 +452,10 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   }
   if (_timeStepping)
   {
-    _rhs->addTerm(Cv*rho_prev_time*T_prev_time * ve);
-    _rhs->addTerm(-Cv*rho_prev*T_prev * ve);
+    _bf->addTerm((2 * Cv * rho_prev - Cv * rho_prev_time) * T
+                 + (2 * Cv * T_prev - Cv * T_prev_time) * rho,
+                 ve / dt);
+    _rhs->addTerm(-(Cv*rho_prev*T_prev * (rho_prev - rho_prev_time) + Cv * rho_prev * (T_prev - T_prev_time)) / dt * ve);
   }
   for (int d1=0; d1<spaceDim; d1++)
   {
@@ -546,11 +468,10 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
     }
     if (_timeStepping)
     {
-      _bf->addTerm( 0.5*(u_prev[d1]*u_prev[d1])*rho, ve);
-      _bf->addTerm( (rho_prev*u_prev[d1])*u[d1], ve);
+      _bf->addTerm( (3 * rho_prev * u_prev[d1] - rho_prev_time * u_prev[d1] - rho_prev * u_prev_time[d1]) * u[d1], ve / dt);
+      _bf->addTerm( (1.5 * u_prev[d1] * u_prev[d1] - u_prev_time[d1] * u_prev[d1]) * rho, ve / dt);
       
-      _rhs->addTerm(0.5*rho_prev_time*(u_prev_time[d1]*u_prev_time[d1]) * ve);
-      _rhs->addTerm(-0.5*rho_prev*(u_prev[d1]*u_prev[d1]) * ve);
+      _rhs->addTerm( - ((0.5 * u_prev[d1] * u_prev[d1]) * (rho_prev - rho_prev_time) + rho_prev * u_prev[d1] * (u_prev[d1] - u_prev_time[d1])) / dt * ve );
     }
     
     _bf->addTerm(-(Cv+R) * u_prev[d1] * T_prev * rho - (Cv+R) * rho_prev * T_prev * u[d1] - (Cv+R) * rho_prev * u_prev[d1] * T, ve->di(d1+1));
@@ -1255,6 +1176,12 @@ SolutionPtr CompressibleNavierStokesFormulationRefactor::solution()
 SolutionPtr CompressibleNavierStokesFormulationRefactor::solutionIncrement()
 {
   return _solnIncrement;
+}
+
+// ! Returns the solution (at previous time)
+SolutionPtr CompressibleNavierStokesFormulationRefactor::solutionPreviousTimeStep()
+{
+  return _solnPrevTime;
 }
 
 VarPtr CompressibleNavierStokesFormulationRefactor::T()

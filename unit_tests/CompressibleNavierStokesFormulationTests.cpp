@@ -106,6 +106,7 @@ namespace
     MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
     
     double Re    = 1e2; // Reynolds number
+    double dt    = 1.0; // only used for unsteady
     
     bool useConformingTraces = true;
     Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form;
@@ -118,7 +119,6 @@ namespace
     {
       form = CompressibleNavierStokesFormulationRefactor::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
                                                                                   meshTopo, polyOrder, delta_k);
-      double dt = 0.5; // if it seems like it will matter, we can make this a test parameter, and pass it in.  But I suspect it will not...
       form->setTimeStep(dt);
     }
     
@@ -127,6 +127,7 @@ namespace
     
     auto soln = form->solution();
     auto solnIncrement = form->solutionIncrement();
+    auto solnPrevTime  = form->solutionPreviousTimeStep();
     
     bool includeFluxParity = false; // for fluxes, we will substitute fluxes into the bf object, meaning that we want them to flip sign with the normal.
     auto exactMap = form->exactSolutionMap(u, rho, T, includeFluxParity);
@@ -157,6 +158,12 @@ namespace
     soln->projectOntoMesh(fieldMap, solnOrdinal);
     
     auto residual = bf->testFunctional(traceMap) - rhs->linearTerm();
+    if (!steady)
+    {
+      // this is not a full test of time step formulation, but it does check that if we have a steady solution,
+      // the time step will not take us away from it.
+      solnPrevTime->projectOntoMesh(fieldMap, solnOrdinal);
+    }
     
     auto testIP = solnIncrement->ip(); // We'll use this inner product to take the norm of the residual components
     
@@ -439,6 +446,129 @@ namespace
     FunctionPtr rho = Function::zero();
     FunctionPtr T   = x * x;
     testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_AllZero)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = Function::zero();
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_AllOne)
+  {
+    double tol = 1e-13;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = Function::constant(1.0);
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_UnitDensity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = Function::zero();
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_UnitTemp)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = Function::constant(1.0);
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_UnitVelocity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = Function::zero();
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_LinearDensity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 3;
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::xn(1);
+    FunctionPtr T   = Function::zero();
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_LinearDensityUnitVelocity)
+  {
+    double tol = 1e-14;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::xn(1);
+    FunctionPtr T   = Function::zero();
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_LinearTemp)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 3;
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = Function::xn(1);
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_LinearTempUnitDensity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 2;
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::zero();
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = x;
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_LinearVelocity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 3;
+    FunctionPtr u   = Function::xn(1);
+    FunctionPtr rho = Function::zero();
+    FunctionPtr T   = Function::zero();
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_LinearVelocityLinearDensityLinearTemp)
+  {
+    double tol = 1e-13;
+    int cubatureEnrichment = 4;
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = x;
+    FunctionPtr rho = x;
+    FunctionPtr T   = x;
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_LinearVelocityUnitDensity)
+  {
+    double tol = 1e-14;
+    int cubatureEnrichment = 3;
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = x;
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = Function::zero();
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_QuadraticTemp)
