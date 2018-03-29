@@ -22,18 +22,45 @@ int main(int argc, char *argv[])
   int rank = Teuchos::GlobalMPISession::getRank();
   
   int meshWidth = 400;
-  int polyOrder = 1;
+  int polyOrder = 2;
   int delta_k   = 1; // 1 is likely sufficient in 1D
   bool useCondensedSolve = true;
   int spaceDim = 1;
   int cubatureEnrichment = 3 * polyOrder; // there are places in the strong, nonlinear equations where 4 variables multiplied together.  Therefore we need to add 3 variables' worth of quadrature to the simple test v. trial quadrature.
   
-  double x_a   = 0.0;
-  double x_b   = 1.0;
+  double x_a   = -0.5;
+  double x_b   = 0.5;
   MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
 
-  double Re    = 1e2;   // Reynolds number
-  double dt    = 0.01; // time step
+  double Re    = 1e3;   // Reynolds number
+  double dt    = 0.005; // time step
+  
+  Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
+  
+  cmdp.setOption("polyOrder", &polyOrder);
+  cmdp.setOption("meshWidth", &meshWidth);
+  cmdp.setOption("Re", &Re);
+  cmdp.setOption("dt", &dt);
+  
+  if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
+  {
+#ifdef HAVE_MPI
+    MPI_Finalize();
+#endif
+    return -1;
+  }
+  
+  int numTimeSteps = 0.20 / dt; // standard for Sod is to take it to t = 0.20
+  
+  if (rank == 0)
+  {
+    using namespace std;
+    cout << "Solving with:\n";
+    cout << "Re = " << Re << endl;
+    cout << "p  = " << polyOrder << endl;
+    cout << "dt = " << dt << endl;
+    cout << meshWidth << " elements; " << numTimeSteps << " timesteps.\n";
+  }
   
   bool useConformingTraces = true;
   auto form = CompressibleNavierStokesFormulationRefactor::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
@@ -55,38 +82,57 @@ int main(int argc, char *argv[])
   double u_b   = 0.0;
   double T_b   = p_b / (rho_b * (gamma - 1.) * c_v);
   
+  double R  = form->R();
+  double Cv = form->Cv();
+  
+  if (rank == 0)
+  {
+    cout << "R =   " << R << endl;
+    cout << "Cv =  " << Cv << endl;
+    cout << "State on left:\n";
+    cout << "rho = " << rho_a << endl;
+    cout << "p   = " << p_a   << endl;
+    cout << "T   = " << T_a   << endl;
+    cout << "u   = " << u_a   << endl;
+    cout << "State on right:\n";
+    cout << "rho = " << rho_b << endl;
+    cout << "p   = " << p_b   << endl;
+    cout << "T   = " << T_b   << endl;
+    cout << "u   = " << u_b   << endl;
+  }
+  
   FunctionPtr n = Function::normal();
   FunctionPtr n_x = n->x() * Function::sideParity();
   
   map<int, FunctionPtr> initialState;
   
-  auto H_right = Function::heaviside((x_a + x_b)/2.0); // Heaviside is 0 left of center, 1 right of center
-  auto H_left  = 1.0 - H_right;  // this guy is 1 left of center, 0 right of center
-  auto step = [&](double val_a, double val_b)
   {
-    return H_left * val_a + H_right * val_b;
-  };
-  
-  FunctionPtr rho = step(rho_a,rho_b);
-  FunctionPtr T   = step(T_a, T_b);
-  FunctionPtr u   = step(u_a, u_b);
-  
-  initialState[form->rho()->ID()]   = rho;
-  initialState[form->T()->ID()]     = T;
-  initialState[form->u(1)->ID()]    = u;
-  initialState[form->q(1)->ID()]    = Function::zero();
-  initialState[form->D(1,1)->ID()]  = Function::zero();
-  
-  // fluxes and traces; setting initial guesses for these should not actually matter, I don't think, but we follow Truman here...
-  // (The below expressions might elucidate somewhat how the traces/fluxes relate to the fields, however...)
-  double R  = form->R();
-  double Cv = form->Cv();
-  initialState[form->T_hat()->ID()] = T;
-  initialState[form->tc()->ID()]    = rho * u * n_x;
-  initialState[form->te()->ID()]    = (Cv * rho * u * T + 0.5 * rho * u * u * u + R * rho * u * T) * n_x;
-  
-  initialState[form->u_hat(1)->ID()] = u;
-  initialState[form->tm(1)->ID()]    = (rho * u * u + form->R() * rho * T) * n_x;
+    auto H_right = Function::heaviside((x_a + x_b)/2.0); // Heaviside is 0 left of center, 1 right of center
+    auto H_left  = 1.0 - H_right;  // this guy is 1 left of center, 0 right of center
+    auto step = [&](double val_a, double val_b)
+    {
+      return H_left * val_a + H_right * val_b;
+    };
+    
+    FunctionPtr rho = step(rho_a,rho_b);
+    FunctionPtr T   = step(T_a, T_b);
+    FunctionPtr u   = step(u_a, u_b);
+    
+    initialState[form->rho()->ID()]   = rho;
+    initialState[form->T()->ID()]     = T;
+    initialState[form->u(1)->ID()]    = u;
+    initialState[form->q(1)->ID()]    = Function::zero();
+    initialState[form->D(1,1)->ID()]  = Function::zero();
+    
+    // fluxes and traces; setting initial guesses for these should not actually matter, I don't think, but we follow Truman here...
+    // (The below expressions might elucidate somewhat how the traces/fluxes relate to the fields, however...)
+    initialState[form->T_hat()->ID()] = T;
+    initialState[form->tc()->ID()]    = rho * u * n_x;
+    initialState[form->te()->ID()]    = (Cv * rho * u * T + 0.5 * rho * u * u * u + R * rho * u * T) * n_x;
+    
+    initialState[form->u_hat(1)->ID()] = u;
+    initialState[form->tm(1)->ID()]    = (rho * u * u + form->R() * rho * T) * n_x;
+  }
   
   // project the initial state both onto the solution object representing the previous time state,
   // as well as the current state (the latter is the initial guess for the current time step).
@@ -94,12 +140,17 @@ int main(int argc, char *argv[])
   form->solutionPreviousTimeStep()->projectOntoMesh(initialState, solutionOrdinal);
   form->solution()->projectOntoMesh(initialState, solutionOrdinal);
   
-  HDF5Exporter solutionExporter(form->solutionIncrement()->mesh(), "sodShockSteadySolution", ".");
-  HDF5Exporter solutionIncrementExporter(form->solutionIncrement()->mesh(), "sodShockSteadySolutionIncrement", ".");
+  // history export gets every nonlinear increment as a separate step
+  HDF5Exporter solutionHistoryExporter(form->solutionIncrement()->mesh(), "sodShockSolutionHistory", ".");
+  HDF5Exporter solutionIncrementHistoryExporter(form->solutionIncrement()->mesh(), "sodShockSolutionIncrementHistory", ".");
   
-  double t = 0.0; // we're steady state; we're using t = 0.0 to indicate the Newton Step
-  solutionIncrementExporter.exportSolution(form->solutionIncrement(), t); // set
-  solutionExporter.exportSolution(form->solution(), t);
+  ostringstream solnName;
+  solnName << "sodShockSolutionRe" << Re << "_dt" << dt << "_k" << polyOrder;
+  HDF5Exporter solutionExporter(form->solutionIncrement()->mesh(), solnName.str(), ".");
+  
+  solutionIncrementHistoryExporter.exportSolution(form->solutionIncrement(), 0.0);
+  solutionHistoryExporter.exportSolution(form->solution(), 0.0);
+  solutionExporter.exportSolution(form->solutionPreviousTimeStep(), 0.0);
   
   // Borrowing some from Truman's dissertation code
   SpatialFilterPtr leftX  = SpatialFilter::matchingX(x_a);
@@ -120,42 +171,26 @@ int main(int argc, char *argv[])
   
   VarPtr u1_hat = form->u_hat(1);
 
-  double nonlinearTolerance = 1e-2;
-  double l2NormOfIncrement = 1.0;
-  int stepNumber = 0;
-  int maxNonlinearSteps = 20;
-  while ((l2NormOfIncrement > nonlinearTolerance) && (stepNumber < maxNonlinearSteps))
-  {
-    double alpha = form->solveAndAccumulate();
-    int solveCode = form->getSolveCode();
-    if (solveCode != 0)
-    {
-      if (rank==0) cout << "Solve not completed correctly; aborting..." << endl;
-      exit(1);
-    }
-    l2NormOfIncrement = form->L2NormSolutionIncrement();
-    std::cout << "In Newton step " << stepNumber << ", L^2 norm of increment = " << l2NormOfIncrement;
-    std::cout << " (alpha = " << alpha << ")" << std::endl;
-    
-    stepNumber++;
-    solutionExporter.exportSolution(form->solution(), double(stepNumber));  // use stepNumber as the "time" value for export...
-    solutionIncrementExporter.exportSolution(form->solutionIncrement(), double(stepNumber));
-  }
+  // define the pressure so we can plot in our solution export
   
-  // create a refStrategy, just for the purpose of uniform refinement.
-  // (The RHS is likely incorrect for refinement purposes, because of the treatment of fluxes.  We can fix this; see NavierStokesVGPFormulation for how...)
-  double energyThreshold = 0.2;
-  auto refStrategy = RefinementStrategy::energyErrorRefinementStrategy(form->solutionIncrement(), energyThreshold);
+  FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
+  FunctionPtr T   = Function::solution(form->rho(), form->solutionPreviousTimeStep());
+  FunctionPtr p = R * rho * T;
   
-  int numUniformRefinements = 0;
-  int stepOffset = stepNumber;
-  for (int refNumber = 0; refNumber < numUniformRefinements; refNumber++)
+  double t = 0;
+  double Re_0 = 1.0; // for continuation in Reynolds number
+  for (int timeStepNumber = 0; timeStepNumber < numTimeSteps; timeStepNumber++)
   {
-    std::cout << "**** Performing Uniform Refinement ****\n";
-    refStrategy->hRefineUniformly();
-    stepNumber = 0;
-    l2NormOfIncrement = 1.0;
-    while ((l2NormOfIncrement > nonlinearTolerance) && (stepNumber < maxNonlinearSteps))
+    double nonlinearTolerance = 1e-2;
+    double l2NormOfIncrement = 1.0;
+    int stepNumber = 0;
+    int maxNonlinearSteps = 20;
+    form->setMu(1.0 / Re_0);
+    cout << "for continuation, set Re to " << Re_0 << endl;
+    double Re_current = Re_0;
+    int continuationSteps = 3;
+    double Re_multiplier = pow(Re / Re_0, 1./continuationSteps);
+    while (((stepNumber < continuationSteps) || (l2NormOfIncrement > nonlinearTolerance)) && (stepNumber < maxNonlinearSteps))
     {
       double alpha = form->solveAndAccumulate();
       int solveCode = form->getSolveCode();
@@ -169,11 +204,54 @@ int main(int argc, char *argv[])
       std::cout << " (alpha = " << alpha << ")" << std::endl;
       
       stepNumber++;
-      solutionExporter.exportSolution(form->solution(), double(stepNumber + stepOffset));  // use stepNumber as the "time" value for export...
-      solutionIncrementExporter.exportSolution(form->solutionIncrement(), double(stepNumber + stepOffset));
+      solutionHistoryExporter.exportSolution(form->solution(), double(stepNumber));  // use stepNumber as the "time" value for export...
+      solutionIncrementHistoryExporter.exportSolution(form->solutionIncrement(), double(stepNumber));
+      if (stepNumber <= continuationSteps)
+      {
+        Re_current *= Re_multiplier;
+        form->setMu(1./Re_current);
+        cout << "for continuation, set Re to " << Re_current << endl;
+      }
     }
-    stepOffset += stepNumber;
+    t += dt;
+    form->solutionPreviousTimeStep()->setSolution(form->solution());
+    solutionExporter.exportSolution(form->solutionPreviousTimeStep(),{p},{"pressure"},t);
+    
+    std::cout << "*** t = " << t << ", time step number " << timeStepNumber << "***\n";
   }
+  
+//  // create a refStrategy, just for the purpose of uniform refinement.
+//  // (The RHS is likely incorrect for refinement purposes, because of the treatment of fluxes.  We can fix this; see NavierStokesVGPFormulation for how...)
+//  double energyThreshold = 0.2;
+//  auto refStrategy = RefinementStrategy::energyErrorRefinementStrategy(form->solutionIncrement(), energyThreshold);
+//
+//  int numUniformRefinements = 0;
+//  int stepOffset = stepNumber;
+//  for (int refNumber = 0; refNumber < numUniformRefinements; refNumber++)
+//  {
+//    std::cout << "**** Performing Uniform Refinement ****\n";
+//    refStrategy->hRefineUniformly();
+//    stepNumber = 0;
+//    l2NormOfIncrement = 1.0;
+//    while ((l2NormOfIncrement > nonlinearTolerance) && (stepNumber < maxNonlinearSteps))
+//    {
+//      double alpha = form->solveAndAccumulate();
+//      int solveCode = form->getSolveCode();
+//      if (solveCode != 0)
+//      {
+//        if (rank==0) cout << "Solve not completed correctly; aborting..." << endl;
+//        exit(1);
+//      }
+//      l2NormOfIncrement = form->L2NormSolutionIncrement();
+//      std::cout << "In Newton step " << stepNumber << ", L^2 norm of increment = " << l2NormOfIncrement;
+//      std::cout << " (alpha = " << alpha << ")" << std::endl;
+//
+//      stepNumber++;
+//      solutionExporter.exportSolution(form->solution(), double(stepNumber + stepOffset));  // use stepNumber as the "time" value for export...
+//      solutionIncrementExporter.exportSolution(form->solutionIncrement(), double(stepNumber + stepOffset));
+//    }
+//    stepOffset += stepNumber;
+//  }
   
   return 0;
 }
