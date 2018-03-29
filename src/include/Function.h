@@ -217,11 +217,11 @@ public:
   static TFunctionPtr<double> sideParity();
 
   // ! Will throw an exception if var is a flux variable (should call the one with the boolean weightFluxesBySideParity argument in this case)
-  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln);
+  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, const std::string &solutionIdentifierExponent="");
   // ! When weightFluxesBySideParity = true, the solution function will be non-uniquely-valued
-  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity);
+  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, const std::string &solutionIdentifierExponent="");
   // ! Use this for solutions with multiple RHSes (including influence computations)
-  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal);
+  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal, const std::string &solutionIdentifierExponent="");
   static TFunctionPtr<double> zero(int rank=0);
   static TFunctionPtr<Scalar> restrictToCellBoundary(TFunctionPtr<Scalar> f);
 

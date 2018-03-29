@@ -15,12 +15,13 @@ using namespace std;
 
 template <typename Scalar>
 SimpleSolutionFunction<Scalar>::SimpleSolutionFunction(VarPtr var, TSolutionPtr<Scalar> soln,
-                                                       bool weightFluxesBySideParity, int solutionOrdinal) : TFunction<Scalar>(var->rank())
+                                                       bool weightFluxesBySideParity, int solutionOrdinal, const std::string &solutionIdentifierExponent) : TFunction<Scalar>(var->rank())
 {
   _var = var;
   _soln = soln;
   _weightFluxesBySideParity = weightFluxesBySideParity;
   _solutionOrdinal = solutionOrdinal;
+  _solutionIdentifierExponent = solutionIdentifierExponent;
 }
 
 template <typename Scalar>
@@ -33,7 +34,14 @@ template <typename Scalar>
 string SimpleSolutionFunction<Scalar>::displayString()
 {
   ostringstream str;
-  str << "\\overline{" << _var->displayString() << "} ";
+  if (_solutionIdentifierExponent == "")
+  {
+    str << "\\overline{" << _var->displayString() << "} ";
+  }
+  else
+  {
+    str << _var->displayString() << "^{" << _solutionIdentifierExponent << "} ";
+  }
   return str.str();
 }
 
