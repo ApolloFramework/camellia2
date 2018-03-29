@@ -1,4 +1,4 @@
-project(DPGAdvectionExample)
+#project(DPGAdvectionExample)
 
 add_executable(DPGAdvectionExample DPGAdvectionExample.cpp)
 

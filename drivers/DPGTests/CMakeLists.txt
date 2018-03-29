@@ -1,4 +1,4 @@
-project(DPGTests)
+#project(DPGTests)
 
 FILE(GLOB TEST_SOURCES "*.cpp")
 set( DRIVERS_DIR ".." )

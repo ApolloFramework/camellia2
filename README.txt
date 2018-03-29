@@ -1,5 +1,7 @@
-Camellia: A Software Toolbox for Discontinuous Petrov-Galerkin (DPG) Methods (with support for other formulations)
--------------------------------------------------------------------
+Camellia: A Software Toolbox for Discontinuous Petrov-Galerkin (DPG) Methods
+-----------------------------------------------------------------------------
+(with support for other formulations)
+
 by Nathan V. Roberts
 
 ********************************

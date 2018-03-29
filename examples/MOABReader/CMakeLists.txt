@@ -1,7 +1,7 @@
-project(MOABReaderExamples)
+#project(MOABReaderExamples)
 
 # Find MOAB
-find_package(MOAB PATHS ${MOAB_PATH}/lib)
+#find_package(MOAB PATHS ${MOAB_PATH}/lib)
 
 if (MOAB_FOUND)
   include_directories(

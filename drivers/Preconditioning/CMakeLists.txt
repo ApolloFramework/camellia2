@@ -1,4 +1,4 @@
-project(PreconditioningDrivers)
+#project(PreconditioningDrivers)
 
 add_executable(ConditionNumberTestsDriver "ConditionNumberTestsDriver.cpp")
 target_link_libraries(ConditionNumberTestsDriver Camellia)

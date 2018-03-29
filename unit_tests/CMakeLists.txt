@@ -1,4 +1,4 @@
-project(UnitTests)
+#project(UnitTests)
 
 FILE(GLOB TEST_SOURCES "*.cpp")
 

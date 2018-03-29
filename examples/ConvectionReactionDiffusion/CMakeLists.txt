@@ -1,4 +1,4 @@
-project(ConvectionDiffusionReactionExamples)
+#project(ConvectionDiffusionReactionExamples)
 
 add_executable(ConditionNumberMinimizationExperiment ConditionNumberMinimizationExperiment.cpp)
 target_link_libraries(ConditionNumberMinimizationExperiment Camellia)

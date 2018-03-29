@@ -1,4 +1,4 @@
-project(examples)
+#project(examples)
 
 add_subdirectory(ConvectionReactionDiffusion)
 #add_subdirectory(DGAdvection)

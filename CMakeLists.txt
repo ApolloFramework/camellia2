@@ -1,4 +1,98 @@
-cmake_minimum_required(VERSION 2.6)
+# Project information
+project(Camellia)
+set(VERSION_MAJOR "1")
+set(VERSION_MINOR "0")
+set(VERSION_PATCH "0")
+set(PROJECT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
+set(CMENGINE_VERSION "${PROJECT_VERSION}")
+
+# Required version
+cmake_minimum_required(VERSION 2.8.4)
+cmake_policy(SET CMP0004 OLD)
+
+include(${CMAKE_SOURCE_DIR}/../scimake/SciInit.cmake)
+
+set(CXX ${CMAKE_CXX_COMPILER})
+set(BUILD_FLAGS_VAR  CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE})
+set(BUILD_FLAGS_VAL "${${BUILD_FLAGS_VAR}}")
+set(CXXFLAGS "${BUILD_FLAGS_VAL} ${CMAKE_CXX_FLAGS}")
+set(HAVE_CMAKE 1 CACHE STRING "Whether built with CMake")
+
+include_directories(
+  ${CMAKE_CURRENT_BINARY_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${SCIMAKE_DIR}/include
+)
+
+set(CMDEPS_STATE REQUIRED)
+if (BASIC_DEPS_REQUIRED STREQUAL "False") # If set to false, change to empty
+  message(STATUS "Unsetting REQUIRED in find_package calls for dependencies.")
+  set(CMDEPS_STATE)
+endif ()
+
+# Boost required for use of Trilinos
+#if (WIN32)
+#  find_package(SciBoost
+#    COMPONENTS
+#      unit_test_framework
+#      program_options filesystem chrono system REQUIRED
+#  )
+#else ()
+ # find_package(SciBoost
+ #   COMPONENTS
+ #     unit_test_framework
+ #     program_options filesystem thread chrono system exception REQUIRED
+ # )
+#endif ()
+
+#if (BOOST_FOUND)
+ # #if (DEBUG_CMAKE)
+ #   message(STATUS "Boost found with includes at ${Boost_INCLUDE_DIRS}.")
+ # endif ()
+#  set(HAVE_BOOST 1 CACHE STRING "Whether boost found")
+#else ()
+#  message(STATUS "Boost not found.")
+#endif ()
+
+#if (WIN32)
+#  set(WINENABLE:BOOL OFF)
+#endif ()
+
+# Z is not a dependency on Windows
+#if (NOT WIN32)
+#  find_package(SciZ)
+#endif ()
+
+# Find packages
+#find_package(SciMumps)
+#find_package(SciHdf5 ${CMDEPS_STATE})
+#find_package(SciZ)
+#find_package(SciSz)
+#set(H5_USE_16_API 1)
+#if (BOOST_FOUND)
+  if (ENABLE_PARALLEL)
+   set(TRILINOS_BUILD trilinos-par)
+  else ()
+   set(TRILINOS_BUILD trilinos-ser)
+  endif ()
+  set(USE_TRILINOS_CONFIG_CMAKE 1)
+  find_package(SciTrilinos REQUIRED) # Finds lapack and blas
+  if ("${Trilinos_USE_VENDOR_LINALG}" STREQUAL "mkl")
+    message(STATUS "Adding -mkl to cxx flags")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mkl=cluster")
+    set(Trilinos_LINALG_LIBRARIES)
+  endif()
+
+  if (ENABLE_PARALLEL)
+    set(MOAB_COMPONENTS MOAB iMesh)
+  else ()
+    set(MOAB_COMPONENTS MOAB iMesh)
+  endif ()
+  find_package(SciMoab REQUIRED)
+  ADD_DEFINITIONS(-DHAVE_MOAB)
+  #find_package(SciNetcdf REQUIRED)
+  
+#endif ()
 
 # Set TARGET_SUPPORTS_SHARED_LIBS -- otherwise problems building shared libs on Macs (at least)
 SET_PROPERTY(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)
@@ -20,10 +114,6 @@ ENDIF(INCLUDE_DRIVERS_IN_ALL)
 set(CAMELLIA_SOURCE_DIR src)
 set(DRIVER_DIR drivers)
 
-if (ZLIB_LIB)
-  link_libraries(${ZLIB_LIB})
-endif()
-
 if (EXTRA_INCLUDE)
   include_directories(${EXTRA_INCLUDE})
 endif()
@@ -32,153 +122,14 @@ if (OMP_INCLUDE)
   include_directories(${OMP_INCLUDE})
 endif()
 
-if(MPI_INCLUDE)
-  include_directories(${MPI_INCLUDE})
-endif()
-if(MPI_LINK_CC)
-  link_libraries(${MPI_LINK_CC})
-endif()
-if (MPI_LINK_FORTRAN)
-  link_libraries(${MPI_LINK_FORTRAN})
-endif()
-
-if(MPI_DIR)
-  MESSAGE("MPI_DIR = ${MPI_DIR}")
-  include_directories(${MPI_DIR}/include)
-  link_directories(${MPI_DIR})
-  link_libraries(mpi)
-  # use with openmpi
-  link_libraries(mpi_mpifh)
-  # use with mpich / intel mpi
-  # link_libraries(mpifort) 
-endif()
-
 if(SCALAPACK_LIB)
   link_libraries(${SCALAPACK_LIB})
 endif()
-
-if(ADDITIONAL_LIBRARY_DIRS)
-  MESSAGE("ADDITIONAL_LIBRARY_DIRS: ${ADDITIONAL_LIBRARY_DIRS}")
-  MESSAGE("ADDITIONAL_LIBRARIES: ${ADDITIONAL_LIBRARIES}")
-  link_directories(${ADDITIONAL_LIBRARY_DIRS})
-  set(Trilinos_TPL_LIBRARIES ${Trilinos_TPL_LIBRARIES}
-${ADDITIONAL_LIBRARIES})
-endif()
-
-MESSAGE(" Looking for Trilinos in ${TRILINOS_PATH}/lib/cmake/Trilinos
-  ${TRILINOS_PATH} $ENV{TRILINOS_DIR}")
-
-# Find Trilinos
-find_package(Trilinos PATHS ${TRILINOS_PATH}/lib/cmake/Trilinos
-  ${TRILINOS_PATH} $ENV{TRILINOS_DIR})
-
-list(REVERSE Trilinos_TPL_LIBRARIES)
-list(REMOVE_DUPLICATES Trilinos_TPL_LIBRARIES)
-list(REVERSE Trilinos_TPL_LIBRARIES)
-
-list(REVERSE Trilinos_LIBRARIES)
-list(REMOVE_DUPLICATES Trilinos_LIBRARIES)
-list(REVERSE Trilinos_LIBRARIES)
-
-list(REVERSE Trilinos_TPL_INCLUDE_DIRS)
-list(REMOVE_DUPLICATES Trilinos_TPL_INCLUDE_DIRS)
-list(REVERSE Trilinos_TPL_INCLUDE_DIRS)
-
-# If FIND_PACKAGE successfully found your Trilinos install, it will
-# set the Boolean flag Trilinos_FOUND.  The following IF statement
-# fails with a FATAL_ERROR if Trilinos was not found.  If it _was_
-# found, it prints out the values of some Trilinos configuration
-# details.  You may find them useful for building your application
-# that uses Trilinos.
-IF(Trilinos_FOUND)
-   MESSAGE("\nFound Trilinos!  Here are the details: ")
-   MESSAGE("   Trilinos_DIR = ${Trilinos_DIR}")
-   MESSAGE("   Trilinos_VERSION = ${Trilinos_VERSION}")
-   MESSAGE("   Trilinos_PACKAGE_LIST = ${Trilinos_PACKAGE_LIST}")
-   MESSAGE("   Trilinos_LIBRARIES = ${Trilinos_LIBRARIES}")
-   MESSAGE("   Trilinos_INCLUDE_DIRS = ${Trilinos_INCLUDE_DIRS}")
-   MESSAGE("   Trilinos_TPL_LIST = ${Trilinos_TPL_LIST}")
-   MESSAGE("   Trilinos_TPL_INCLUDE_DIRS = ${Trilinos_TPL_INCLUDE_DIRS}")
-   MESSAGE("   Trilinos_TPL_LIBRARIES = ${Trilinos_TPL_LIBRARIES}")
-   MESSAGE("   Trilinos_BUILD_SHARED_LIBS = ${Trilinos_BUILD_SHARED_LIBS}")
-   MESSAGE("   Trilinos_CXX_COMPILER = ${Trilinos_CXX_COMPILER}")
-   MESSAGE("   Trilinos_C_COMPILER = ${Trilinos_C_COMPILER}")
-   MESSAGE("   Trilinos_Fortran_COMPILER = ${Trilinos_Fortran_COMPILER}")
-   MESSAGE("   Trilinos_CXX_COMPILER_FLAGS = ${Trilinos_CXX_COMPILER_FLAGS}")
-   MESSAGE("   Trilinos_C_COMPILER_FLAGS = ${Trilinos_C_COMPILER_FLAGS}")
-   MESSAGE("   Trilinos_Fortran_COMPILER_FLAGS =
-     ${Trilinos_Fortran_COMPILER_FLAGS}")
-   MESSAGE("   Trilinos_LINKER = ${Trilinos_LINKER}")
-   MESSAGE("   Trilinos_EXTRA_LD_FLAGS = ${Trilinos_EXTRA_LD_FLAGS}")
-   MESSAGE("   Trilinos_AR = ${Trilinos_AR}")
-   MESSAGE("End of Trilinos details\n")
-ELSE()
-  MESSAGE(FATAL_ERROR "Could not find Trilinos!")
-ENDIF()
-
-# If you haven't already set the C++ compiler, use the same compiler
-# that was used to build Trilinos on your machine.  
-IF(NOT CMAKE_CXX_COMPILER)
-  MESSAGE("Setting CXX compiler to ${Trilinos_CXX_COMPILER}.")
-  SET(CMAKE_CXX_COMPILER ${Trilinos_CXX_COMPILER})
-ENDIF()
-
-# Testing something:
-#SET(CMAKE_CXX_COMPILER "echo")
-
-#get_cmake_property(_variableNames VARIABLES)
-#foreach (_variableName ${_variableNames})
-#    message(STATUS "${_variableName}=${${_variableName}}")
-#endforeach()
-
-IF(NOT CMAKE_CXX_FLAGS)
-  # -fPIC allows shared libraries to be built against the Camellia library
-  SET(CMAKE_CXX_FLAGS ${Trilinos_CXX_COMPILER_FLAGS})
-ENDIF() 
-
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -g")
-MESSAGE("CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
-
-# If you haven't already set the C compiler, use the same compiler
-# that was used to build Trilinos on your machine.  
-IF(NOT CMAKE_C_COMPILER)
-  MESSAGE("Setting C compiler.")
-  SET(CMAKE_C_COMPILER ${Trilinos_C_COMPILER})
-ENDIF()
-
-IF (NOT CMAKE_C_FLAGS)
-  SET(CMAKE_C_FLAGS ${Trilinos_C_COMPILER_FLAGS})
-ENDIF()
-
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -g")
-#MESSAGE("CMAKE_C_FLAGS = ${CMAKE_C_FLAGS}")
-
-# If you haven't already set the Fortran compiler, use the same compiler
-# that was used to build Trilinos on your machine.  
-IF(NOT CMAKE_Fortran_COMPILER)
-  MESSAGE("Setting Fortran compiler.")
-  SET(CMAKE_Fortran_COMPILER ${Trilinos_Fortran_COMPILER})
-ENDIF()
 
 IF(NOT BUILD_SHARED_LIBS)
   MESSAGE("Setting BUILD_SHARED_LIBS to ${Trilinos_BUILD_SHARED_LIBS}")
   SET(BUILD_SHARED_LIBS ${Trilinos_BUILD_SHARED_LIBS})
 ENDIF()
-
-# Find MOAB
-find_package(MOAB PATHS ${MOAB_PATH}/lib)
-
-if (MOAB_FOUND)
-  ADD_DEFINITIONS(-DHAVE_MOAB)
-  include_directories(
-    ${MOAB_INCLUDE_DIRS}
-  )
-  SET(ADDITIONAL_LIBRARIES ${ADDITIONAL_LIBRARIES} ${MOAB_LIBRARIES})
-else()
-  MESSAGE("MOAB not found; MOAB_PATH = ${MOAB_PATH}.")
-endif(MOAB_FOUND)
-
-project(Camellia)
 
 # Find all library source files
 FILE(GLOB_RECURSE LIB_SOURCES "${CAMELLIA_SOURCE_DIR}/*.cpp" "${CAMELLIA_SOURCE_DIR}/include/*.h")
@@ -189,27 +140,26 @@ set(HEADERS
 include_directories(
   ${Trilinos_TPL_INCLUDE_DIRS}
   ${Trilinos_INCLUDE_DIRS}
+  ${Moab_INCLUDE_DIRS}
+  ${Mumps_INCLUDE_DIRS}
   ${CAMELLIA_SOURCE_DIR}/include
-)
-
-link_directories(
-  ${Trilinos_LIBRARY_DIRS}
-  ${Trilinos_TPL_LIBRARY_DIRS}
-)
-
-link_libraries(
-  ${Trilinos_LIBRARIES}
-  ${Trilinos_TPL_LIBRARIES}
-  ${ADDITIONAL_LIBRARIES}
+  TPL/choice
 )
 
 add_library(Camellia ${LIB_SOURCES} ${HEADERS})
 
 link_libraries(
  Camellia
- ${Trilinos_LIBRARIES}
- ${Trilinos_TPL_LIBRARIES}
- ${ADDITIONAL_LIBRARIES}
+  ${Moab_LIBRARIES}
+  ${Trilinos_LIBRARIES}
+  ${Trilinos_TPL_LIBRARIES}
+  ${Trilinos_LINALG_LIBRARIES}
+  ${ADDITIONAL_LIBRARIES}
+#  # Xdmd
+#  # hdf5_cpp
+#  #  dmumps
+#  #  mumps_common
+#  #  pord
 )
 
 FILE(GLOB ALL_HEADER_FILES "${HEADERS}/*.h" "${HEADERS}/*.hpp")
@@ -222,6 +172,10 @@ enable_testing()
 
 # Build Drivers
 add_subdirectory(drivers ${EXCLUDE_DRIVERS_FROM_ALL})
-add_subdirectory(examples ${EXCLUDE_DRIVERS_FROM_ALL})
-add_subdirectory(manual-examples ${EXCLUDE_DRIVERS_FROM_ALL})
+add_subdirectory(examples)
 add_subdirectory(unit_tests)
+#add_subdirectory(slow_tests)
+
+# Finish up
+set(INSTALL_CONFIG_HEADERS FALSE)
+include(${CMAKE_SOURCE_DIR}/../scimake/SciFinalize.cmake)
