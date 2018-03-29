@@ -1,4 +1,4 @@
-project(StokesBackwardFacingStepExamples)
+#project(StokesBackwardFacingStepExamples)
 
 set( STOKES_BACKWARD_FACING_STEP_EXAMPLE "StokesBackwardFacingStepExample.cpp" )
 

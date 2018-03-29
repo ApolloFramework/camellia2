@@ -1,4 +1,4 @@
-project(DGAdvectionExample)
+#project(DGAdvectionExample)
 
 add_executable(DGAdvectionExample DGAdvectionExample.cpp)
 

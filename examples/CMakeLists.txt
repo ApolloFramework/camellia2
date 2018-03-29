@@ -1,4 +1,4 @@
-project(examples)
+#project(examples)
 
 add_subdirectory(BrioWuShockTube)
 add_subdirectory(CircularlyPolarizedAlfvenWave)

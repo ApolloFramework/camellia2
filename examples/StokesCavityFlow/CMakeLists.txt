@@ -1,4 +1,4 @@
-project(StokesCavityFlowExamples)
+#project(StokesCavityFlowExamples)
 
 add_executable(StokesGramOutput StokesGramOutput.cpp)
 target_link_libraries(StokesGramOutput 

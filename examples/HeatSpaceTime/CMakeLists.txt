@@ -1,4 +1,4 @@
-project(HeatSpaceTimeExamples)
+#project(HeatSpaceTimeExamples)
 
 set( HEAT_SPACE_TIME_EXAMPLE "HeatSpaceTimeExample.cpp" )
 
