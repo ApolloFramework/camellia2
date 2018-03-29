@@ -26,8 +26,9 @@ class SimpleSolutionFunction : public TFunction<Scalar>
   VarPtr _var;
   bool _weightFluxesBySideParity;
   int _solutionOrdinal;
+  std::string _solutionIdentifierExponent; // used in displayString (allows disambiguation of solutions; if non-empty means we'll drop the \overline business)
 public:
-  SimpleSolutionFunction(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal);
+  SimpleSolutionFunction(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal, const std::string &solutionIdentifierExponent="");
   void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
   TFunctionPtr<Scalar> x();
   TFunctionPtr<Scalar> y();
