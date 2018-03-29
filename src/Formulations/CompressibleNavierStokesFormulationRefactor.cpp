@@ -1098,6 +1098,13 @@ void CompressibleNavierStokesFormulationRefactor::setForcing(FunctionPtr f_conti
   }
 }
 
+void CompressibleNavierStokesFormulationRefactor::setMu(double value)
+{
+  _mu = value;
+  _muParamFunc->setValue(_mu);
+  _muSqrtParamFunc->setValue(sqrt(_mu));
+}
+
 // ! set current time step used for transient solve
 void CompressibleNavierStokesFormulationRefactor::setTimeStep(double dt)
 {
