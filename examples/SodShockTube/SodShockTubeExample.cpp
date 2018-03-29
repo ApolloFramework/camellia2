@@ -174,7 +174,7 @@ int main(int argc, char *argv[])
   // define the pressure so we can plot in our solution export
   
   FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
-  FunctionPtr T   = Function::solution(form->rho(), form->solutionPreviousTimeStep());
+  FunctionPtr T   = Function::solution(form->T(), form->solutionPreviousTimeStep());
   FunctionPtr p = R * rho * T;
   
   double t = 0;
@@ -217,7 +217,7 @@ int main(int argc, char *argv[])
     form->solutionPreviousTimeStep()->setSolution(form->solution());
     solutionExporter.exportSolution(form->solutionPreviousTimeStep(),{p},{"pressure"},t);
     
-    std::cout << "*** t = " << t << ", time step number " << timeStepNumber << "***\n";
+    std::cout << "========== t = " << t << ", time step number " << timeStepNumber << " ==========\n";
   }
   
 //  // create a refStrategy, just for the purpose of uniform refinement.
