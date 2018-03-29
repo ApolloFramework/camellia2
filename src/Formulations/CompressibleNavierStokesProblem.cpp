@@ -152,6 +152,7 @@ public:
     FunctionPtr y = Function::yn(1);
     FunctionPtr u1_init = u0*exp_m2piy2*2*y*sin_2pix;
     FunctionPtr u2_init = u0*exp_m2piy2*2*y*cos_2pix;
+    return {u1_init,u2_init};
   }
 };
 
