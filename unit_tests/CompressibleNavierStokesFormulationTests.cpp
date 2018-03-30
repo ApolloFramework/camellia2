@@ -17,6 +17,8 @@
 using namespace Camellia;
 using namespace Intrepid;
 
+#include <array>
+
 #include "Teuchos_UnitTestHarness.hpp"
 namespace
 {
@@ -135,8 +137,6 @@ namespace
     auto f_m = form->exactSolution_fm(u, rho, T);
     auto f_e = form->exactSolution_fe(u, rho, T);
     
-    form->setForcing(f_c, f_m, f_e);
-    
     auto vf = bf->varFactory();
     // split the exact solution into traces and fields
     // we want to project the traces onto the increment, and the fields onto the background flow (soln)
@@ -157,51 +157,105 @@ namespace
     int solnOrdinal = 0; // no goal-oriented stuff here...
     soln->projectOntoMesh(fieldMap, solnOrdinal);
     
-    auto residual = bf->testFunctional(traceMap) - rhs->linearTerm();
+    // each entry in the following two containers corresponds to a test
+    // we have one such test for steady, two for transient
+    vector<map<int, FunctionPtr>> previousSolutionFieldMaps;
+    vector<array<FunctionPtr,3>> forcingFunctions; // entries are fc, fm, fe
     if (!steady)
     {
       // this is not a full test of time step formulation, but it does check that if we have a steady solution,
       // the time step will not take us away from it.
-      solnPrevTime->projectOntoMesh(fieldMap, solnOrdinal);
+      //      solnPrevTime->projectOntoMesh(fieldMap, solnOrdinal);
+      
+      /* New, fuller test:
+       Here, actually test for a sort of conservation property - that the time stepper is linear in the conservation
+       variables, basically.  This takes advantage of the fact that all conservation variables are linear in rho.
+       Later, we might add another round of tests that uses linearity in T.
+       
+       */
+      
+      auto prevSolnFieldMapRho = fieldMap;
+      auto prevSolnFieldMapT   = fieldMap;
+      
+      prevSolnFieldMapRho[form->rho()->ID()] = rho - dt;
+      prevSolnFieldMapT  [form->T()->ID()]   = T   - dt;
+      
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapRho);
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapT);
+      
+      array<FunctionPtr,3> rhoForcing = {{f_c + 1, f_m[0] + u, f_e + TEST_CV * T + .5 * u * u}};
+      array<FunctionPtr,3> TForcing   = {{f_c,     f_m[0],     f_e + TEST_CV * rho           }};
+      forcingFunctions = {{rhoForcing, TForcing}};
     }
-    
-    auto testIP = solnIncrement->ip(); // We'll use this inner product to take the norm of the residual components
-    
-    auto summands = residual->summands();
-    auto testVars = vf->testVars();
-    for (auto testEntry : testVars)
+    else
     {
-      int testID = testEntry.first;
-      VarPtr testVar = testEntry.second;
-      // filter the parts of residual that involve testVar
-      LinearTermPtr testResidual = Teuchos::rcp( new LinearTerm );
-      for (auto summandEntry : summands)
+      previousSolutionFieldMaps.push_back(fieldMap);
+      array<FunctionPtr,3> standardForcingFunctions = {{f_c, f_m[0], f_e}};
+      forcingFunctions = {{standardForcingFunctions}};
+    }
+      
+    int numEntries = previousSolutionFieldMaps.size();
+    for (int testOrdinal=0; testOrdinal<numEntries; testOrdinal++)
+    {
+      f_c = forcingFunctions[testOrdinal][0];
+      f_m[0] = forcingFunctions[testOrdinal][1];
+      f_e = forcingFunctions[testOrdinal][2];
+      form->setForcing(f_c, f_m, f_e);
+      
+      auto prevSolnFieldMap = previousSolutionFieldMaps[testOrdinal];
+      
+      solnPrevTime->projectOntoMesh(prevSolnFieldMap, solnOrdinal);
+      
+      auto residual = bf->testFunctional(traceMap) - rhs->linearTerm();
+      
+      auto testIP = solnIncrement->ip(); // We'll use this inner product to take the norm of the residual components
+      
+      auto summands = residual->summands();
+      auto testVars = vf->testVars();
+      for (auto testEntry : testVars)
       {
-        FunctionPtr f = summandEntry.first;
-        VarPtr v = summandEntry.second;
-        if (v->ID() == testID)
+        int testID = testEntry.first;
+        VarPtr testVar = testEntry.second;
+        // filter the parts of residual that involve testVar
+        LinearTermPtr testResidual = Teuchos::rcp( new LinearTerm );
+        for (auto summandEntry : summands)
         {
-          testResidual = testResidual + f * v;
+          FunctionPtr f = summandEntry.first;
+          VarPtr v = summandEntry.second;
+          if (v->ID() == testID)
+          {
+            testResidual = testResidual + f * v;
+          }
         }
-      }
-      double residualNorm = testResidual->computeNorm(testIP, soln->mesh(), cubatureEnrichment);
-      if (residualNorm > tol)
-      {
-        success = false;
-        out << "FAILURE: residual in " << testVar->name() << " component: " << residualNorm << " exceeds tolerance " << tol << ".\n";
-        out << "Residual string: " << testResidual->displayString() << "\n";
-        out << "Exact solution under test:\n";
-        for (auto traceEntry : traceMap)
+        double residualNorm = testResidual->computeNorm(testIP, soln->mesh(), cubatureEnrichment);
+        if (residualNorm > tol)
         {
-          int trialID = traceEntry.first;
-          std::string varName = vf->trial(trialID)->name();
-          out << "  " << varName << ": " << traceEntry.second->displayString() << std::endl;
-        }
-        for (auto trialEntry : fieldMap)
-        {
-          int trialID = trialEntry.first;
-          std::string varName = vf->trial(trialID)->name();
-          out << "  " << varName << ": " << trialEntry.second->displayString() << std::endl;
+          success = false;
+          out << "FAILURE: residual in " << testVar->name() << " component: " << residualNorm << " exceeds tolerance " << tol << ".\n";
+          out << "Residual string: " << testResidual->displayString() << "\n";
+          out << "Exact solution under test:\n";
+          for (auto traceEntry : traceMap)
+          {
+            int trialID = traceEntry.first;
+            std::string varName = vf->trial(trialID)->name();
+            out << "  " << varName << ": " << traceEntry.second->displayString() << std::endl;
+          }
+          for (auto trialEntry : fieldMap)
+          {
+            int trialID = trialEntry.first;
+            std::string varName = vf->trial(trialID)->name();
+            out << "  " << varName << ": " << trialEntry.second->displayString() << std::endl;
+          }
+          if (!steady)
+          {
+            out << "Previous solution under test:\n";
+            for (auto trialEntry : prevSolnFieldMap)
+            {
+              int trialID = trialEntry.first;
+              std::string varName = vf->trial(trialID)->name();
+              out << "  " << varName << ": " << trialEntry.second->displayString() << std::endl;
+            }
+          }
         }
       }
     }
@@ -450,7 +504,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesFormulationRefactor, Residual_1D_Transient_AllZero)
   {
-    double tol = 1e-16;
+    double tol = 1e-15;
     int cubatureEnrichment = 0;
     FunctionPtr u   = Function::zero();
     FunctionPtr rho = Function::zero();

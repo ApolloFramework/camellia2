@@ -420,8 +420,8 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
     }
     if (_timeStepping)
     {
-      _bf->addTerm( (2 * rho_prev - rho_prev_time) * u[d1] + (2 * u_prev[d1] - u_prev_time[d1]) * rho, vm[d1] / dt);
-      _rhs->addTerm(-(rho_prev * (u_prev[d1] - u_prev_time[d1]) + u_prev_time[d1] * (rho_prev - rho_prev_time )) / dt * vm[d1] );
+      _bf->addTerm( rho_prev * u[d1] + u_prev[d1] * rho, vm[d1] / dt);
+      _rhs->addTerm(-(rho_prev * u_prev[d1] - rho_prev_time * u_prev_time[d1]) / dt * vm[d1] );
     }
     _bf->addTerm(-R * T_prev * rho, vm[d1]->di(d1+1));
     _bf->addTerm(-R * rho_prev * T, vm[d1]->di(d1+1));
@@ -452,10 +452,8 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   }
   if (_timeStepping)
   {
-    _bf->addTerm((2 * Cv * rho_prev - Cv * rho_prev_time) * T
-                 + (2 * Cv * T_prev - Cv * T_prev_time) * rho,
-                 ve / dt);
-    _rhs->addTerm(-(Cv*rho_prev*T_prev * (rho_prev - rho_prev_time) + Cv * rho_prev * (T_prev - T_prev_time)) / dt * ve);
+    _bf->addTerm(rho_prev * Cv * T + T_prev * Cv * rho, ve / dt);
+    _rhs->addTerm(-(Cv*(rho_prev*T_prev - rho_prev_time * T_prev_time)) / dt * ve);
   }
   for (int d1=0; d1<spaceDim; d1++)
   {
@@ -468,10 +466,8 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
     }
     if (_timeStepping)
     {
-      _bf->addTerm( (3 * rho_prev * u_prev[d1] - rho_prev_time * u_prev[d1] - rho_prev * u_prev_time[d1]) * u[d1], ve / dt);
-      _bf->addTerm( (1.5 * u_prev[d1] * u_prev[d1] - u_prev_time[d1] * u_prev[d1]) * rho, ve / dt);
-      
-      _rhs->addTerm( - ((0.5 * u_prev[d1] * u_prev[d1]) * (rho_prev - rho_prev_time) + rho_prev * u_prev[d1] * (u_prev[d1] - u_prev_time[d1])) / dt * ve );
+      _bf->addTerm( rho_prev * u_prev[d1] * u[d1] + 0.5 * u_prev[d1] * u_prev[d1] * rho, ve / dt);
+      _rhs->addTerm( - (0.5 * (rho_prev * u_prev[d1] * u_prev[d1] - rho_prev_time * u_prev_time[d1] * u_prev_time[d1] )) / dt * ve );
     }
     
     _bf->addTerm(-(Cv+R) * u_prev[d1] * T_prev * rho - (Cv+R) * rho_prev * T_prev * u[d1] - (Cv+R) * rho_prev * u_prev[d1] * T, ve->di(d1+1));
