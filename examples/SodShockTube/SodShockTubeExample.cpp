@@ -27,6 +27,9 @@ int main(int argc, char *argv[])
   bool useCondensedSolve = true;
   int spaceDim = 1;
   int cubatureEnrichment = 3 * polyOrder; // there are places in the strong, nonlinear equations where 4 variables multiplied together.  Therefore we need to add 3 variables' worth of quadrature to the simple test v. trial quadrature.
+  double nonlinearTolerance    = 1e-2;
+  double continuationTolerance = 1e-2;
+  int continuationSteps = 4;
   
   double x_a   = -0.5;
   double x_b   = 0.5;
@@ -41,6 +44,9 @@ int main(int argc, char *argv[])
   cmdp.setOption("meshWidth", &meshWidth);
   cmdp.setOption("Re", &Re);
   cmdp.setOption("dt", &dt);
+  cmdp.setOption("continuationSteps", &continuationSteps);
+  cmdp.setOption("nonlinearTol", &nonlinearTolerance);
+  cmdp.setOption("continuationTol", &continuationTolerance);
   
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -134,6 +140,11 @@ int main(int argc, char *argv[])
     initialState[form->tm(1)->ID()]    = (rho * u * u + form->R() * rho * T) * n_x;
   }
   
+  // define the pressure so we can plot in our solution export
+  FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
+  FunctionPtr T   = Function::solution(form->T(), form->solutionPreviousTimeStep());
+  FunctionPtr p = R * rho * T;
+  
   // project the initial state both onto the solution object representing the previous time state,
   // as well as the current state (the latter is the initial guess for the current time step).
   const int solutionOrdinal = 0;
@@ -150,7 +161,7 @@ int main(int argc, char *argv[])
   
   solutionIncrementHistoryExporter.exportSolution(form->solutionIncrement(), 0.0);
   solutionHistoryExporter.exportSolution(form->solution(), 0.0);
-  solutionExporter.exportSolution(form->solutionPreviousTimeStep(), 0.0);
+  solutionExporter.exportSolution(form->solutionPreviousTimeStep(), {p}, {"pressure"}, 0.0);
   
   // Borrowing some from Truman's dissertation code
   SpatialFilterPtr leftX  = SpatialFilter::matchingX(x_a);
@@ -171,26 +182,21 @@ int main(int argc, char *argv[])
   
   VarPtr u1_hat = form->u_hat(1);
 
-  // define the pressure so we can plot in our solution export
   
-  FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
-  FunctionPtr T   = Function::solution(form->T(), form->solutionPreviousTimeStep());
-  FunctionPtr p = R * rho * T;
   
   double t = 0;
   double Re_0 = 1.0; // for continuation in Reynolds number
   for (int timeStepNumber = 0; timeStepNumber < numTimeSteps; timeStepNumber++)
   {
-    double nonlinearTolerance = 1e-2;
     double l2NormOfIncrement = 1.0;
     int stepNumber = 0;
-    int maxNonlinearSteps = 20;
+    int continuationStepNumber = 0;
+    int maxNonlinearSteps = 10;
     form->setMu(1.0 / Re_0);
     cout << "for continuation, set Re to " << Re_0 << endl;
     double Re_current = Re_0;
-    int continuationSteps = 3;
     double Re_multiplier = pow(Re / Re_0, 1./continuationSteps);
-    while (((stepNumber < continuationSteps) || (l2NormOfIncrement > nonlinearTolerance)) && (stepNumber < maxNonlinearSteps))
+    while (((continuationStepNumber < continuationSteps) || (l2NormOfIncrement > nonlinearTolerance)) && (stepNumber < maxNonlinearSteps))
     {
       double alpha = form->solveAndAccumulate();
       int solveCode = form->getSolveCode();
@@ -206,18 +212,22 @@ int main(int argc, char *argv[])
       stepNumber++;
       solutionHistoryExporter.exportSolution(form->solution(), double(stepNumber));  // use stepNumber as the "time" value for export...
       solutionIncrementHistoryExporter.exportSolution(form->solutionIncrement(), double(stepNumber));
-      if (stepNumber <= continuationSteps)
+      if ((continuationStepNumber < continuationSteps) && ((l2NormOfIncrement < continuationTolerance) || stepNumber == maxNonlinearSteps))
       {
         Re_current *= Re_multiplier;
         form->setMu(1./Re_current);
         cout << "for continuation, set Re to " << Re_current << endl;
+        continuationStepNumber++;
+        // since we have changed the Re number, reset the step counter, as well as the l2NormOfIncrement
+        l2NormOfIncrement = 1.0;
+        stepNumber = 0;
       }
     }
     t += dt;
     form->solutionPreviousTimeStep()->setSolution(form->solution());
     solutionExporter.exportSolution(form->solutionPreviousTimeStep(),{p},{"pressure"},t);
     
-    std::cout << "========== t = " << t << ", time step number " << timeStepNumber << " ==========\n";
+    std::cout << "========== t = " << t << ", time step number " << timeStepNumber+1 << " ==========\n";
   }
   
 //  // create a refStrategy, just for the purpose of uniform refinement.
