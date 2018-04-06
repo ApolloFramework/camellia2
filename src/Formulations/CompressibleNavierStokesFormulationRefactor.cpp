@@ -547,6 +547,18 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   FunctionPtr rho_incr = Function::solution(rho, _solnIncrement);
   FunctionPtr T_incr = Function::solution(T, _solnIncrement);
   
+  _L2ConservationIncrement = rho_incr * rho_incr;  // L^2 continuity
+  FunctionPtr energy = Cv * T_incr * rho_incr;
+  for (int d=0; d<_spaceDim; d++)
+  {
+    auto u_incr_i = Function::solution(this->u(d+1), _solnIncrement);
+    // add L^2 momentum:
+    auto momentum_i = rho_incr * u_incr_i;
+    _L2ConservationIncrement = _L2ConservationIncrement + momentum_i * momentum_i;
+    energy = energy + 0.5 * rho_incr * u_incr_i * u_incr_i;
+  }
+  _L2ConservationIncrement = _L2ConservationIncrement + energy * energy;
+  
   _L2IncrementFunction = rho_incr * rho_incr + T_incr * T_incr;
   _L2SolutionFunction = rho_prev * rho_prev + T_prev * T_prev;
   for (int comp_i=1; comp_i <= _spaceDim; comp_i++)
@@ -1041,6 +1053,13 @@ double CompressibleNavierStokesFormulationRefactor::L2NormSolution()
 double CompressibleNavierStokesFormulationRefactor::L2NormSolutionIncrement()
 {
   double l2_squared = _L2IncrementFunction->integrate(_solnIncrement->mesh());
+  return sqrt(l2_squared);
+}
+
+double CompressibleNavierStokesFormulationRefactor::L2NormSolutionIncrementConservation()
+{
+  
+  double l2_squared = _L2ConservationIncrement->integrate(_solnIncrement->mesh());
   return sqrt(l2_squared);
 }
 

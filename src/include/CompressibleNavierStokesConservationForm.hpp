@@ -73,14 +73,14 @@ namespace Camellia
     
     static const std::string S_rho;
     static const std::string S_m1, S_m2, S_m3;
-    static const std::string S_T;
-    static const std::string S_Q11, S_Q12, S_Q13, S_Q21, S_Q22, S_Q23, S_Q31, S_Q32, S_Q33;
+    static const std::string S_E;
+    static const std::string S_D11, S_D12, S_D13, S_D21, S_D22, S_D23, S_D31, S_D32, S_D33;
     static const std::string S_q1, S_q2, S_q3;
     
     static const std::string S_tc;
     static const std::string S_tm1, S_tm2, S_tm3;
     static const std::string S_te;
-    static const std::string S_m1_hat, S_m2_hat, S_m3_hat;
+    static const std::string S_u1_hat, S_u2_hat, S_u3_hat;
     static const std::string S_T_hat;
     
     static const std::string S_vc;
@@ -89,7 +89,7 @@ namespace Camellia
     static const std::string S_S1, S_S2, S_S3;
     static const std::string S_tau;
     
-    static const std::string S_u[3];
+    static const std::string S_m[3];
     static const std::string S_q[3];
     static const std::string S_D[3][3];
     
@@ -257,7 +257,7 @@ namespace Camellia
     VarPtr tc();
     VarPtr tm(int i);
     VarPtr te();
-    VarPtr m_hat(int i);
+    VarPtr u_hat(int i);
     VarPtr T_hat();
     
     // test variables:

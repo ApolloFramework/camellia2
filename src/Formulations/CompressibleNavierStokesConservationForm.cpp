@@ -24,18 +24,18 @@ using namespace std;
 
 const string CompressibleNavierStokesConservationForm::S_rho = "rho";
 const string CompressibleNavierStokesConservationForm::S_m1  = "m1";
-const string CompressibleNavierStokesConservationForm::S_m2  = "u2";
-const string CompressibleNavierStokesConservationForm::S_m3  = "u3";
+const string CompressibleNavierStokesConservationForm::S_m2  = "m2";
+const string CompressibleNavierStokesConservationForm::S_m3  = "m3";
 const string CompressibleNavierStokesConservationForm::S_E   = "E";
-const string CompressibleNavierStokesConservationForm::S_Q11 = "Q11";
-const string CompressibleNavierStokesConservationForm::S_Q12 = "Q12";
-const string CompressibleNavierStokesConservationForm::S_Q13 = "Q13";
-const string CompressibleNavierStokesConservationForm::S_Q21 = "Q21";
-const string CompressibleNavierStokesConservationForm::S_Q22 = "Q22";
-const string CompressibleNavierStokesConservationForm::S_Q23 = "Q23";
-const string CompressibleNavierStokesConservationForm::S_Q31 = "Q31";
-const string CompressibleNavierStokesConservationForm::S_Q32 = "Q32";
-const string CompressibleNavierStokesConservationForm::S_Q33 = "Q33";
+const string CompressibleNavierStokesConservationForm::S_D11 = "D11";
+const string CompressibleNavierStokesConservationForm::S_D12 = "D12";
+const string CompressibleNavierStokesConservationForm::S_D13 = "D13";
+const string CompressibleNavierStokesConservationForm::S_D21 = "D21";
+const string CompressibleNavierStokesConservationForm::S_D22 = "D22";
+const string CompressibleNavierStokesConservationForm::S_D23 = "D23";
+const string CompressibleNavierStokesConservationForm::S_D31 = "D31";
+const string CompressibleNavierStokesConservationForm::S_D32 = "D32";
+const string CompressibleNavierStokesConservationForm::S_D33 = "D33";
 const string CompressibleNavierStokesConservationForm::S_q1 = "q1";
 const string CompressibleNavierStokesConservationForm::S_q2 = "q2";
 const string CompressibleNavierStokesConservationForm::S_q3 = "q3";
@@ -45,9 +45,9 @@ const string CompressibleNavierStokesConservationForm::S_tm1 = "tm1";
 const string CompressibleNavierStokesConservationForm::S_tm2 = "tm2";
 const string CompressibleNavierStokesConservationForm::S_tm3 = "tm3";
 const string CompressibleNavierStokesConservationForm::S_te = "te";
-const string CompressibleNavierStokesConservationForm::S_m1_hat = "u1_hat";
-const string CompressibleNavierStokesConservationForm::S_m2_hat = "u2_hat";
-const string CompressibleNavierStokesConservationForm::S_m3_hat = "u3_hat";
+const string CompressibleNavierStokesConservationForm::S_u1_hat = "u1_hat";
+const string CompressibleNavierStokesConservationForm::S_u2_hat = "u2_hat";
+const string CompressibleNavierStokesConservationForm::S_u3_hat = "u3_hat";
 const string CompressibleNavierStokesConservationForm::S_T_hat = "T_hat";
 
 const string CompressibleNavierStokesConservationForm::S_vc = "vc";
@@ -61,11 +61,11 @@ const string CompressibleNavierStokesConservationForm::S_S3 = "S3";
 const string CompressibleNavierStokesConservationForm::S_tau = "tau";
 
 
-const string CompressibleNavierStokesConservationForm::S_u[3]    = {S_u1, S_u2, S_u3};
+const string CompressibleNavierStokesConservationForm::S_m[3]    = {S_m1, S_m2, S_m3};
 const string CompressibleNavierStokesConservationForm::S_q[3]    = {S_q1, S_q2, S_q3};
 const string CompressibleNavierStokesConservationForm::S_D[3][3] = {{S_D11, S_D12, S_D13},
-                                                                       {S_D21, S_D22, S_D23},
-                                                                       {S_D31, S_D32, S_D33}};
+                                                                    {S_D21, S_D22, S_D23},
+                                                                    {S_D31, S_D32, S_D33}};
 const string CompressibleNavierStokesConservationForm::S_S[3]    = {S_S1, S_S2, S_S3};
 const string CompressibleNavierStokesConservationForm::S_tm[3]   = {S_tm1, S_tm2, S_tm3};
 const string CompressibleNavierStokesConservationForm::S_u_hat[3]= {S_u1_hat, S_u2_hat, S_u3_hat};
@@ -183,8 +183,8 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   
   // field variables
   VarPtr rho;
-  vector<VarPtr> u(_spaceDim);
-  VarPtr T;
+  vector<VarPtr> m(_spaceDim);
+  VarPtr E;
   vector<vector<VarPtr>> D(_spaceDim,vector<VarPtr>(_spaceDim));
   vector<VarPtr> q(_spaceDim);
   
@@ -208,7 +208,7 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   
   for (int d=0; d<spaceDim; d++)
   {
-    u[d] = _vf->fieldVar(S_u[d]);
+    m[d] = _vf->fieldVar(S_m[d]);
     q[d] = _vf->fieldVar(S_q[d]);
   }
   for (int d1=0; d1<spaceDim; d1++)
@@ -219,7 +219,7 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     }
   }
   
-  T = _vf->fieldVar(S_T);
+  E = _vf->fieldVar(S_E);
   
   FunctionPtr one = Function::constant(1.0); // reuse Function to take advantage of accelerated BasisReconciliation (probably this is not the cleanest way to do this, but it should work)
   if (! _spaceTime)
@@ -227,7 +227,13 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     Space uHatSpace = useConformingTraces ? HGRAD : L2;
     for (int d=0; d<spaceDim; d++)
     {
-      u_hat[d] = _vf->traceVar(S_u_hat[d], one * u[d], uHatSpace);
+      // unfortunately, we don't have a way right now to say what u_hat is the trace of,
+      // because it is not linear in the field variables: it is m[d] / rho...
+      // We could resolve this by using a Function that depends on ParameterFunctions,
+      // and a map in place of the LinearTerm below, but there's some more work to be done to support this
+      // in the places that make use of the "termTraced" argument below, as well as adding support to Var
+      // TODO: add this support.  (Main use case right now is geometric multi-grid preconditioning.)
+      u_hat[d] = _vf->traceVar(S_u_hat[d], uHatSpace);
     }
   }
   else
@@ -235,12 +241,15 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     Space uHatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
     for (int d=0; d<spaceDim; d++)
     {
-      u_hat[d] = _vf->traceVarSpaceOnly(S_u_hat[d], one * u[d], uHatSpace);
+      // see note above about the term traced...
+      u_hat[d] = _vf->traceVarSpaceOnly(S_u_hat[d], uHatSpace);
     }
   }
   
   Space THatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
-  T_hat = _vf->traceVarSpaceOnly(S_T_hat, one * T, THatSpace);
+  // same story with the T hat trace as with u_hat:
+  // T is a nonlinear function of the field variables, T = trace((1/rho) * (E - m * m / rho)).
+  T_hat = _vf->traceVarSpaceOnly(S_T_hat, THatSpace);
   
   // FunctionPtr n = Function::normal();
   FunctionPtr n_x = TFunction<double>::normal(); // spatial normal
@@ -333,23 +342,27 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   }
   FunctionPtr rho_prev = Function::solution(rho, _backgroundFlow, backgroundFlowIdentifierExponent);
   FunctionPtr rho_prev_time = Function::solution(rho, _solnPrevTime, previousTimeIdentifierExponent);
-  FunctionPtr T_prev       = Function::solution(T, _backgroundFlow, backgroundFlowIdentifierExponent);
-  FunctionPtr T_prev_time  = Function::solution(T, _solnPrevTime, previousTimeIdentifierExponent);
+  FunctionPtr E_prev       = Function::solution(E, _backgroundFlow, backgroundFlowIdentifierExponent);
+  FunctionPtr E_prev_time  = Function::solution(E, _solnPrevTime, previousTimeIdentifierExponent);
   
   vector<FunctionPtr> q_prev(spaceDim);
-  vector<FunctionPtr> u_prev(spaceDim);
-  vector<FunctionPtr> u_prev_time(spaceDim);
+  vector<FunctionPtr> m_prev(spaceDim);
+  vector<FunctionPtr> m_prev_time(spaceDim);
   vector<vector<FunctionPtr>> D_prev(spaceDim,vector<FunctionPtr>(spaceDim));
+  
+  FunctionPtr rho_prev_squared = rho_prev * rho_prev;
+  FunctionPtr m_prev_dot_m_prev = Function::zero();
   
   for (int d1=0; d1<spaceDim; d1++)
   {
-    u_prev[d1]      = Function::solution(u[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
-    u_prev_time[d1] = Function::solution(u[d1], _solnPrevTime, previousTimeIdentifierExponent);
+    m_prev[d1]      = Function::solution(m[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
+    m_prev_time[d1] = Function::solution(m[d1], _solnPrevTime, previousTimeIdentifierExponent);
     q_prev[d1]      = Function::solution(q[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
     for (int d2=0; d2<spaceDim; d2++)
     {
       D_prev[d1][d2] = Function::solution(D[d1][d2], _backgroundFlow, backgroundFlowIdentifierExponent);
     }
+    m_prev_dot_m_prev = m_prev_dot_m_prev + m_prev[d1] * m_prev[d1];
   }
   
   // S terms:
@@ -357,8 +370,8 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   auto n_S = (_spaceDim > 1) ? n_x : n_x->x();
   for (int d=0; d<spaceDim; d++)
   {
-    _bf->addTerm(u[d], S[d]->applyOp(S_divOp));         // D_i = mu() * grad u_i
-    _rhs->addTerm(-u_prev[d] * S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
+    _bf->addTerm(m[d]/rho_prev + m_prev[d]/rho_prev_squared * rho, S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
+    _rhs->addTerm(-m_prev[d] / rho_prev * S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
     for (int d2=0; d2<spaceDim; d2++)
     {
       VarPtr S_d2 = (_spaceDim > 1) ? S[d]->spatialComponent(d2+1) : S[d];

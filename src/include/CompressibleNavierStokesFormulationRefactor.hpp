@@ -57,7 +57,7 @@ namespace Camellia
     
     std::map<std::string, IPPtr> _ips;
     
-    FunctionPtr _L2IncrementFunction, _L2SolutionFunction;
+    FunctionPtr _L2IncrementFunction, _L2SolutionFunction, _L2ConservationIncrement;
     
     SolutionPtr _backgroundFlow, _solnIncrement, _solnPrevTime;
     
@@ -143,6 +143,9 @@ namespace Camellia
     
     // ! returns the L^2 norm of the incremental solution
     double L2NormSolutionIncrement();
+    
+    // ! returns the L^2 norm of conservation variables in the incremental solution
+    double L2NormSolutionIncrementConservation();
     
     // ! returns the L^2 norm of the background flow
     double L2NormSolution();
