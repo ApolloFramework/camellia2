@@ -250,7 +250,7 @@ namespace Camellia
     VarPtr rho();           // density
     VarPtr m(int i);        // momentum
     VarPtr E();             // total energy
-    VarPtr Q(int i, int j); // Q_ij is a placeholder name; unsure what to call this, but it is equal to pI - sigma
+    VarPtr D(int i, int j); // Reynolds-weighted gradient of velocity
     VarPtr q(int i);        // heat flux
     
     // traces:

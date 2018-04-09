@@ -71,7 +71,6 @@ const string CompressibleNavierStokesConservationForm::S_tm[3]   = {S_tm1, S_tm2
 const string CompressibleNavierStokesConservationForm::S_u_hat[3]= {S_u1_hat, S_u2_hat, S_u3_hat};
 const string CompressibleNavierStokesConservationForm::S_vm[3]   = {S_vm1, S_vm2, S_vm3};
 
-
 void CompressibleNavierStokesConservationForm::CHECK_VALID_COMPONENT(int i) // throws exception on bad component value (should be between 1 and _spaceDim, inclusive)
 {
   if ((i > _spaceDim) || (i < 1))
@@ -79,7 +78,6 @@ void CompressibleNavierStokesConservationForm::CHECK_VALID_COMPONENT(int i) // t
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "component indices must be at least 1 and less than or equal to _spaceDim");
   }
 }
-
 
 Teuchos::RCP<CompressibleNavierStokesConservationForm> CompressibleNavierStokesConservationForm::steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
                                                                                                            MeshTopologyPtr meshTopo, int polyOrder, int delta_k)
@@ -382,21 +380,27 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   }
   
   // tau terms:
-  double Cp = this->Cp();
-  double Pr = this->Pr();
-  double R  = this->R();
+  double Cp    = this->Cp();
+  double Pr    = this->Pr();
+  double gamma = this->gamma();
   auto n_tau = n_S;
+  FunctionPtr qWeight = Pr / (Cp * _muFunc); // q is defined such that q * qWeight = - grad T
   Camellia::EOperator tauDivOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
   
-  _bf->addTerm (-T,       tau->applyOp(tauDivOp)); // tau = Cp*mu/Pr * grad T
-  _rhs->addTerm( T_prev * tau->applyOp(tauDivOp)); // tau = Cp*_mu/Pr * grad T
+  _bf->addTerm (-1.0 / rho_prev * E + E_prev / rho_prev_squared * rho, tau->applyOp(tauDivOp));
+  _rhs->addTerm(E_prev / rho_prev                                    * tau->applyOp(tauDivOp));
   
   _bf->addTerm(T_hat,     tau * n_tau);
+  
+  _bf->addTerm( - m_prev_dot_m_prev / (rho_prev_squared * rho_prev) * rho,  tau->applyOp(tauDivOp));
+  _rhs->addTerm( - m_prev_dot_m_prev / (2. * rho_prev_squared) * tau->applyOp(tauDivOp));
   for (int d=0; d<spaceDim; d++)
   {
     VarPtr tau_d = (_spaceDim > 1) ? tau->spatialComponent(d+1) : tau;
-    _bf->addTerm ( Pr/(Cp*_muFunc) * q[d],       tau_d);
-    _rhs->addTerm(-Pr/(Cp*_muFunc) * q_prev[d] * tau_d);
+    _bf->addTerm ( qWeight * q[d],       tau_d);
+    _rhs->addTerm(-qWeight * q_prev[d] * tau_d);
+    
+    _bf->addTerm(   m_prev[d] / rho_prev_squared * m[d],                          tau->applyOp(tauDivOp));
   }
 
   // to avoid needing a bunch of casts below, do a cast once here:
@@ -413,10 +417,11 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     _bf->addTerm (rho/dt,            vc);
     _rhs->addTerm(- (rho_prev - rho_prev_time) / dt * vc);
   }
+  
   for (int d=0; d<spaceDim; d++)
   {
-    _bf->addTerm(-(u_prev[d] * rho + rho_prev * u[d]), vc->di(d+1));
-    _rhs->addTerm( rho_prev * u_prev[d] * vc->di(d+1));
+    _bf->addTerm( -m[d],       vc->di(d+1));
+    _rhs->addTerm( m_prev[d] * vc->di(d+1));
   }
   _bf->addTerm(tc, vc);
   _rhs->addTerm(FunctionPtr(_fc) * vc);
@@ -428,71 +433,61 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   {
     if (_spaceTime)
     {
-      _bf->addTerm(-(u_prev[d1]*rho+rho_prev*u[d1]), vm[d1]->dt());
-      _rhs->addTerm( rho_prev*u_prev[d1] * vm[d1]->dt() );
+      _bf->addTerm( -m[d1],       vm[d1]->dt() );
+      _rhs->addTerm( m_prev[d1] * vm[d1]->dt() );
     }
     if (_timeStepping)
     {
-      _bf->addTerm( rho_prev * u[d1] + u_prev[d1] * rho, vm[d1] / dt);
-      _rhs->addTerm(-(rho_prev * u_prev[d1] - rho_prev_time * u_prev_time[d1]) / dt * vm[d1] );
+      _bf->addTerm( m[d1], vm[d1] / dt);
+      _rhs->addTerm(-(m_prev[d1] - m_prev_time[d1]) / dt * vm[d1] );
     }
-    _bf->addTerm(-R * T_prev * rho, vm[d1]->di(d1+1));
-    _bf->addTerm(-R * rho_prev * T, vm[d1]->di(d1+1));
-    _rhs->addTerm(R * rho_prev * T_prev * vm[d1]->di(d1+1));
+    _bf->addTerm(-(gamma - 1.) * E,       vm[d1]->di(d1+1));
+    _rhs->addTerm((gamma - 1.) * E_prev * vm[d1]->di(d1+1));
+    
+    _bf->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev_squared) * rho, vm[d1]->di(d1+1));
+    _rhs->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev)             * vm[d1]->di(d1+1));
     for (int d2=0; d2<spaceDim; d2++)
     {
-      _bf->addTerm(-u_prev[d1]*u_prev[d2]*rho, vm[d1]->di(d2+1));
-      _bf->addTerm(-rho_prev*u_prev[d1]*u[d2], vm[d1]->di(d2+1));
-      _bf->addTerm(-rho_prev*u_prev[d2]*u[d1], vm[d1]->di(d2+1));
-      _rhs->addTerm( rho_prev*u_prev[d1]*u_prev[d2] * vm[d1]->di(d2+1));
-
-      _bf->addTerm(D[d1][d2] + D[d2][d1], vm[d1]->di(d2+1));
+      _bf->addTerm(-(m_prev[d2]/rho_prev * m[d1] + m_prev[d1]/rho_prev * m[d2]), vm[d1]->di(d2+1));
+      _bf->addTerm( (m_prev[d1] * m_prev[d2] / rho_prev_squared) * rho,             vm[d1]->di(d2+1));
+      
+      _bf->addTerm(D[d1][d2] + D[d2][d1],     vm[d1]->di(d2+1));
       _bf->addTerm(D_traceWeight * D[d2][d2], vm[d1]->di(d1+1));
       
       _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * vm[d1]->di(d2+1));
-      _rhs->addTerm(-D_traceWeight * D_prev[d2][d2] * vm[d1]->di(d1+1));
+      _rhs->addTerm(-D_traceWeight * D_prev[d2][d2]    * vm[d1]->di(d1+1));
+      
+      _bf->addTerm( (gamma - 1.) * m_prev[d1] / rho_prev * m[d1], vm[d2]->di(d2+1));
     }
     _bf->addTerm(tm[d1], vm[d1]);
     _rhs->addTerm(FunctionPtr(_fm[d1]) * vm[d1]);
   }
   
   // ve:
-  double Cv = this->Cv();
   if (_spaceTime)
   {
-    _bf->addTerm(-(Cv*T_prev*rho+Cv*rho_prev*T), ve->dt());
-    _rhs->addTerm(Cv*rho_prev*T_prev * ve->dt());
+    _bf->addTerm(-E, ve->dt());
+    _rhs->addTerm(E_prev * ve->dt());
   }
   if (_timeStepping)
   {
-    _bf->addTerm(rho_prev * Cv * T + T_prev * Cv * rho, ve / dt);
-    _rhs->addTerm(-(Cv*(rho_prev*T_prev - rho_prev_time * T_prev_time)) / dt * ve);
+    _bf->addTerm(E, ve / dt);
+    _rhs->addTerm(-(E_prev - E_prev_time) / dt * ve);
   }
   for (int d1=0; d1<spaceDim; d1++)
   {
-    if (_spaceTime)
-    {
-      _bf->addTerm(-0.5*(u_prev[d1]*u_prev[d1])*rho, ve->dt());
-      _bf->addTerm((-rho_prev*u_prev[d1])*u[d1],     ve->dt());
-      
-      _rhs->addTerm(0.5*rho_prev*(u_prev[d1]*u_prev[d1]) * ve->dt());
-    }
-    if (_timeStepping)
-    {
-      _bf->addTerm( rho_prev * u_prev[d1] * u[d1] + 0.5 * u_prev[d1] * u_prev[d1] * rho, ve / dt);
-      _rhs->addTerm( - (0.5 * (rho_prev * u_prev[d1] * u_prev[d1] - rho_prev_time * u_prev_time[d1] * u_prev_time[d1] )) / dt * ve );
-    }
+    _bf->addTerm(- gamma * (E_prev / rho_prev) * m[d1],                    ve->di(d1+1));
+    _bf->addTerm(  gamma * (E_prev * m_prev[d1] / rho_prev_squared) * rho, ve->di(d1+1));
+    _bf->addTerm(- gamma * (m_prev[d1] / rho_prev) * E,                    ve->di(d1+1));
+    _rhs->addTerm( gamma * E_prev / rho_prev * m_prev[d1]                * ve->di(d1+1));
     
-    _bf->addTerm(-(Cv+R) * u_prev[d1] * T_prev * rho - (Cv+R) * rho_prev * T_prev * u[d1] - (Cv+R) * rho_prev * u_prev[d1] * T, ve->di(d1+1));
-    _rhs->addTerm((Cv+R) * rho_prev * u_prev[d1] * T_prev * ve->di(d1+1));
+    _bf->addTerm( (gamma - 1.)      * m_prev_dot_m_prev * m_prev[d1] / (rho_prev_squared * rho_prev) * rho, ve->di(d1+1));
+    _bf->addTerm(-((gamma - 1.)/2.) * m_prev_dot_m_prev / rho_prev_squared * m[d1],                         ve->di(d1+1));
+    _rhs->addTerm(((gamma - 1.)/2.) * m_prev_dot_m_prev * m_prev[d1]/ rho_prev_squared                    * ve->di(d1+1));
     
     for (int d2=0; d2<spaceDim; d2++)
     {
-      _bf->addTerm(-(0.5*(u_prev[d2]*u_prev[d2])*u_prev[d1]*rho), ve->di(d1+1));
-      _bf->addTerm(-(0.5*rho_prev*(u_prev[d2]*u_prev[d2]))*u[d1], ve->di(d1+1));
-      _bf->addTerm(-(rho_prev*u_prev[d1]*(u_prev[d2]*u[d2])), ve->di(d1+1));
-      
-      _rhs->addTerm(0.5 * rho_prev * (u_prev[d2]*u_prev[d2]) * u_prev[d1] * ve->di(d1+1));
+      _bf->addTerm(-(gamma - 1.) * m_prev[d1] * m_prev[d2] / rho_prev_squared * m[d2], ve->di(d1+1));
     }
     
     _bf->addTerm(-q[d1], ve->di(d1+1));
@@ -500,13 +495,17 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
 
     for (int d2=0; d2<spaceDim; d2++)
     {
-      _bf->addTerm((D_prev[d1][d2] + D_prev[d2][d1])*u[d2], ve->di(d1+1));
-      _bf->addTerm((D_traceWeight * D_prev[d2][d2])*u[d1], ve->di(d1+1));
-      _bf->addTerm((D[d1][d2] + D[d2][d1])*u_prev[d2], ve->di(d1+1));
-      _bf->addTerm((D_traceWeight * u_prev[d1]) * D[d2][d2], ve->di(d1+1));
+      _bf->addTerm(-m_prev[d2]/rho_prev * (D[d1][d2] + D[d2][d1]),       ve->di(d1+1));
+      _bf->addTerm(-(D_traceWeight * m_prev[d2] / rho_prev) * D[d1][d1], ve->di(d1+1));
       
-      _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * u_prev[d2] * ve->di(d1+1));
-      _rhs->addTerm(- D_traceWeight * D_prev[d2][d2] * u_prev[d1] * ve->di(d1+1));
+      _bf->addTerm(-(1.0/rho_prev) * (D_prev[d1][d2] + D_prev[d2][d1])*m[d2],    ve->di(d1+1));
+      _bf->addTerm(-(D_traceWeight / rho_prev) * D_prev[d1][d1] * m[d2], ve->di(d1+1));
+      
+      _bf->addTerm((D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev_squared * rho,    ve->di(d1+1));
+      _bf->addTerm((D_traceWeight * m_prev[d2] / rho_prev_squared) * D_prev[d1][d1] * rho, ve->di(d1+1));
+
+      _rhs->addTerm((D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev    * ve->di(d1+1));
+      _rhs->addTerm((D_traceWeight * m_prev[d2] / rho_prev) * D_prev[d1][d1] * ve->di(d1+1));
     }
   }
   _bf->addTerm(te, ve);
@@ -558,19 +557,19 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   // Set up Functions for L^2 norm computations
   
   FunctionPtr rho_incr = Function::solution(rho, _solnIncrement);
-  FunctionPtr T_incr = Function::solution(T, _solnIncrement);
+  FunctionPtr E_incr = Function::solution(E, _solnIncrement);
   
-  _L2IncrementFunction = rho_incr * rho_incr + T_incr * T_incr;
-  _L2SolutionFunction = rho_prev * rho_prev + T_prev * T_prev;
+  _L2IncrementFunction = rho_incr * rho_incr + E_incr * E_incr;
+  _L2SolutionFunction = rho_prev * rho_prev + E_prev * E_prev;
   for (int comp_i=1; comp_i <= _spaceDim; comp_i++)
   {
-    FunctionPtr u_i_incr = Function::solution(this->u(comp_i), _solnIncrement);
-    FunctionPtr u_i_prev = Function::solution(this->u(comp_i), _backgroundFlow);
+    FunctionPtr m_i_incr = Function::solution(this->m(comp_i), _solnIncrement);
+    FunctionPtr m_i_prev = Function::solution(this->m(comp_i), _backgroundFlow);
     FunctionPtr q_i_incr = Function::solution(this->q(comp_i), _solnIncrement);
     FunctionPtr q_i_prev = Function::solution(this->q(comp_i), _backgroundFlow);
     
-    _L2IncrementFunction = _L2IncrementFunction + u_i_incr * u_i_incr;
-    _L2SolutionFunction = _L2SolutionFunction + u_i_prev * u_i_prev;
+    _L2IncrementFunction = _L2IncrementFunction + m_i_incr * m_i_incr;
+    _L2SolutionFunction = _L2SolutionFunction + m_i_prev * m_i_prev;
     _L2IncrementFunction = _L2IncrementFunction + q_i_incr * q_i_incr;
     _L2SolutionFunction = _L2SolutionFunction + q_i_prev * q_i_prev;
     
@@ -690,6 +689,12 @@ VarPtr CompressibleNavierStokesConservationForm::D(int i, int j)
   return _vf->fieldVar(S_D[i-1][j-1]);
 }
 
+VarPtr CompressibleNavierStokesConservationForm::E()
+{
+  return _vf->fieldVar(S_E);
+}
+
+
 // ! For an exact solution (u, rho, T), returns the corresponding forcing in the continuity equation
 FunctionPtr CompressibleNavierStokesConservationForm::exactSolution_fc(FunctionPtr u, FunctionPtr rho, FunctionPtr T)
 {
@@ -744,7 +749,7 @@ FunctionPtr CompressibleNavierStokesConservationForm::exactSolution_fe(FunctionP
   for (int d1=0; d1<_spaceDim; d1++)
   {
     int i = d1+1;
-    FunctionPtr u_i = exactMap[this->u(i)->ID()];
+    FunctionPtr u_i = exactMap[this->m(i)->ID()] / rho;
     vector<FunctionPtr> sigmaRow_vector(_spaceDim); // sigma_i
     for (int d2=0; d2<_spaceDim; d2++)
     {
@@ -789,7 +794,7 @@ std::vector<FunctionPtr> CompressibleNavierStokesConservationForm::exactSolution
   vector<FunctionPtr> u_vector(_spaceDim);
   for (int d=0; d<_spaceDim; d++)
   {
-    u_vector[d] = exactMap[this->u(d+1)->ID()];
+    u_vector[d] = exactMap[this->m(d+1)->ID()] / rho;
   }
 
   for (int d2=0; d2<_spaceDim; d2++)
@@ -990,11 +995,13 @@ std::map<int, FunctionPtr> CompressibleNavierStokesConservationForm::exactSoluti
   vector<vector<FunctionPtr>> D(_spaceDim,vector<FunctionPtr>(_spaceDim));
   vector<FunctionPtr> u(_spaceDim);
   FunctionPtr qWeight = (-Cp()/Pr())*_muFunc;
+  FunctionPtr E = rho * Cv() * T; // we add u*u/2 to this below
   if (_spaceDim == 1)
   {
     D[0][0] = _muFunc * velocity->dx();
     q[0] = qWeight * T->dx();
     u[0] = velocity;
+    E = E + 0.5 * u[0]*u[0];
   }
   else
   {
@@ -1006,6 +1013,7 @@ std::map<int, FunctionPtr> CompressibleNavierStokesConservationForm::exactSoluti
       {
         D[d1][d2] = _muFunc * u[d1]->di(d2+1);
       }
+      E = E + 0.5 * u[d1] * u[d1];
     }
   }
   vector<FunctionPtr> tm = exactSolution_tm(velocity, rho, T, includeFluxParity);
@@ -1013,14 +1021,14 @@ std::map<int, FunctionPtr> CompressibleNavierStokesConservationForm::exactSoluti
   FunctionPtr         tc = exactSolution_tc(velocity, rho, T, includeFluxParity);
   
   map<int, FunctionPtr> solnMap;
-  solnMap[this->T()->ID()]     = T;
+  solnMap[this->E()->ID()]     = E;
   solnMap[this->T_hat()->ID()] = T;
   solnMap[this->rho()->ID()]   = rho;
   solnMap[this->tc()->ID()]    = tc;
   solnMap[this->te()->ID()]    = te;
   for (int d1=0; d1<_spaceDim; d1++)
   {
-    solnMap[this->u(d1+1)->ID()]     = u[d1];
+    solnMap[this->m(d1+1)->ID()]     = u[d1] * rho;
     solnMap[this->u_hat(d1+1)->ID()] = u[d1];
     
     solnMap[this->q(d1+1)->ID()]     = q[d1];
@@ -1055,6 +1063,13 @@ double CompressibleNavierStokesConservationForm::L2NormSolutionIncrement()
 {
   double l2_squared = _L2IncrementFunction->integrate(_solnIncrement->mesh());
   return sqrt(l2_squared);
+}
+
+VarPtr CompressibleNavierStokesConservationForm::m(int i)
+{
+  CHECK_VALID_COMPONENT(i);
+  
+  return _vf->fieldVar(S_m[i-1]);
 }
 
 double CompressibleNavierStokesConservationForm::mu()
@@ -1124,11 +1139,11 @@ double CompressibleNavierStokesConservationForm::solveAndAccumulate()
 {
   _solveCode = _solnIncrement->solve(_solver);
   
-  set<int> nonlinearVariables = {{rho()->ID(), T()->ID()}};
+  set<int> nonlinearVariables = {{rho()->ID(), E()->ID()}};
   set<int> linearVariables = {{tc()->ID(), te()->ID(), T_hat()->ID()}};
   for (int d1=0; d1<_spaceDim; d1++)
   {
-    nonlinearVariables.insert(u(d1+1)->ID());
+    nonlinearVariables.insert(m(d1+1)->ID());
     nonlinearVariables.insert(q(d1+1)->ID());
     linearVariables.insert(tm(d1+1)->ID());
     linearVariables.insert(u_hat(d1+1)->ID());
@@ -1138,43 +1153,58 @@ double CompressibleNavierStokesConservationForm::solveAndAccumulate()
     }
   }
   
+  double alpha = 1.0;
+  ParameterFunctionPtr alphaParameter = ParameterFunction::parameterFunction(alpha);
+  
   FunctionPtr rhoPrevious  = Function::solution(rho(),_backgroundFlow);
   FunctionPtr rhoIncrement = Function::solution(rho(),_solnIncrement);
-  FunctionPtr TPrevious    = Function::solution(T(),  _backgroundFlow);
-  FunctionPtr TIncrement   = Function::solution(T(),  _solnIncrement);
+  FunctionPtr rhoUpdated   = rhoPrevious + FunctionPtr(alphaParameter) * rhoIncrement;
   
-  vector<FunctionPtr> positiveFunctions = {rhoPrevious,  TPrevious};
-  vector<FunctionPtr> positiveUpdates   = {rhoIncrement, TIncrement};
+  FunctionPtr EPrevious    = Function::solution(E(),_backgroundFlow);
+  FunctionPtr EIncrement   = Function::solution(E(),_solnIncrement);
+  FunctionPtr EUpdated     = EPrevious + FunctionPtr(alphaParameter) * EIncrement;
   
-  double alpha = 1;
-  bool useLineSearch = true;
+  vector<FunctionPtr> mPrevious(_spaceDim), mIncrement(_spaceDim), mUpdated(_spaceDim);
+  FunctionPtr mDotmUpdated = Function::zero();
+  for (int d=0; d<_spaceDim; d++)
+  {
+    mPrevious[d] = Function::solution(m(d+1),_backgroundFlow);
+    mIncrement[d] = Function::solution(m(d+1),_solnIncrement);
+    mUpdated[d] = mPrevious[d] + FunctionPtr(alphaParameter) * mIncrement[d];
+    mDotmUpdated = mDotmUpdated + mUpdated[d] * mUpdated[d];
+  }
+  
+  double Cv = this->Cv();
+  FunctionPtr TUpdated = (1.0/Cv) / rhoUpdated * (EUpdated - 0.5 * mDotmUpdated / rhoUpdated);
+  
+  vector<FunctionPtr> positiveFunctions = {rhoUpdated, TUpdated};
+  double minDistanceFromZero = .001; // "positive" values should not get *too* small...
   int posEnrich = 5;
+  
+  // lambda for positivity checking
+  auto isPositive = [&] () -> bool
+  {
+    for (auto f : positiveFunctions)
+    {
+      FunctionPtr f_smaller = f - minDistanceFromZero;
+      bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
+      if (!isPositive) return false;
+    }
+    return true;
+  };
+  
+  bool useLineSearch = true;
+
   if (useLineSearch)
   {
     double lineSearchFactor = .5;
-    double eps = .001;
-    bool isPositive=true;
-    for (int i=0; i < positiveFunctions.size(); i++)
-    {
-      FunctionPtr temp = positiveFunctions[i] + alpha*positiveUpdates[i] - Function::constant(eps);
-      isPositive = isPositive and temp->isPositive(_solnIncrement->mesh(),posEnrich);
-    }
     int iter = 0; int maxIter = 20;
-    while (!isPositive && iter < maxIter)
+    while (!isPositive() && iter < maxIter)
     {
       alpha = alpha*lineSearchFactor;
-      isPositive = true;
-      for (int i=0; i < positiveFunctions.size(); i++)
-      {
-        FunctionPtr temp = positiveFunctions[i] + alpha*positiveUpdates[i] - Function::constant(eps);
-        isPositive = isPositive and temp->isPositive(_solnIncrement->mesh(),posEnrich);
-      }
+      alphaParameter->setValue(alpha);
       iter++;
     }
-    int commRank = Teuchos::GlobalMPISession::getRank();
-    // if (commRank==0 && alpha < 1.0){
-    //   cout << "Line search factor alpha = " << alpha << endl;
-    // }
   }
   
   _backgroundFlow->addReplaceSolution(_solnIncrement, alpha, nonlinearVariables, linearVariables);
@@ -1198,11 +1228,6 @@ SolutionPtr CompressibleNavierStokesConservationForm::solutionIncrement()
 SolutionPtr CompressibleNavierStokesConservationForm::solutionPreviousTimeStep()
 {
   return _solnPrevTime;
-}
-
-VarPtr CompressibleNavierStokesConservationForm::T()
-{
-  return _vf->fieldVar(S_T);
 }
 
 VarPtr CompressibleNavierStokesConservationForm::T_hat()
@@ -1233,13 +1258,6 @@ VarPtr CompressibleNavierStokesConservationForm::tm(int i)
 {
   CHECK_VALID_COMPONENT(i);
   return _vf->fluxVar(S_tm[i-1]);
-}
-
-VarPtr CompressibleNavierStokesConservationForm::u(int i)
-{
-  CHECK_VALID_COMPONENT(i);
-  
-  return _vf->fieldVar(S_u[i-1]);
 }
 
 // traces:
