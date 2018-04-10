@@ -428,6 +428,14 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   
   // D is the mu-weighted gradient of u
   double D_traceWeight = -2./3.; // In Truman's code, this is hard-coded to -2/3 for 1D, 3D, and -2/2 for 2D.  This value arises from Stokes' hypothesis, and I think he probably was implementing a variant of this for 2D.  I'm going with what I think is the more standard choice of using the same value regardless of spatial dimension.
+  LinearTermPtr D_trace;
+  FunctionPtr D_trace_prev = Function::zero();
+  for (int d=0; d<spaceDim; d++)
+  {
+    D_trace = D_trace + D[d][d];
+    D_trace_prev = D_trace_prev +  D_prev[d][d];
+  }
+  
   // vm
   for (int d1=0; d1<spaceDim; d1++)
   {
@@ -444,18 +452,19 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     _bf->addTerm(-(gamma - 1.) * E,       vm[d1]->di(d1+1));
     _rhs->addTerm((gamma - 1.) * E_prev * vm[d1]->di(d1+1));
     
-    _bf->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev_squared) * rho, vm[d1]->di(d1+1));
-    _rhs->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev)             * vm[d1]->di(d1+1));
+    _bf->addTerm( -(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev_squared) * rho, vm[d1]->di(d1+1));
+    _rhs->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev)              * vm[d1]->di(d1+1));
+    
+    _bf->addTerm(  D_traceWeight * D_trace,       vm[d1]->di(d1+1));
+    _rhs->addTerm(-D_traceWeight * D_trace_prev * vm[d1]->di(d1+1));
     for (int d2=0; d2<spaceDim; d2++)
     {
       _bf->addTerm(-(m_prev[d2]/rho_prev * m[d1] + m_prev[d1]/rho_prev * m[d2]), vm[d1]->di(d2+1));
-      _bf->addTerm( (m_prev[d1] * m_prev[d2] / rho_prev_squared) * rho,             vm[d1]->di(d2+1));
+      _bf->addTerm( (m_prev[d1] * m_prev[d2] / rho_prev_squared) * rho,          vm[d1]->di(d2+1));
+      _rhs->addTerm( m_prev[d1] * m_prev[d2] / rho_prev                        * vm[d1]->di(d2+1));
       
-      _bf->addTerm(D[d1][d2] + D[d2][d1],     vm[d1]->di(d2+1));
-      _bf->addTerm(D_traceWeight * D[d2][d2], vm[d1]->di(d1+1));
-      
+      _bf->addTerm(   D[d1][d2]      + D[d2][d1],        vm[d1]->di(d2+1));
       _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * vm[d1]->di(d2+1));
-      _rhs->addTerm(-D_traceWeight * D_prev[d2][d2]    * vm[d1]->di(d1+1));
       
       _bf->addTerm( (gamma - 1.) * m_prev[d1] / rho_prev * m[d1], vm[d2]->di(d2+1));
     }
@@ -481,31 +490,29 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     _bf->addTerm(- gamma * (m_prev[d1] / rho_prev) * E,                    ve->di(d1+1));
     _rhs->addTerm( gamma * E_prev / rho_prev * m_prev[d1]                * ve->di(d1+1));
     
-    _bf->addTerm( (gamma - 1.)      * m_prev_dot_m_prev * m_prev[d1] / (rho_prev_squared * rho_prev) * rho, ve->di(d1+1));
-    _bf->addTerm(-((gamma - 1.)/2.) * m_prev_dot_m_prev / rho_prev_squared * m[d1],                         ve->di(d1+1));
-    _rhs->addTerm(((gamma - 1.)/2.) * m_prev_dot_m_prev * m_prev[d1]/ rho_prev_squared                    * ve->di(d1+1));
+    _bf->addTerm( -(gamma - 1.)     * m_prev_dot_m_prev * m_prev[d1] / (rho_prev_squared * rho_prev) * rho, ve->di(d1+1));
+    _bf->addTerm( ((gamma - 1.)/2.) * m_prev_dot_m_prev / rho_prev_squared * m[d1],                         ve->di(d1+1));
+    _rhs->addTerm(-((gamma - 1.)/2.) * m_prev_dot_m_prev * m_prev[d1]/ rho_prev_squared                    * ve->di(d1+1));
     
     for (int d2=0; d2<spaceDim; d2++)
     {
-      _bf->addTerm(-(gamma - 1.) * m_prev[d1] * m_prev[d2] / rho_prev_squared * m[d2], ve->di(d1+1));
+      _bf->addTerm((gamma - 1.) * m_prev[d1] * m_prev[d2] / rho_prev_squared * m[d2], ve->di(d1+1));
     }
     
     _bf->addTerm(-q[d1], ve->di(d1+1));
     _rhs->addTerm(q_prev[d1] * ve->di(d1+1));
+    
+    _bf->addTerm((D_traceWeight * m_prev[d1] / rho_prev) * D_trace, ve->di(d1+1));
+    _bf->addTerm((D_traceWeight / rho_prev) * D_trace_prev * m[d1], ve->di(d1+1));
+    _bf->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev_squared) * D_trace_prev * rho, ve->di(d1+1));
+    _rhs->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev) * D_trace_prev * ve->di(d1+1));
 
     for (int d2=0; d2<spaceDim; d2++)
     {
-      _bf->addTerm(-m_prev[d2]/rho_prev * (D[d1][d2] + D[d2][d1]),       ve->di(d1+1));
-      _bf->addTerm(-(D_traceWeight * m_prev[d2] / rho_prev) * D[d1][d1], ve->di(d1+1));
-      
-      _bf->addTerm(-(1.0/rho_prev) * (D_prev[d1][d2] + D_prev[d2][d1])*m[d2],    ve->di(d1+1));
-      _bf->addTerm(-(D_traceWeight / rho_prev) * D_prev[d1][d1] * m[d2], ve->di(d1+1));
-      
-      _bf->addTerm((D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev_squared * rho,    ve->di(d1+1));
-      _bf->addTerm((D_traceWeight * m_prev[d2] / rho_prev_squared) * D_prev[d1][d1] * rho, ve->di(d1+1));
-
-      _rhs->addTerm((D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev    * ve->di(d1+1));
-      _rhs->addTerm((D_traceWeight * m_prev[d2] / rho_prev) * D_prev[d1][d1] * ve->di(d1+1));
+      _bf->addTerm(m_prev[d2]/rho_prev * (D[d1][d2] + D[d2][d1]),                        ve->di(d1+1));
+      _bf->addTerm((1.0/rho_prev) * (D_prev[d1][d2] + D_prev[d2][d1])*m[d2],             ve->di(d1+1));
+      _bf->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev_squared * rho, ve->di(d1+1));
+      _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev             * ve->di(d1+1));
     }
   }
   _bf->addTerm(te, ve);
@@ -1001,7 +1008,7 @@ std::map<int, FunctionPtr> CompressibleNavierStokesConservationForm::exactSoluti
     D[0][0] = _muFunc * velocity->dx();
     q[0] = qWeight * T->dx();
     u[0] = velocity;
-    E = E + 0.5 * u[0]*u[0];
+    E = E + 0.5 * rho * u[0]*u[0];
   }
   else
   {
@@ -1013,7 +1020,7 @@ std::map<int, FunctionPtr> CompressibleNavierStokesConservationForm::exactSoluti
       {
         D[d1][d2] = _muFunc * u[d1]->di(d2+1);
       }
-      E = E + 0.5 * u[d1] * u[d1];
+      E = E + 0.5 * rho * u[d1] * u[d1];
     }
   }
   vector<FunctionPtr> tm = exactSolution_tm(velocity, rho, T, includeFluxParity);

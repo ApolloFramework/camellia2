@@ -100,7 +100,7 @@ namespace
   void testResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr T, int cubatureEnrichment, double tol, bool steady, Teuchos::FancyOStream &out, bool &success)
   {
     int meshWidth = 2;
-    int polyOrder = 2;
+    int polyOrder = 4; // could make some tests cheaper by taking the required poly order as argument...
     int delta_k   = 2; // 1 is likely sufficient in 1D
     int spaceDim = 1;
     
@@ -170,24 +170,30 @@ namespace
       
       /* New, fuller test:
        Here, actually test for a sort of conservation property - that the time stepper is linear in the conservation
-       variables, basically.  This takes advantage of the fact that all conservation variables are linear in rho.
-       Later, we might add another round of tests that uses linearity in T.
-       
+       variables, basically.
        */
       
       auto prevSolnFieldMapRho = fieldMap;
-      auto prevSolnFieldMapT   = fieldMap;
+      auto prevSolnFieldMapm   = fieldMap;
+      auto prevSolnFieldMapE   = fieldMap;
+      
+      FunctionPtr m = fieldMap[form->m(1)->ID()];
+      FunctionPtr E = fieldMap[form->E()->ID() ];
       
       prevSolnFieldMapRho[form->rho()->ID()] = rho - dt;
-//      prevSolnFieldMapT  [form->T()->ID()]   = T   - dt;
+      prevSolnFieldMapm  [form->m(1)->ID() ] = m   - dt;
+      prevSolnFieldMapE  [form->E()->ID()  ] = E   - dt;
       
       previousSolutionFieldMaps.push_back(prevSolnFieldMapRho);
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapm);
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapE);
 //      previousSolutionFieldMaps.push_back(prevSolnFieldMapT);
       
-      array<FunctionPtr,3> rhoForcing = {{f_c + 1, f_m[0] + u, f_e + TEST_CV * T + .5 * u * u}};
-//      array<FunctionPtr,3> TForcing   = {{f_c,     f_m[0],     f_e + TEST_CV * rho           }};
-//      forcingFunctions = {{rhoForcing, TForcing}};
-      forcingFunctions = {{rhoForcing}};
+      array<FunctionPtr,3> rhoForcing = {{f_c + 1, f_m[0]    , f_e     }};
+      array<FunctionPtr,3> mForcing   = {{f_c,     f_m[0] + 1, f_e     }};
+      array<FunctionPtr,3> EForcing   = {{f_c,     f_m[0]    , f_e + 1 }};
+      
+      forcingFunctions = {{rhoForcing, mForcing, EForcing}};
     }
     else
     {
