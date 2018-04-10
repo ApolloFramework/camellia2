@@ -1681,6 +1681,11 @@ TLinearTermPtr<double> operator+(TLinearTermPtr<double> a1, TLinearTermPtr<doubl
 
 TLinearTermPtr<double> operator+(VarPtr v, TLinearTermPtr<double> a)
 {
+  if (a == Teuchos::null)
+  {
+    // treat a as zero
+    return 1.0 * v;
+  }
   TLinearTermPtr<double> sum = Teuchos::rcp( new TLinearTerm<double>(*a) );
   *sum += v;
   return sum;
@@ -1688,7 +1693,15 @@ TLinearTermPtr<double> operator+(VarPtr v, TLinearTermPtr<double> a)
 
 TLinearTermPtr<double> operator+(TLinearTermPtr<double> a, VarPtr v)
 {
-  return v + a;
+  if (a == Teuchos::null)
+  {
+    // treat a as zero
+    return 1.0 * v;
+  }
+  else
+  {
+    return v + a;
+  }
 }
 
 TLinearTermPtr<double> operator+(VarPtr v1, VarPtr v2)
@@ -1757,6 +1770,16 @@ TLinearTermPtr<double> operator*(TLinearTermPtr<double> a, TFunctionPtr<double> 
     lt->addTerm(newWeight * var, bypassTypeCheck);
   }
   return lt;
+}
+  
+TLinearTermPtr<double> operator*(TLinearTermPtr<double> a, double weight)
+{
+  return weight * a;
+}
+
+TLinearTermPtr<double> operator*(double weight, TLinearTermPtr<double> a)
+{
+  return Function::constant(weight) * a;
 }
 
 TLinearTermPtr<double> operator/(TLinearTermPtr<double> a, TFunctionPtr<double> f)

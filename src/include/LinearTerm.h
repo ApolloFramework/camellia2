@@ -170,6 +170,8 @@ TLinearTermPtr<double> operator*(vector<double> weight, VarPtr v);
 TLinearTermPtr<double> operator*(VarPtr v, vector<double> weight);
 TLinearTermPtr<double> operator*(TFunctionPtr<double> f, TLinearTermPtr<double> a);
 TLinearTermPtr<double> operator*(TLinearTermPtr<double> a, TFunctionPtr<double> f);
+TLinearTermPtr<double> operator*(TLinearTermPtr<double> a, double weight);
+TLinearTermPtr<double> operator*(double weight, TLinearTermPtr<double> a);
 TLinearTermPtr<double> operator/(VarPtr v, double weight);
 TLinearTermPtr<double> operator/(VarPtr v, TFunctionPtr<double> f);
 TLinearTermPtr<double> operator-(TLinearTermPtr<double> a);
