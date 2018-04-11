@@ -368,7 +368,7 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   auto n_S = (_spaceDim > 1) ? n_x : n_x->x();
   for (int d=0; d<spaceDim; d++)
   {
-    _bf->addTerm(m[d]/rho_prev + m_prev[d]/rho_prev_squared * rho, S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
+    _bf->addTerm(m[d]/rho_prev - m_prev[d]/rho_prev_squared * rho, S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
     _rhs->addTerm(-m_prev[d] / rho_prev * S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
     for (int d2=0; d2<spaceDim; d2++)
     {

@@ -11,6 +11,7 @@
 
 #include "MeshFactory.h"
 #include "CompressibleNavierStokesConservationForm.hpp"
+#include "HDF5Exporter.h"
 #include "RHS.h"
 #include "SimpleFunction.h"
 #include "Solution.h"
@@ -23,12 +24,15 @@ using namespace Intrepid;
 #include "Teuchos_UnitTestHarness.hpp"
 namespace
 {
-  static const double TEST_RE = 1e2;
+  static const double TEST_RE = 1e0;
   static const double TEST_PR = 0.713;
   static const double TEST_CV = 1.000;
   static const double TEST_GAMMA = 1.4;
   static const double TEST_CP = TEST_GAMMA * TEST_CV;
   static const double TEST_R = TEST_CP - TEST_CV;
+  
+  static const double DEFAULT_RESIDUAL_TOLERANCE = 1e-12; // now that we do a solve, need to be a bit more relaxed
+  static const double DEFAULT_NL_SOLVE_TOLERANCE =  1e-6; // for nonlinear stepping
   
   void testForcing_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr T,
                       FunctionPtr fc, FunctionPtr fm, FunctionPtr fe,
@@ -104,12 +108,18 @@ namespace
     int delta_k   = 2; // 1 is likely sufficient in 1D
     int spaceDim = 1;
     
-    double x_a   = 0.0;
-    double x_b   = 1.0;
+    double x_a   = 0.01; // cheat to the right a bit to ensure that we don't get spurious failures due to zero density at LHS of mesh (if using linear density)
+    double x_b   = 1.01;
     MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
     
     double Re    = 1e2; // Reynolds number
     double dt    = 1.0; // only used for unsteady
+    
+    if (T->isZero())
+    {
+      // instead of zero, use a small constant...
+      T = Function::constant(.01);
+    }
     
     bool useConformingTraces = true;
     Teuchos::RCP<CompressibleNavierStokesConservationForm> form;
@@ -164,11 +174,7 @@ namespace
     vector<array<FunctionPtr,3>> forcingFunctions; // entries are fc, fm, fe
     if (!steady)
     {
-      // this is not a full test of time step formulation, but it does check that if we have a steady solution,
-      // the time step will not take us away from it.
-      //      solnPrevTime->projectOntoMesh(fieldMap, solnOrdinal);
-      
-      /* New, fuller test:
+      /*
        Here, actually test for a sort of conservation property - that the time stepper is linear in the conservation
        variables, basically.
        */
@@ -187,7 +193,6 @@ namespace
       previousSolutionFieldMaps.push_back(prevSolnFieldMapRho);
       previousSolutionFieldMaps.push_back(prevSolnFieldMapm);
       previousSolutionFieldMaps.push_back(prevSolnFieldMapE);
-//      previousSolutionFieldMaps.push_back(prevSolnFieldMapT);
       
       array<FunctionPtr,3> rhoForcing = {{f_c + 1, f_m[0]    , f_e     }};
       array<FunctionPtr,3> mForcing   = {{f_c,     f_m[0] + 1, f_e     }};
@@ -201,7 +206,33 @@ namespace
       array<FunctionPtr,3> standardForcingFunctions = {{f_c, f_m[0], f_e}};
       forcingFunctions = {{standardForcingFunctions}};
     }
-      
+    
+    auto printTestInfo = [&] (map<int, FunctionPtr> &prevSolnFieldMap) -> void {
+      out << "Exact solution under test:\n";
+      for (auto traceEntry : traceMap)
+      {
+        int trialID = traceEntry.first;
+        std::string varName = vf->trial(trialID)->name();
+        out << "  " << varName << ": " << traceEntry.second->displayString() << std::endl;
+      }
+      for (auto trialEntry : fieldMap)
+      {
+        int trialID = trialEntry.first;
+        std::string varName = vf->trial(trialID)->name();
+        out << "  " << varName << ": " << trialEntry.second->displayString() << std::endl;
+      }
+      if (!steady)
+      {
+        out << "Previous solution under test:\n";
+        for (auto trialEntry : prevSolnFieldMap)
+        {
+          int trialID = trialEntry.first;
+          std::string varName = vf->trial(trialID)->name();
+          out << "  " << varName << ": " << trialEntry.second->displayString() << std::endl;
+        }
+      }
+    };
+    
     int numEntries = previousSolutionFieldMaps.size();
     for (int testOrdinal=0; testOrdinal<numEntries; testOrdinal++)
     {
@@ -220,6 +251,7 @@ namespace
       
       auto summands = residual->summands();
       auto testVars = vf->testVars();
+      
       for (auto testEntry : testVars)
       {
         int testID = testEntry.first;
@@ -241,33 +273,188 @@ namespace
           success = false;
           out << "FAILURE: residual in " << testVar->name() << " component: " << residualNorm << " exceeds tolerance " << tol << ".\n";
           out << "Residual string: " << testResidual->displayString() << "\n";
-          out << "Exact solution under test:\n";
-          for (auto traceEntry : traceMap)
+          printTestInfo(prevSolnFieldMap);
+        }
+      }
+      
+      /*
+       Harden this test a bit: add BCs corresponding to the exact solution, and do a solveAndAccumulate().  Since
+       the residual is zero before solve, we expect it to remain zero after solve.  This is basically a mild test
+       of solveAndAccumulate(), and maybe a bit harder test of the BC imposition methods.
+       */
+      form->addMassFluxCondition    (SpatialFilter::allSpace(), rho, u, T);
+      form->addEnergyFluxCondition  (SpatialFilter::allSpace(), rho, u, T);
+      form->addMomentumFluxCondition(SpatialFilter::allSpace(), rho, u, T);
+      form->addTemperatureTraceCondition(SpatialFilter::allSpace(), T);
+      form->addVelocityTraceCondition(SpatialFilter::allSpace(), u);
+      form->solutionIncrement()->setCubatureEnrichmentDegree(cubatureEnrichment);
+      double alpha = form->solveAndAccumulate();
+      if (alpha < 1.0)
+      {
+        success = false;
+        out << "TEST FAILURE: with exact solution as background flow, line search used a step size of " << alpha << ", below expected 1.0\n";
+        printTestInfo(prevSolnFieldMap);
+      }
+      for (auto testEntry : testVars)
+      {
+        int testID = testEntry.first;
+        VarPtr testVar = testEntry.second;
+        // filter the parts of residual that involve testVar
+        LinearTermPtr testResidual = Teuchos::rcp( new LinearTerm );
+        for (auto summandEntry : summands)
+        {
+          FunctionPtr f = summandEntry.first;
+          VarPtr v = summandEntry.second;
+          if (v->ID() == testID)
           {
-            int trialID = traceEntry.first;
-            std::string varName = vf->trial(trialID)->name();
-            out << "  " << varName << ": " << traceEntry.second->displayString() << std::endl;
+            testResidual = testResidual + f * v;
           }
-          for (auto trialEntry : fieldMap)
+        }
+        double residualNorm = testResidual->computeNorm(testIP, soln->mesh(), cubatureEnrichment);
+        if (residualNorm > tol)
+        {
+          success = false;
+          out << "FAILURE: after solveAndAccumulate(), residual in " << testVar->name() << " component: " << residualNorm << " exceeds tolerance " << tol << ".\n";
+          out << "Residual string: " << testResidual->displayString() << "\n";
+          printTestInfo(prevSolnFieldMap);
+          
+          map<int, FunctionPtr> solnIncrementErrorFunctionMap;
+          for (auto exactSolnEntry : exactMap)
           {
-            int trialID = trialEntry.first;
-            std::string varName = vf->trial(trialID)->name();
-            out << "  " << varName << ": " << trialEntry.second->displayString() << std::endl;
-          }
-          if (!steady)
-          {
-            out << "Previous solution under test:\n";
-            for (auto trialEntry : prevSolnFieldMap)
+            int trialID = exactSolnEntry.first;
+            FunctionPtr exactSolnFxn = exactSolnEntry.second;
+            FunctionPtr expectedSoln;
+            VarPtr var = vf->trial(trialID);
+            if (var->isDefinedOnVolume()) // field
             {
-              int trialID = trialEntry.first;
-              std::string varName = vf->trial(trialID)->name();
-              out << "  " << varName << ": " << trialEntry.second->displayString() << std::endl;
+              expectedSoln = Function::zero();
             }
+            else
+            {
+              // we solve for the traces in each nonlinear step; they stay in solnIncrement
+              expectedSoln = exactSolnFxn;
+            }
+            bool weightFluxesByParity = true; // pretty sure this is the right choice to make uniquely valued...
+            FunctionPtr solnIncrementFxn = Function::solution(var, form->solutionIncrement(), weightFluxesByParity);
+            FunctionPtr error = solnIncrementFxn - expectedSoln;
+            double l2Error = error->l2norm(soln->mesh());
+            out << var->name() << " error: " << l2Error << endl;
           }
         }
       }
     }
   }
+  
+  
+  void testSteadySolve_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr T, FunctionPtr u_guess, FunctionPtr rho_guess, FunctionPtr T_guess, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    int meshWidth = 20;
+    int polyOrder = 2; // need 2nd order to exactly capture E for linear u
+    int delta_k   = 2; // 1 is likely sufficient in 1D
+    int spaceDim = 1;
+    
+    double x_a   = 0.01; // cheat to the right a bit to ensure that we don't get spurious failures due to zero density at LHS of mesh (if using linear density)
+    double x_b   = 1.01;
+    MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
+    
+    double Re    = TEST_RE; // Reynolds number
+    
+    if (T->isZero())
+    {
+      // instead of zero, use a small constant...
+      T = Function::constant(.01);
+    }
+    
+    bool useConformingTraces = true;
+    Teuchos::RCP<CompressibleNavierStokesConservationForm> form;
+    form = CompressibleNavierStokesConservationForm::steadyFormulation(spaceDim, Re, useConformingTraces,
+                                                                       meshTopo, polyOrder, delta_k);
+    
+    BFPtr bf = form->bf();
+    RHSPtr rhs = form->rhs();
+    
+    auto soln = form->solution();
+    auto solnIncrement = form->solutionIncrement();
+    
+    HDF5Exporter solutionExporter(soln->mesh(), "testSteadySolve", "/tmp");
+    HDF5Exporter solutionIncrementExporter(solnIncrement->mesh(), "testSteadySolveIncrement", "/tmp");
+    
+    bool includeFluxParity = false; // for fluxes, we will substitute fluxes into the bf object, meaning that we want them to flip sign with the normal.
+    auto exactMap = form->exactSolutionMap(u, rho, T, includeFluxParity);
+    auto f_c = form->exactSolution_fc(u, rho, T);
+    auto f_m = form->exactSolution_fm(u, rho, T);
+    auto f_e = form->exactSolution_fe(u, rho, T);
+    
+    form->setForcing(f_c, {{f_m}}, f_e);
+    
+    auto vf = bf->varFactory();
+    // split fields out from the initial guess
+    // we want to project the traces onto the increment, and the fields onto the background flow (soln)
+    auto initialGuessMap = form->exactSolutionMap(u_guess, rho_guess, T_guess, includeFluxParity);
+    map<int, FunctionPtr> fieldInitialGuessMap;
+    for (auto entry : initialGuessMap)
+    {
+      int trialID = entry.first;
+      FunctionPtr f = entry.second;
+      VarPtr trialVar = vf->trial(trialID);
+      if (trialVar->isDefinedOnVolume()) // field
+      {
+        initialGuessMap[trialID] = f;
+        out << "set initial guess for " << trialVar->name() << ": " << f->displayString() << endl;
+      }
+    }
+    int solnOrdinal = 0; // no goal-oriented stuff here...
+    soln->projectOntoMesh(initialGuessMap, solnOrdinal);
+    
+    // add basically all possible BCs -- may want to remove some of these at some point...
+    form->addMassFluxCondition    (SpatialFilter::allSpace(), rho, u, T);
+    form->addEnergyFluxCondition  (SpatialFilter::allSpace(), rho, u, T);
+    form->addMomentumFluxCondition(SpatialFilter::allSpace(), rho, u, T);
+    form->addTemperatureTraceCondition(SpatialFilter::allSpace(), T);
+    form->addVelocityTraceCondition(SpatialFilter::allSpace(), u);
+    form->solutionIncrement()->setCubatureEnrichmentDegree(cubatureEnrichment);
+    int maxSteps = 20;
+    solutionExporter.exportSolution(soln, double(0));  // output initial guess
+    for (int stepNumber = 0; stepNumber<maxSteps; stepNumber++)
+    {
+      double alpha = form->solveAndAccumulate();
+      if (alpha < 1.0)
+      {
+        out << "in step " << stepNumber << ", alpha = " << alpha << endl;
+      }
+      solutionExporter.exportSolution(soln, double(stepNumber+1));  // use stepNumber as the "time" value for export...
+      solutionIncrementExporter.exportSolution(solnIncrement, double(stepNumber));
+    }
+    
+    map<int, FunctionPtr> solnErrorFunctionMap;
+    for (auto exactSolnEntry : exactMap)
+    {
+      int trialID = exactSolnEntry.first;
+      FunctionPtr exactSolnFxn = exactSolnEntry.second;
+      FunctionPtr expectedSoln;
+      VarPtr var = vf->trial(trialID);
+      FunctionPtr solnFxn;
+      bool weightFluxesByParity = true; // pretty sure this is the right choice to make uniquely valued...
+      if (var->isDefinedOnVolume()) // field
+      {
+        solnFxn = Function::solution(var, form->solution(), weightFluxesByParity);
+      }
+      else
+      {
+        // we solve for the traces in each nonlinear step; they stay in solnIncrement
+        solnFxn = Function::solution(var, form->solutionIncrement(), weightFluxesByParity);
+      }
+      FunctionPtr error = solnFxn - exactSolnFxn;
+      double l2Error = error->l2norm(soln->mesh());
+      if (l2Error > tol)
+      {
+        success = false;
+        out << "Failure in ";
+        out << var->name() << "; error: " << l2Error << endl;
+      }
+    }
+  }
+
   
   void testSteadyResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr T, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
   {
@@ -326,7 +513,7 @@ namespace
   {
     double tol = 1e-16;
     int cubatureEnrichment = 2;
-    FunctionPtr x   = Function::xn(1);;
+    FunctionPtr x   = Function::xn(1);
     FunctionPtr u   = Function::zero();
     FunctionPtr rho = Function::constant(1.0);
     FunctionPtr T   = x;
@@ -340,7 +527,7 @@ namespace
   {
     double tol = 1e-16;
     int cubatureEnrichment = 2;
-    FunctionPtr x   = Function::xn(1);;
+    FunctionPtr x   = Function::xn(1);
     FunctionPtr u   = x;
     FunctionPtr rho = Function::constant(1.0);
     FunctionPtr T   = Function::zero();
@@ -348,6 +535,81 @@ namespace
     FunctionPtr f_m = 2.0 * x;                 // expected forcing for momentum equation
     FunctionPtr f_e = 1.5 * x * x + -4./3. * 1. / TEST_RE; // expected forcing for energy equation
     testForcing_1D(u, rho, T, f_c, f_m, f_e, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Solve_1D_Steady_AllUnit)
+  {
+    double tol = DEFAULT_NL_SOLVE_TOLERANCE;
+    int cubatureEnrichment = 2;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = Function::constant(1.0);
+
+    FunctionPtr u_guess   = Function::constant(0.50);
+    FunctionPtr rho_guess = Function::constant(0.50);
+    FunctionPtr T_guess   = Function::constant(0.50);
+    
+    testSteadySolve_1D(u, rho, T, u_guess, rho_guess, T_guess, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Solve_1D_Steady_LinearVelocityUnitDensityUnitTemp)
+  {
+    double tol = DEFAULT_NL_SOLVE_TOLERANCE;
+    int cubatureEnrichment = 2;
+    FunctionPtr u   = Function::xn(1);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = Function::constant(1.0);
+    
+    FunctionPtr u_guess   = 0.5 * u;
+    FunctionPtr rho_guess = 0.5 * rho;
+    FunctionPtr T_guess   = 0.5 * T;
+    
+    testSteadySolve_1D(u, rho, T, u_guess, rho_guess, T_guess, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Solve_1D_Steady_LinearVelocityLinearDensityUnitTemp)
+  {
+    double tol = DEFAULT_NL_SOLVE_TOLERANCE;
+    int cubatureEnrichment = 2;
+    FunctionPtr u   = Function::xn(1);
+    FunctionPtr rho = Function::xn(1);
+    FunctionPtr T   = Function::constant(1.0);
+    
+    FunctionPtr u_guess   = 0.5 * u;
+    FunctionPtr rho_guess = rho;
+    FunctionPtr T_guess   = T;
+    
+    testSteadySolve_1D(u, rho, T, u_guess, rho_guess, T_guess, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Solve_1D_Steady_UnitVelocityLinearDensityUnitTemp)
+  {
+    double tol = DEFAULT_NL_SOLVE_TOLERANCE;
+    int cubatureEnrichment = 2;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::xn(1);
+    FunctionPtr T   = Function::constant(1.0);
+    
+    FunctionPtr u_guess   = 0.5 * u;
+    FunctionPtr rho_guess = 0.5 * rho;
+    FunctionPtr T_guess   = 0.5 * T;
+    
+    testSteadySolve_1D(u, rho, T, u_guess, rho_guess, T_guess, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Solve_1D_Steady_UnitVelocityUnitDensityLinearTemp)
+  {
+    double tol = DEFAULT_NL_SOLVE_TOLERANCE;
+    int cubatureEnrichment = 2;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = Function::xn(1);
+    
+    FunctionPtr u_guess   = 0.5 * u;
+    FunctionPtr rho_guess = 0.5 * rho;
+    FunctionPtr T_guess   = 0.5 * T;
+    
+    testSteadySolve_1D(u, rho, T, u_guess, rho_guess, T_guess, cubatureEnrichment, tol, out, success);
   }
 
   // Commenting out for now: zero density not allowed...
@@ -378,7 +640,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_AllOne)
   {
-    double tol = 1e-13;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 0;
     FunctionPtr u   = Function::constant(1.0);
     FunctionPtr rho = Function::constant(1.0);
@@ -386,13 +648,13 @@ namespace
     testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
   
-  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_UnitDensity)
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_UnitDensityUnitTemp)
   {
-    double tol = 1e-15;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 0;
     FunctionPtr u   = Function::zero();
     FunctionPtr rho = Function::constant(1.0);
-    FunctionPtr T   = Function::zero();
+    FunctionPtr T   = Function::constant(1.0);
     testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
 
@@ -418,19 +680,19 @@ namespace
 //    testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
 //  }
   
-  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_LinearDensity)
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_LinearDensityUnitTemp)
   {
-    double tol = 1e-15;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 3;
     FunctionPtr u   = Function::zero();
     FunctionPtr rho = Function::xn(1);
-    FunctionPtr T   = Function::zero();
+    FunctionPtr T   = Function::constant(1.0);
     testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_LinearDensityUnitVelocity)
   {
-    double tol = 1e-14;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 0;
     FunctionPtr u   = Function::constant(1.0);
     FunctionPtr rho = Function::xn(1);
@@ -438,6 +700,28 @@ namespace
     testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
 
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_LinearDensityLinearVelocityQuadraticEnergy)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::xn(1);
+    FunctionPtr rho = Function::xn(1);
+    FunctionPtr E   = Function::xn(2);
+    FunctionPtr T   = (1.0 / TEST_CV) * (1.0 / rho) * E - (1.0 / TEST_CV) * (0.5 * u * u); // comes out to (1/Cv) * x - (1/Cv) * 0.5 * x^2 = (1/Cv) * x * (1 - 0.5 x)
+    testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_UnitDensityUnitVelocityLinearEnergy)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
+    int cubatureEnrichment = 0;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr E   = Function::xn(1) + 1.0; // add 1 to bound temp away from zero
+    FunctionPtr T   = (1.0 / TEST_CV) * (1.0 / rho) * E - (1.0 / TEST_CV) * (0.5 * u * u);
+    testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
   // Commenting out for now: zero density not allowed...
 //  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_LinearTemp)
 //  {
@@ -451,7 +735,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_LinearTempUnitDensity)
   {
-    double tol = 1e-15;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 2;
     FunctionPtr x   = Function::xn(1);
     FunctionPtr u   = Function::zero();
@@ -473,7 +757,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_LinearVelocityLinearDensityLinearTemp)
   {
-    double tol = 1e-13;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 4;
     FunctionPtr x   = Function::xn(1);
     FunctionPtr u   = x;
@@ -484,12 +768,23 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_LinearVelocityUnitDensity)
   {
-    double tol = 1e-14;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 3;
     FunctionPtr x   = Function::xn(1);
     FunctionPtr u   = x;
     FunctionPtr rho = Function::constant(1.0);
     FunctionPtr T   = Function::zero();
+    testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Steady_LinearVelocityUnitDensityUnitTemp)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
+    int cubatureEnrichment = 2;
+    FunctionPtr u   = Function::xn(1);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = Function::constant(1.0);
+    
     testSteadyResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
 
@@ -518,7 +813,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_AllOne)
   {
-    double tol = 1e-13;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 0;
     FunctionPtr u   = Function::constant(1.0);
     FunctionPtr rho = Function::constant(1.0);
@@ -528,7 +823,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_UnitDensity)
   {
-    double tol = 1e-15;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 0;
     FunctionPtr u   = Function::zero();
     FunctionPtr rho = Function::constant(1.0);
@@ -560,7 +855,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_LinearDensity)
   {
-    double tol = 1e-15;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 3;
     FunctionPtr u   = Function::zero();
     FunctionPtr rho = Function::xn(1);
@@ -570,11 +865,33 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_LinearDensityUnitVelocity)
   {
-    double tol = 1e-14;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 0;
     FunctionPtr u   = Function::constant(1.0);
     FunctionPtr rho = Function::xn(1);
     FunctionPtr T   = Function::zero();
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_LinearDensityLinearVelocityQuadraticEnergy)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE * 10;
+    int cubatureEnrichment = 5;
+    FunctionPtr u   = Function::xn(1);
+    FunctionPtr rho = Function::xn(1);
+    FunctionPtr E   = Function::xn(2);
+    FunctionPtr T   = (1.0 / TEST_CV) * (1.0 / rho) * E - (1.0 / TEST_CV) * (0.5 * u * u); // comes out to (1/Cv) [x - 0.5 * x * x]
+    testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_UnitDensityUnitVelocityLinearEnergy)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
+    int cubatureEnrichment = 3;
+    FunctionPtr u   = Function::constant(1.0);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr E   = Function::xn(1) + 1.0; // add 1 to bound temp away from zero
+    FunctionPtr T   = (1.0 / TEST_CV) * (1.0 / rho) * E - (1.0 / TEST_CV) * (0.5 * u * u);
     testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
   
@@ -591,7 +908,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_LinearTempUnitDensity)
   {
-    double tol = 1e-15;
+    double tol = 1e-14;
     int cubatureEnrichment = 2;
     FunctionPtr x   = Function::xn(1);
     FunctionPtr u   = Function::zero();
@@ -613,7 +930,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_LinearVelocityLinearDensityLinearTemp)
   {
-    double tol = 1e-13;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 4;
     FunctionPtr x   = Function::xn(1);
     FunctionPtr u   = x;
@@ -624,7 +941,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_LinearVelocityUnitDensity)
   {
-    double tol = 1e-14;
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
     int cubatureEnrichment = 3;
     FunctionPtr x   = Function::xn(1);
     FunctionPtr u   = x;
