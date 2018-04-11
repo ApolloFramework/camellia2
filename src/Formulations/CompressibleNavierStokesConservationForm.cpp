@@ -382,25 +382,26 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   // tau terms:
   double Cp    = this->Cp();
   double Pr    = this->Pr();
+  double Cv    = this->Cv();
   double gamma = this->gamma();
   auto n_tau = n_S;
   FunctionPtr qWeight = Pr / (Cp * _muFunc); // q is defined such that q * qWeight = - grad T
   Camellia::EOperator tauDivOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
   
-  _bf->addTerm (-1.0 / rho_prev * E + E_prev / rho_prev_squared * rho, tau->applyOp(tauDivOp));
-  _rhs->addTerm(E_prev / rho_prev                                    * tau->applyOp(tauDivOp));
+  _bf->addTerm (-1.0 / rho_prev * E + E_prev / rho_prev_squared * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
+  _rhs->addTerm(E_prev / rho_prev                                    * (1.0 / Cv) * tau->applyOp(tauDivOp));
   
   _bf->addTerm(T_hat,     tau * n_tau);
   
-  _bf->addTerm( - m_prev_dot_m_prev / (rho_prev_squared * rho_prev) * rho,  tau->applyOp(tauDivOp));
-  _rhs->addTerm( - m_prev_dot_m_prev / (2. * rho_prev_squared) * tau->applyOp(tauDivOp));
+  _bf->addTerm( - m_prev_dot_m_prev / (rho_prev_squared * rho_prev) * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
+  _rhs->addTerm( - m_prev_dot_m_prev / (2. * rho_prev_squared)           * (1.0 / Cv) * tau->applyOp(tauDivOp));
   for (int d=0; d<spaceDim; d++)
   {
     VarPtr tau_d = (_spaceDim > 1) ? tau->spatialComponent(d+1) : tau;
     _bf->addTerm ( qWeight * q[d],       tau_d);
     _rhs->addTerm(-qWeight * q_prev[d] * tau_d);
     
-    _bf->addTerm(   m_prev[d] / rho_prev_squared * m[d],                          tau->applyOp(tauDivOp));
+    _bf->addTerm(   m_prev[d] / rho_prev_squared * m[d], (1.0 / Cv) * tau->applyOp(tauDivOp));
   }
 
   // to avoid needing a bunch of casts below, do a cast once here:
