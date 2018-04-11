@@ -576,6 +576,8 @@ namespace Camellia
       }
       if (! BilinearFormUtility<Scalar>::checkForZeroRowsAndColumns("TBF stiffness", stiffness, checkRows, checkCols) )
       {
+        // tell trialOrderPtr about its VarFactory, for richer output
+        elemType->trialOrderPtr->setVarFactory(_varFactory, true); // true: is trial ordering
         cout << "trial ordering:\n" << *(elemType->trialOrderPtr);
         //    cout << "test ordering:\n" << *(elemType->testOrderPtr);
         //    cout << "stiffness:\n" << stiffness;

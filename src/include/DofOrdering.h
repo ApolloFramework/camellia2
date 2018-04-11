@@ -23,6 +23,8 @@
 
 #include "CellTopology.h"
 
+#include "VarFactory.h"
+
 namespace Camellia
 {
   const static int VOLUME_INTERIOR_SIDE_ORDINAL = -1;
@@ -47,6 +49,11 @@ class DofOrdering
   std::map< int, int > basisRanks; // keys are varIDs; values are 0,1,2,... (scalar, vector, tensor)
 
   std::map< int, CellTopoPtr > _cellTopologyForSide; // -1 is field variable
+  
+  // optional registration of VarFactory and whether this is a trial ordering or a test ordering:
+  // (this is only used for debugging output at the moment)
+  VarFactoryPtr _varFactory;
+  bool _isTrialOrdering = false;
 public:
   DofOrdering(CellTopoPtr cellTopo = Teuchos::null); // constructor
 
@@ -116,6 +123,13 @@ public:
   }
 
   void rebuildIndex();
+  
+  // let the DofOrdering know the associated VarFactory
+  void setVarFactory(VarFactoryPtr varFactory, bool isTrialOrdering);
+  
+  VarFactoryPtr getVarFactory() const;
+  
+  bool isTrialOrdering() const;
   
   // ! Returns vector containing (varID,vector<sideOrdinal>) entries corresponding to variables with nonzero coefficients in the provided container
   vector<pair<int,vector<int>>> variablesWithNonZeroEntries(const Intrepid::FieldContainer<double> &localCoefficients, double tol = 0.0) const;
