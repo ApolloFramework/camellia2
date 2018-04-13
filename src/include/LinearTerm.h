@@ -153,7 +153,7 @@ public:
   TLinearTerm<Scalar>& operator+=(const TLinearTerm<Scalar> &rhs);
 
   TLinearTerm<Scalar>& operator+=(VarPtr v);
-
+  
   ~TLinearTerm();
 };
 
@@ -174,6 +174,8 @@ TLinearTermPtr<double> operator*(TLinearTermPtr<double> a, double weight);
 TLinearTermPtr<double> operator*(double weight, TLinearTermPtr<double> a);
 TLinearTermPtr<double> operator/(VarPtr v, double weight);
 TLinearTermPtr<double> operator/(VarPtr v, TFunctionPtr<double> f);
+TLinearTermPtr<double> operator/(TLinearTermPtr<double> a, double weight);
+TLinearTermPtr<double> operator/(TLinearTermPtr<double> a, TFunctionPtr<double> f);
 TLinearTermPtr<double> operator-(TLinearTermPtr<double> a);
 TLinearTermPtr<double> operator-(TLinearTermPtr<double> a, VarPtr v);
 TLinearTermPtr<double> operator-(VarPtr v, TLinearTermPtr<double> a);

@@ -22,6 +22,10 @@ PreviousSolutionFunction<Scalar>::PreviousSolutionFunction(TSolutionPtr<Scalar> 
 : TFunction<Scalar>(solnExpression->rank()),
 _overrideMeshCheck(false), _soln(soln), _solnExpression(solnExpression), _solnOrdinal(solnOrdinal)
 {
+  if (solnExpression->rank() == -1)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid solnExpression");
+  }
   if ((solnExpression->termType() == FLUX) && multiplyFluxesByCellParity)
   {
     TFunctionPtr<double> parity = TFunction<double>::sideParity();

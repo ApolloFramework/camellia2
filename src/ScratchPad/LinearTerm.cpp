@@ -1622,6 +1622,7 @@ void TLinearTerm<Scalar>::addTerm(const TLinearTerm<Scalar> &a, bool overrideTyp
   if (a.isZero()) return; // we can skip the actual adding in this case
   if (_rank != a.rank())
   {
+    cout << "_rank = " << _rank << "; " << "a.rank() = " << a.rank() << endl;
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "attempting to add terms of unlike rank.");
   }
   if (_termType == UNKNOWN_TYPE)
@@ -1671,6 +1672,14 @@ template class TLinearTerm<double>;
 // operator overloading for syntax sugar:
 TLinearTermPtr<double> operator+(TLinearTermPtr<double> a1, TLinearTermPtr<double> a2)
 {
+  if (a1 == Teuchos::null)
+  {
+    return Teuchos::rcp(new TLinearTerm<double>(*a2));
+  }
+  else if (a2 == Teuchos::null)
+  {
+    return Teuchos::rcp(new TLinearTerm<double>(*a1));
+  }
   TLinearTermPtr<double> sum = Teuchos::rcp( new TLinearTerm<double>(*a1) );
   //  cout << "sum->rank(): " << sum->rank() << endl;
   //  cout << "sum->summands.size() before adding a2: " << sum->summands().size() << endl;
@@ -1781,14 +1790,18 @@ TLinearTermPtr<double> operator*(double weight, TLinearTermPtr<double> a)
 {
   return Function::constant(weight) * a;
 }
+  
+TLinearTermPtr<double> operator/(TLinearTermPtr<double> a, double weight)
+{
+  return a / Function::constant(weight);
+}
 
 TLinearTermPtr<double> operator/(TLinearTermPtr<double> a, TFunctionPtr<double> f)
 {
   TLinearTermPtr<double> lt = Teuchos::rcp( new TLinearTerm<double> );
 
-  for (typename vector< TLinearSummand<double> >::const_iterator lsIt = lt->summands().begin(); lsIt != lt->summands().end(); lsIt++)
+  for (auto ls : a->summands())
   {
-    TLinearSummand<double> ls = *lsIt;
     TFunctionPtr<double> lsWeight = ls.first;
     TFunctionPtr<double> newWeight = lsWeight / f;
     VarPtr var = ls.second;

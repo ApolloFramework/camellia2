@@ -155,7 +155,9 @@ public:
                                         int solutionOrdinal=0);
   //! takes as argument a map that has trialID keys and FunctionPtr values.  Omitted trialIDs are taken to be zero.
   TLinearTermPtr<Scalar> testFunctional(const std::map<int,FunctionPtr> &solnMap);
-                                        
+
+  //! takes as argument a map that has testID keys and FunctionPtr values.  Omitted testIDs are taken to be zero.
+  TLinearTermPtr<Scalar> trialFunctional(const std::map<int,FunctionPtr> &testMap);
 
   map<int, TFunctionPtr<Scalar> > applyAdjointOperatorDPGstar(TRieszRepPtr<double> dualSolution);
 

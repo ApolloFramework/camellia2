@@ -927,15 +927,13 @@ bool TFunction<Scalar>::isPositive(Teuchos::RCP<Mesh> mesh, int cubEnrich, bool 
 {
   bool isPositive = true;
   bool isPositiveOnPartition = true;
-  int myPartition = Teuchos::GlobalMPISession::getRank();
-  vector<ElementPtr> elems = mesh->elementsInPartition(myPartition);
-  for (vector<ElementPtr>::iterator elemIt = elems.begin(); elemIt!=elems.end(); elemIt++)
+  auto cellIDs = mesh->cellIDsInPartition();
+  for (auto cellID : cellIDs)
   {
-    int cellID = (*elemIt)->cellID();
     BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID, testVsTest, cubEnrich);
 
     // if we want to check positivity on uniformly spaced points
-    if ((*elemIt)->numSides()==4)  // tensor product structure only works with quads
+    if (basisCache->cellTopology()->getSideCount()==4)  // tensor product structure only works with quads
     {
       Intrepid::FieldContainer<double> origPts = basisCache->getRefCellPoints();
       int numPts1D = ceil(sqrt(origPts.dimension(0)));

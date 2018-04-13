@@ -84,27 +84,58 @@ namespace Camellia
   }
   
   template <typename Scalar>
+  void VALIDATE_TRIAL_TEST_PAIR(TLinearTermPtr<Scalar> trialTerm, TLinearTermPtr<Scalar> testTerm)
+  {
+    if (trialTerm == Teuchos::null)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "trialTerm may not be null!");
+    }
+    else if (testTerm == Teuchos::null)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "testTerm may not be null!");
+    }
+    else if (trialTerm->rank() == -1)
+    {
+      // debugging:
+      cout << "trialTerm: " << trialTerm->displayString() << endl;
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "trialTerm may not be empty!");
+    }
+    else if (testTerm->rank() == -1)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "testTerm may not be empty!");
+    }
+  }
+  
+  template <typename Scalar>
   void TBF<Scalar>::addTerm( TLinearTermPtr<Scalar> trialTerm, TLinearTermPtr<Scalar> testTerm )
   {
+    VALIDATE_TRIAL_TEST_PAIR(trialTerm, testTerm);
     _terms.push_back( make_pair( trialTerm, testTerm ) );
   }
   
   template <typename Scalar>
   void TBF<Scalar>::addTerm( VarPtr trialVar, TLinearTermPtr<Scalar> testTerm )
   {
-    addTerm( Teuchos::rcp( new LinearTerm(trialVar) ), testTerm );
+    auto trialTerm = Teuchos::rcp( new LinearTerm(trialVar) );
+    VALIDATE_TRIAL_TEST_PAIR(trialTerm, testTerm);
+    addTerm( trialTerm, testTerm );
   }
   
   template <typename Scalar>
   void TBF<Scalar>::addTerm( VarPtr trialVar, VarPtr testVar )
   {
-    addTerm( Teuchos::rcp( new LinearTerm(trialVar) ), Teuchos::rcp( new LinearTerm(testVar) ) );
+    auto trialTerm = Teuchos::rcp( new LinearTerm(trialVar) );
+    auto testTerm  = Teuchos::rcp( new LinearTerm(testVar) );
+    VALIDATE_TRIAL_TEST_PAIR(trialTerm, testTerm);
+    addTerm( trialTerm, testTerm );
   }
   
   template <typename Scalar>
   void TBF<Scalar>::addTerm( TLinearTermPtr<Scalar> trialTerm, VarPtr testVar)
   {
-    addTerm( trialTerm, Teuchos::rcp( new LinearTerm(testVar) ) );
+    auto testTerm  = Teuchos::rcp( new LinearTerm(testVar) );
+    VALIDATE_TRIAL_TEST_PAIR(trialTerm, testTerm);
+    addTerm( trialTerm, testTerm );
   }
   
   template <typename Scalar>
@@ -1627,6 +1658,7 @@ namespace Camellia
       static_cast< PreviousSolutionFunction<Scalar>* >(trialValue.get())->setOverrideMeshCheck(overrideMeshCheck);
       if ( (! excludeBoundaryTerms) || (! trialValue->boundaryValueOnly()) )
       {
+//        cout << "Adding " << (trialValue * testTerm)->displayString() << " to functional.\n";
         functional = functional + trialValue * testTerm;
       }
     }
@@ -1643,6 +1675,21 @@ namespace Camellia
       TLinearTermPtr<Scalar> testTerm = bilinearTerm.second;
       TFunctionPtr<Scalar> trialValue = trialTerm->evaluate(solnMap);
       functional = functional + trialValue * testTerm;
+    }
+    return functional;
+  }
+  
+  template <typename Scalar>
+  TLinearTermPtr<Scalar> TBF<Scalar>::trialFunctional(const std::map<int,FunctionPtr> &testMap)
+  {
+    TLinearTermPtr<Scalar> functional = Teuchos::rcp(new LinearTerm());
+    for (auto bilinearTerm : _terms)
+    {
+      TLinearTermPtr<Scalar> trialTerm = bilinearTerm.first;
+      TLinearTermPtr<Scalar> testTerm = bilinearTerm.second;
+      TFunctionPtr<Scalar> testValue = testTerm->evaluate(testMap);
+      bool overrideTypeCheck = true; // we can have fluxes, traces, and fields all in this trial term
+      functional->addTerm(testValue * trialTerm, overrideTypeCheck);
     }
     return functional;
   }

@@ -3640,9 +3640,9 @@ Epetra_Map TSolution<Scalar>::getPartitionMap(PartitionIndexType rank, set<Globa
 
   // copy from set object into the allocated array
   GlobalIndexType offset = 0;
-  for (set<GlobalIndexType>::iterator indexIt = myGlobalIndicesSet.begin(); indexIt != myGlobalIndicesSet.end(); indexIt++ )
+  for (GlobalIndexType myGlobalIndex : myGlobalIndicesSet)
   {
-    myGlobalIndices[offset++] = *indexIt;
+    myGlobalIndices[offset++] = myGlobalIndex;
   }
   GlobalIndexType cellOffset = _mesh->activeCellOffset() * _lagrangeConstraints->numElementConstraints();
   GlobalIndexType globalIndex = cellOffset + numGlobalDofs;
@@ -3679,6 +3679,10 @@ Epetra_Map TSolution<Scalar>::getPartitionMap(PartitionIndexType rank, set<Globa
   //Epetra_Map partMap(-1, localDofsSize, myGlobalIndices, indexBase, Comm);
 //  cout << "process " << rank << " about to construct partMap; totalRows = " << totalRows;
 //  cout << "; localDofsSize = " << localDofsSize << ".\n";
+//  cout << "num regular GlobalDofIndices:          " << numGlobalDofs << endl;
+//  cout << "num element Lagrange GlobalDofIndices: " << globalNumElementLagrange << endl;
+//  cout << "num global Lagrange GlobalDofIndices:  " << numGlobalLagrange << endl;
+//  cout << "num zero mean constraints:             " << zeroMeanConstraintsSize << endl;
   Epetra_Map partMap(totalRows, localDofsSize, myGlobalIndices, indexBase, *Comm);
 
   if (localDofsSize!=0)
