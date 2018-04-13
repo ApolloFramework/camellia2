@@ -10,6 +10,7 @@
 #include "BC.h"
 #include "BF.h"
 #include "CompressibleNavierStokesProblem.hpp"
+#include "LagrangeConstraints.h"
 #include "MeshFactory.h"
 #include "ParameterFunction.h"
 #include "RHS.h"
@@ -124,6 +125,14 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   _fc = ParameterFunction::parameterFunction(0.0);
   _fe = ParameterFunction::parameterFunction(0.0);
   _fm = vector<Teuchos::RCP<ParameterFunction> >(_spaceDim, ParameterFunction::parameterFunction(0.0));
+  _fc->setName("fc");
+  _fe->setName("fe");
+  for (int d=0; d<spaceDim; d++)
+  {
+    ostringstream name;
+    name << "fm" << d+1;
+    _fm[d]->setName(name.str());
+  }
   _mu = parameters.get<double>("mu",1.0);
   _gamma = parameters.get<double>("gamma",1.4);
   _Pr = parameters.get<double>("Pr",0.713);
@@ -150,6 +159,7 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   _spatialPolyOrder = spatialPolyOrder;
   _temporalPolyOrder =temporalPolyOrder;
   _dt = ParameterFunction::parameterFunction(initialDt);
+  _dt->setName("dt");
   _t = ParameterFunction::parameterFunction(0);
   _t0 = parameters.get<double>("t0",0);
   _neglectFluxesOnRHS = neglectFluxesOnRHS;
@@ -437,6 +447,12 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     D_trace_prev = D_trace_prev +  D_prev[d][d];
   }
   
+  LinearTermPtr m_prev_dot_m;
+  for (int d=0; d<spaceDim; d++)
+  {
+    m_prev_dot_m = m_prev_dot_m + m_prev[d] * m[d];
+  }
+  
   // vm
   for (int d1=0; d1<spaceDim; d1++)
   {
@@ -450,14 +466,22 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
       _bf->addTerm( m[d1], vm[d1] / dt);
       _rhs->addTerm(-(m_prev[d1] - m_prev_time[d1]) / dt * vm[d1] );
     }
-    _bf->addTerm(-(gamma - 1.) * E,       vm[d1]->di(d1+1));
-    _rhs->addTerm((gamma - 1.) * E_prev * vm[d1]->di(d1+1));
     
-    _bf->addTerm( -(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev_squared) * rho, vm[d1]->di(d1+1));
-    _rhs->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev)              * vm[d1]->di(d1+1));
-    
-    _bf->addTerm(  D_traceWeight * D_trace,       vm[d1]->di(d1+1));
-    _rhs->addTerm(-D_traceWeight * D_trace_prev * vm[d1]->di(d1+1));
+    { // terms of the form (Scalar * I, grad vm) -- simplifies to (Scalar, trace(grad vm))
+      _bf->addTerm(-(gamma - 1.) * E,       vm[d1]->di(d1+1));
+      _rhs->addTerm((gamma - 1.) * E_prev * vm[d1]->di(d1+1));
+      
+      _bf->addTerm( -(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev_squared) * rho, vm[d1]->di(d1+1));
+      _rhs->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev)              * vm[d1]->di(d1+1));
+      
+      // DEBUGGING: commenting out this line...
+      
+//      _bf->addTerm( ((gamma - 1.) / rho_prev) * m_prev_dot_m, vm[d1]->di(d1+1));
+      _bf->addTerm( (gamma - 1.) * m_prev_dot_m / rho_prev, vm[d1]->di(d1+1));
+      
+      _bf->addTerm(  D_traceWeight * D_trace,       vm[d1]->di(d1+1));
+      _rhs->addTerm(-D_traceWeight * D_trace_prev * vm[d1]->di(d1+1));
+    }
     for (int d2=0; d2<spaceDim; d2++)
     {
       _bf->addTerm(-(m_prev[d2]/rho_prev * m[d1] + m_prev[d1]/rho_prev * m[d2]), vm[d1]->di(d2+1));
@@ -466,8 +490,6 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
       
       _bf->addTerm(   D[d1][d2]      + D[d2][d1],        vm[d1]->di(d2+1));
       _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * vm[d1]->di(d2+1));
-      
-      _bf->addTerm( (gamma - 1.) * m_prev[d1] / rho_prev * m[d1], vm[d2]->di(d2+1));
     }
     _bf->addTerm(tm[d1], vm[d1]);
     _rhs->addTerm(FunctionPtr(_fm[d1]) * vm[d1]);
@@ -493,12 +515,9 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     
     _bf->addTerm( -(gamma - 1.)     * m_prev_dot_m_prev * m_prev[d1] / (rho_prev_squared * rho_prev) * rho, ve->di(d1+1));
     _bf->addTerm( ((gamma - 1.)/2.) * m_prev_dot_m_prev / rho_prev_squared * m[d1],                         ve->di(d1+1));
-    _rhs->addTerm(-((gamma - 1.)/2.) * m_prev_dot_m_prev * m_prev[d1]/ rho_prev_squared                    * ve->di(d1+1));
+    _rhs->addTerm(-((gamma - 1.)/2.) * m_prev_dot_m_prev * m_prev[d1]/ rho_prev_squared                   * ve->di(d1+1));
     
-    for (int d2=0; d2<spaceDim; d2++)
-    {
-      _bf->addTerm((gamma - 1.) * m_prev[d1] * m_prev[d2] / rho_prev_squared * m[d2], ve->di(d1+1));
-    }
+    _bf->addTerm( (gamma-1.) * m_prev_dot_m * m_prev[d1] / rho_prev_squared,                                ve->di(d1+1));
     
     _bf->addTerm(-q[d1], ve->di(d1+1));
     _rhs->addTerm(q_prev[d1] * ve->di(d1+1));
@@ -538,7 +557,6 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   TEUCHOS_TEST_FOR_EXCEPTION(normName != "Graph", std::invalid_argument, "non-graph norms not yet supported in the refactor; use legacy instead");
   _ips["Graph"] = _bf->graphNorm();
   IPPtr ip = _ips.at(normName);
-  
   
   // _solnIncrement->setBC(bc);
   _solnIncrement->setRHS(_rhs);
@@ -593,6 +611,29 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   _solver = Solver::getDirectSolver();
   
   _nonlinearIterationCount = 0;
+
+  // the following does not appear to work.  Unclear on what's wrong; we may need an entirely different strategy
+  // (The problem is, at least in part, that we do not here take into account BCs on tm, so we are trying to 
+//  if (_timeStepping)
+//  {
+//    cout << "TRYING MOMENTUM CONSERVATION ENFORCEMENT.\n";
+//    Teuchos::RCP<LagrangeConstraints> constraints = Teuchos::rcp(new LagrangeConstraints);
+//    for (int d=0; d<spaceDim; d++)
+//    {
+//      // test with 1
+//      VarPtr vm = this->vm(d+1);
+//      map<int, FunctionPtr> vmEqualsOne = {{vm->ID(), Function::constant(1.0)}};
+//      LinearTermPtr trialFunctional = _bf->trialFunctional(vmEqualsOne);
+//      FunctionPtr rhsFxn = _rhs->linearTerm()->evaluate(vmEqualsOne);
+//      constraints->addConstraint(trialFunctional == rhsFxn);
+//
+//      cout << "Added element constraint " << trialFunctional->displayString() << " == " << rhsFxn->displayString() << endl;
+//    }
+//    // although enforcement only happens in solnIncrement, the constraints change numbering of dofs, so we need to set constraints in each Solution object
+//    _solnIncrement->setLagrangeConstraints(constraints);
+//    _backgroundFlow->setLagrangeConstraints(constraints);
+//    _solnPrevTime->setLagrangeConstraints(constraints);
+//  }
 }
 
 void CompressibleNavierStokesConservationForm::addVelocityTraceComponentCondition(SpatialFilterPtr region, FunctionPtr ui_exact, int i)
