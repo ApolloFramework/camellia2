@@ -24,7 +24,7 @@ using namespace Intrepid;
 #include "Teuchos_UnitTestHarness.hpp"
 namespace
 {
-  static const double TEST_RE = 1e0;
+  static const double TEST_RE = 1e2;
   static const double TEST_PR = 0.713;
   static const double TEST_CV = 1.000;
   static const double TEST_GAMMA = 1.4;
@@ -249,24 +249,13 @@ namespace
       
       auto testIP = solnIncrement->ip(); // We'll use this inner product to take the norm of the residual components
       
-      auto summands = residual->summands();
       auto testVars = vf->testVars();
       
       for (auto testEntry : testVars)
       {
-        int testID = testEntry.first;
         VarPtr testVar = testEntry.second;
         // filter the parts of residual that involve testVar
-        LinearTermPtr testResidual = Teuchos::rcp( new LinearTerm );
-        for (auto summandEntry : summands)
-        {
-          FunctionPtr f = summandEntry.first;
-          VarPtr v = summandEntry.second;
-          if (v->ID() == testID)
-          {
-            testResidual = testResidual + f * v;
-          }
-        }
+        LinearTermPtr testResidual = residual->getPartMatchingVariable(testVar);
         double residualNorm = testResidual->computeNorm(testIP, soln->mesh(), cubatureEnrichment);
         if (residualNorm > tol)
         {
@@ -297,19 +286,9 @@ namespace
       }
       for (auto testEntry : testVars)
       {
-        int testID = testEntry.first;
         VarPtr testVar = testEntry.second;
         // filter the parts of residual that involve testVar
-        LinearTermPtr testResidual = Teuchos::rcp( new LinearTerm );
-        for (auto summandEntry : summands)
-        {
-          FunctionPtr f = summandEntry.first;
-          VarPtr v = summandEntry.second;
-          if (v->ID() == testID)
-          {
-            testResidual = testResidual + f * v;
-          }
-        }
+        LinearTermPtr testResidual = residual->getPartMatchingVariable(testVar);
         double residualNorm = testResidual->computeNorm(testIP, soln->mesh(), cubatureEnrichment);
         if (residualNorm > tol)
         {
@@ -345,11 +324,13 @@ namespace
     }
   }
   
-  
   void testSteadySolve_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr T, FunctionPtr u_guess, FunctionPtr rho_guess, FunctionPtr T_guess, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
   {
-    int meshWidth = 20;
-    int polyOrder = 2; // need 2nd order to exactly capture E for linear u
+//    int meshWidth = 4;
+//    int polyOrder = 3; // need 3rd order to exactly capture E for linear u and linear rho
+    int meshWidth = 1; // DEBUGGING
+    int polyOrder = 0; // DEBUGGING
+    
     int delta_k   = 2; // 1 is likely sufficient in 1D
     int spaceDim = 1;
     
@@ -376,8 +357,8 @@ namespace
     auto soln = form->solution();
     auto solnIncrement = form->solutionIncrement();
     
-    HDF5Exporter solutionExporter(soln->mesh(), "testSteadySolve", "/tmp");
-    HDF5Exporter solutionIncrementExporter(solnIncrement->mesh(), "testSteadySolveIncrement", "/tmp");
+//    HDF5Exporter solutionExporter(soln->mesh(), "testSteadySolve", "/tmp");
+//    HDF5Exporter solutionIncrementExporter(solnIncrement->mesh(), "testSteadySolveIncrement", "/tmp");
     
     bool includeFluxParity = false; // for fluxes, we will substitute fluxes into the bf object, meaning that we want them to flip sign with the normal.
     auto exactMap = form->exactSolutionMap(u, rho, T, includeFluxParity);
@@ -413,17 +394,30 @@ namespace
     form->addTemperatureTraceCondition(SpatialFilter::allSpace(), T);
     form->addVelocityTraceCondition(SpatialFilter::allSpace(), u);
     form->solutionIncrement()->setCubatureEnrichmentDegree(cubatureEnrichment);
-    int maxSteps = 20;
-    solutionExporter.exportSolution(soln, double(0));  // output initial guess
+    int maxSteps = 30;
+//    solutionExporter.exportSolution(soln, double(0));  // output initial guess
+    double l2NormTolerance = 1e-10;
     for (int stepNumber = 0; stepNumber<maxSteps; stepNumber++)
     {
+      if (stepNumber == 0)
+      {
+        // DEBUGGING
+        form->solutionIncrement()->setWriteMatrixToMatrixMarketFile(true, "/tmp/A.dat");
+        form->solutionIncrement()->setWriteRHSToMatrixMarketFile(true, "/tmp/b.dat");
+      }
       double alpha = form->solveAndAccumulate();
       if (alpha < 1.0)
       {
         out << "in step " << stepNumber << ", alpha = " << alpha << endl;
       }
-      solutionExporter.exportSolution(soln, double(stepNumber+1));  // use stepNumber as the "time" value for export...
-      solutionIncrementExporter.exportSolution(solnIncrement, double(stepNumber));
+//      solutionExporter.exportSolution(soln, double(stepNumber+1));  // use stepNumber as the "time" value for export...
+//      solutionIncrementExporter.exportSolution(solnIncrement, double(stepNumber));
+      double l2Norm = form->L2NormSolutionIncrement();
+      out << "Step " << stepNumber << ", L^2 norm of soln increment: " << l2Norm << endl;
+      if (l2Norm < l2NormTolerance)
+      {
+        break;
+      }
     }
     
     map<int, FunctionPtr> solnErrorFunctionMap;
@@ -525,7 +519,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Forcing_1D_Steady_LinearVelocityUnitDensity)
   {
-    double tol = 1e-16;
+    double tol = 1e-15;
     int cubatureEnrichment = 2;
     FunctionPtr x   = Function::xn(1);
     FunctionPtr u   = x;
@@ -572,12 +566,12 @@ namespace
     double tol = DEFAULT_NL_SOLVE_TOLERANCE;
     int cubatureEnrichment = 2;
     FunctionPtr u   = Function::xn(1);
-    FunctionPtr rho = Function::xn(1);
+    FunctionPtr rho = Function::xn(1) + 1.0;
     FunctionPtr T   = Function::constant(1.0);
     
     FunctionPtr u_guess   = 0.5 * u;
-    FunctionPtr rho_guess = rho;
-    FunctionPtr T_guess   = T;
+    FunctionPtr rho_guess = 0.5 * rho;
+    FunctionPtr T_guess   = 0.5 * T;
     
     testSteadySolve_1D(u, rho, T, u_guess, rho_guess, T_guess, cubatureEnrichment, tol, out, success);
   }
@@ -603,7 +597,7 @@ namespace
     int cubatureEnrichment = 2;
     FunctionPtr u   = Function::constant(1.0);
     FunctionPtr rho = Function::constant(1.0);
-    FunctionPtr T   = Function::xn(1);
+    FunctionPtr T   = Function::xn(1) + 20;
     
     FunctionPtr u_guess   = 0.5 * u;
     FunctionPtr rho_guess = 0.5 * rho;
