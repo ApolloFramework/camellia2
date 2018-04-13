@@ -37,8 +37,7 @@ int main(int argc, char *argv[])
   int delta_k   = 1; // 1 is likely sufficient in 1D
   bool useCondensedSolve = true;
   int spaceDim = 1;
-  int cubatureEnrichment =
-  3 * polyOrder; // there are places in the strong, nonlinear equations where 4 variables multiplied together.  Therefore we need to add 3 variables' worth of quadrature to the simple test v. trial quadrature.
+  int cubatureEnrichment = 3 * polyOrder; // there are places in the strong, nonlinear equations where 4 variables multiplied together.  Therefore we need to add 3 variables' worth of quadrature to the simple test v. trial quadrature.
   
   double x_a   = 0.0;
   double x_b   = 1.0;
@@ -51,11 +50,11 @@ int main(int argc, char *argv[])
   bool useConformingTraces = true;
   auto form = CompressibleNavierStokesFormulationRefactor::steadyFormulation(spaceDim, Re, useConformingTraces,
                                                                              meshTopo, polyOrder, delta_k);
-  form.solutionIncrement()->setUseCondensedSolve(useCondensedSolve);
-  form.solutionIncrement()->setCubatureEnrichmentDegree(cubatureEnrichment);
+  form->solutionIncrement()->setUseCondensedSolve(useCondensedSolve);
+  form->solutionIncrement()->setCubatureEnrichmentDegree(cubatureEnrichment);
   
-  double gamma = form.gamma();
-  double c_v   = form.Cv();
+  double gamma = form->gamma();
+  double c_v   = form->Cv();
 
   double p_a   = rho_a / gamma;
   double T_a   = p_a / (rho_a * (gamma - 1.) * c_v);
@@ -106,34 +105,34 @@ int main(int argc, char *argv[])
   FunctionPtr n_x = n->x() * Function::sideParity();
   
   map<int, FunctionPtr> initialGuess;
-  bool interpolatedStart = true;
+  bool interpolatedStart = false;
   if (interpolatedStart)
   {
     FunctionPtr rho = linearInterpolant(rho_a,rho_b);
     FunctionPtr T   = linearInterpolant(T_a, T_b);
     FunctionPtr u   = linearInterpolant(u_a, u_b);
     
-    double R  = form.R();
-    double Cv = form.Cv();
-    double Cp = form.Cp();
-    double Pr = form.Pr();
-    double mu = form.mu();
+    double R  = form->R();
+    double Cv = form->Cv();
+    double Cp = form->Cp();
+    double Pr = form->Pr();
+    double mu = form->mu();
     double q_initial = slope(T_a, T_b) * Cp * mu / Pr;
     
-    initialGuess[form.rho()->ID()]   = rho;
-    initialGuess[form.T()->ID()]     = T;
-    initialGuess[form.u(1)->ID()]    = u;
-    initialGuess[form.q(1)->ID()]    = Function::constant(q_initial);
-    initialGuess[form.D(1,1)->ID()]  = Function::zero();
+    initialGuess[form->rho()->ID()]   = rho;
+    initialGuess[form->T()->ID()]     = T;
+    initialGuess[form->u(1)->ID()]    = u;
+    initialGuess[form->q(1)->ID()]    = Function::constant(q_initial);
+    initialGuess[form->D(1,1)->ID()]  = Function::zero();
     
     // fluxes and traces; setting initial guesses for these should not actually matter, I don't think, but we follow Truman here...
     // (The below expressions might elucidate somewhat how the traces/fluxes relate to the fields, however...)
-    initialGuess[form.T_hat()->ID()] = T;
-    initialGuess[form.tc()->ID()]    = rho * u * n_x;
-    initialGuess[form.te()->ID()]    = (Cv * rho * u * T + 0.5 * rho * u * u * u + R * rho * u * T) * n_x;
+    initialGuess[form->T_hat()->ID()] = T;
+    initialGuess[form->tc()->ID()]    = rho * u * n_x;
+    initialGuess[form->te()->ID()]    = (Cv * rho * u * T + 0.5 * rho * u * u * u + R * rho * u * T) * n_x;
     
-    initialGuess[form.u_hat(1)->ID()] = u;
-    initialGuess[form.tm(1)->ID()]    = (rho * u * u + form.R() * rho * T) * n_x;
+    initialGuess[form->u_hat(1)->ID()] = u;
+    initialGuess[form->tm(1)->ID()]    = (rho * u * u + form->R() * rho * T) * n_x;
   }
   else
   {
@@ -149,36 +148,36 @@ int main(int argc, char *argv[])
     FunctionPtr T   = step(T_a, T_b);
     FunctionPtr u   = step(u_a, u_b);
     
-    initialGuess[form.rho()->ID()]   = rho;
-    initialGuess[form.T()->ID()]     = T;
-    initialGuess[form.u(1)->ID()]    = u;
-    initialGuess[form.q(1)->ID()]    = Function::zero();
-    initialGuess[form.D(1,1)->ID()]  = Function::zero();
+    initialGuess[form->rho()->ID()]   = rho;
+    initialGuess[form->T()->ID()]     = T;
+    initialGuess[form->u(1)->ID()]    = u;
+    initialGuess[form->q(1)->ID()]    = Function::zero();
+    initialGuess[form->D(1,1)->ID()]  = Function::zero();
     
     // fluxes and traces; setting initial guesses for these should not actually matter, I don't think, but we follow Truman here...
     // (The below expressions might elucidate somewhat how the traces/fluxes relate to the fields, however...)
-    double R  = form.R();
-    double Cv = form.Cv();
-    double Cp = form.Cp();
-    double Pr = form.Pr();
-    double mu = form.mu();
-    initialGuess[form.T_hat()->ID()] = T;
-    initialGuess[form.tc()->ID()]    = rho * u * n_x;
-    initialGuess[form.te()->ID()]    = (Cv * rho * u * T + 0.5 * rho * u * u * u + R * rho * u * T) * n_x;
+    double R  = form->R();
+    double Cv = form->Cv();
+    double Cp = form->Cp();
+    double Pr = form->Pr();
+    double mu = form->mu();
+    initialGuess[form->T_hat()->ID()] = T;
+    initialGuess[form->tc()->ID()]    = rho * u * n_x;
+    initialGuess[form->te()->ID()]    = (Cv * rho * u * T + 0.5 * rho * u * u * u + R * rho * u * T) * n_x;
     
-    initialGuess[form.u_hat(1)->ID()] = u;
-    initialGuess[form.tm(1)->ID()]    = (rho * u * u + form.R() * rho * T) * n_x;
+    initialGuess[form->u_hat(1)->ID()] = u;
+    initialGuess[form->tm(1)->ID()]    = (rho * u * u + form->R() * rho * T) * n_x;
   }
   
   const int solutionOrdinal = 0;
-  form.solution()->projectOntoMesh(initialGuess, solutionOrdinal);
+  form->solution()->projectOntoMesh(initialGuess, solutionOrdinal);
   
-  HDF5Exporter solutionExporter(form.solutionIncrement()->mesh(), "sodShockSteadySolution", ".");
-  HDF5Exporter solutionIncrementExporter(form.solutionIncrement()->mesh(), "sodShockSteadySolutionIncrement", ".");
+  HDF5Exporter solutionExporter(form->solutionIncrement()->mesh(), "sodShockSteadySolution", ".");
+  HDF5Exporter solutionIncrementExporter(form->solutionIncrement()->mesh(), "sodShockSteadySolutionIncrement", ".");
   
   double t = 0.0; // we're steady state; we're using t = 0.0 to indicate the Newton Step
-  solutionIncrementExporter.exportSolution(form.solutionIncrement(), t); // set
-  solutionExporter.exportSolution(form.solution(), t);
+  solutionIncrementExporter.exportSolution(form->solutionIncrement(), t); // set
+  solutionExporter.exportSolution(form->solution(), t);
   
   // Borrowing some from Truman's dissertation code
   SpatialFilterPtr leftX  = SpatialFilter::matchingX(x_a);
@@ -190,14 +189,14 @@ int main(int argc, char *argv[])
   std::cout << "T_a = " << T_a << std::endl;
   std::cout << "T_b = " << T_b << std::endl;
 //  (SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
-  form.addMassFluxCondition(         leftX, Function::constant(rho_a), Function::constant(u_a), Function::constant(T_a));
-  form.addVelocityTraceCondition(    leftX, Function::constant(u_a)         );
-  form.addTemperatureTraceCondition( leftX, Function::constant(T_a)         );
-  form.addMassFluxCondition(        rightX, Function::constant(rho_b), Function::constant(u_b), Function::constant(T_b));
-  form.addVelocityTraceCondition(   rightX, Function::constant(u_b)         );
-  form.addTemperatureTraceCondition(rightX, Function::constant(T_b)         );
+  form->addMassFluxCondition(         leftX, Function::constant(rho_a), Function::constant(u_a), Function::constant(T_a));
+  form->addVelocityTraceCondition(    leftX, Function::constant(u_a)         );
+  form->addTemperatureTraceCondition( leftX, Function::constant(T_a)         );
+  form->addMassFluxCondition(        rightX, Function::constant(rho_b), Function::constant(u_b), Function::constant(T_b));
+  form->addVelocityTraceCondition(   rightX, Function::constant(u_b)         );
+  form->addTemperatureTraceCondition(rightX, Function::constant(T_b)         );
   
-  VarPtr u1_hat = form.u_hat(1);
+  VarPtr u1_hat = form->u_hat(1);
 
   double nonlinearTolerance = 1e-2;
   double l2NormOfIncrement = 1.0;
@@ -205,26 +204,26 @@ int main(int argc, char *argv[])
   int maxNonlinearSteps = 20;
   while ((l2NormOfIncrement > nonlinearTolerance) && (stepNumber < maxNonlinearSteps))
   {
-    double alpha = form.solveAndAccumulate();
-    int solveCode = form.getSolveCode();
+    double alpha = form->solveAndAccumulate();
+    int solveCode = form->getSolveCode();
     if (solveCode != 0)
     {
       if (rank==0) cout << "Solve not completed correctly; aborting..." << endl;
       exit(1);
     }
-    l2NormOfIncrement = form.L2NormSolutionIncrement();
+    l2NormOfIncrement = form->L2NormSolutionIncrement();
     std::cout << "In Newton step " << stepNumber << ", L^2 norm of increment = " << l2NormOfIncrement;
     std::cout << " (alpha = " << alpha << ")" << std::endl;
     
     stepNumber++;
-    solutionExporter.exportSolution(form.solution(), double(stepNumber));  // use stepNumber as the "time" value for export...
-    solutionIncrementExporter.exportSolution(form.solutionIncrement(), double(stepNumber));
+    solutionExporter.exportSolution(form->solution(), double(stepNumber));  // use stepNumber as the "time" value for export...
+    solutionIncrementExporter.exportSolution(form->solutionIncrement(), double(stepNumber));
   }
   
   // create a refStrategy, just for the purpose of uniform refinement.
   // (The RHS is likely incorrect for refinement purposes, because of the treatment of fluxes.  We can fix this; see NavierStokesVGPFormulation for how...)
   double energyThreshold = 0.2;
-  auto refStrategy = RefinementStrategy::energyErrorRefinementStrategy(form.solutionIncrement(), energyThreshold);
+  auto refStrategy = RefinementStrategy::energyErrorRefinementStrategy(form->solutionIncrement(), energyThreshold);
   
   int numUniformRefinements = 2;
   int stepOffset = stepNumber;
@@ -236,20 +235,20 @@ int main(int argc, char *argv[])
     l2NormOfIncrement = 1.0;
     while ((l2NormOfIncrement > nonlinearTolerance) && (stepNumber < maxNonlinearSteps))
     {
-      double alpha = form.solveAndAccumulate();
-      int solveCode = form.getSolveCode();
+      double alpha = form->solveAndAccumulate();
+      int solveCode = form->getSolveCode();
       if (solveCode != 0)
       {
         if (rank==0) cout << "Solve not completed correctly; aborting..." << endl;
         exit(1);
       }
-      l2NormOfIncrement = form.L2NormSolutionIncrement();
+      l2NormOfIncrement = form->L2NormSolutionIncrement();
       std::cout << "In Newton step " << stepNumber << ", L^2 norm of increment = " << l2NormOfIncrement;
       std::cout << " (alpha = " << alpha << ")" << std::endl;
       
       stepNumber++;
-      solutionExporter.exportSolution(form.solution(), double(stepNumber + stepOffset));  // use stepNumber as the "time" value for export...
-      solutionIncrementExporter.exportSolution(form.solutionIncrement(), double(stepNumber + stepOffset));
+      solutionExporter.exportSolution(form->solution(), double(stepNumber + stepOffset));  // use stepNumber as the "time" value for export...
+      solutionIncrementExporter.exportSolution(form->solutionIncrement(), double(stepNumber + stepOffset));
     }
     stepOffset += stepNumber;
   }
