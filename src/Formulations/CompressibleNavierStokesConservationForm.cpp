@@ -115,6 +115,26 @@ Teuchos::RCP<CompressibleNavierStokesConservationForm> CompressibleNavierStokesC
   return Teuchos::rcp(new CompressibleNavierStokesConservationForm(meshTopo, parameters));
 }
 
+Teuchos::RCP<CompressibleNavierStokesConservationForm> CompressibleNavierStokesConservationForm::timeSteppingEulerFormulation(int spaceDim, bool useConformingTraces,
+                                                                                    MeshTopologyPtr meshTopo,
+                                                                                    int spatialPolyOrder, int delta_k)
+{
+  Teuchos::ParameterList parameters;
+  
+  parameters.set("spaceDim", spaceDim);
+  parameters.set("mu", 0.0);
+  parameters.set("useConformingTraces",useConformingTraces);
+  parameters.set("useTimeStepping", true);
+  parameters.set("useSpaceTime", false);
+  
+  parameters.set("t0",0.0);
+  
+  parameters.set("spatialPolyOrder", spatialPolyOrder);
+  parameters.set("delta_k", delta_k);
+  
+  return Teuchos::rcp(new CompressibleNavierStokesConservationForm(meshTopo, parameters));
+}
+
 CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationForm(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters)
 {
   _ctorParameters = parameters;
@@ -137,6 +157,7 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   _gamma = parameters.get<double>("gamma",1.4);
   _Pr = parameters.get<double>("Pr",0.713);
   _Cv = parameters.get<double>("Cv",1.0);
+  _pureEulerMode = (_mu == 0.0);
   bool useConformingTraces = parameters.get<bool>("useConformingTraces",false);
   int spatialPolyOrder = parameters.get<int>("spatialPolyOrder");
   int temporalPolyOrder = parameters.get<int>("temporalPolyOrder", 1);
@@ -150,8 +171,7 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   bool useTimeStepping = parameters.get<bool>("useTimeStepping",false);
   double initialDt = parameters.get<double>("dt",1.0);
   bool useSpaceTime = parameters.get<bool>("useSpaceTime",false);
-  TimeStepType timeStepType = parameters.get<TimeStepType>("timeStepType", BACKWARD_EULER); // Backward Euler is immune to oscillations (which Crank-Nicolson can/does exhibit)
-    
+  
   string problemName = parameters.get<string>("problemName", "");
   string savedSolutionAndMeshPrefix = parameters.get<string>("savedSolutionAndMeshPrefix", "");
   
@@ -170,20 +190,6 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   _muFunc = _muParamFunc;
   _muSqrtFunc = _muSqrtParamFunc;
   
-  double thetaValue;
-  switch (timeStepType) {
-    case FORWARD_EULER:
-      thetaValue = 0.0;
-      break;
-    case CRANK_NICOLSON:
-      thetaValue = 0.5;
-      break;
-    case BACKWARD_EULER:
-      thetaValue = 1.0;
-      break;
-  }
-  
-  _theta = ParameterFunction::parameterFunction(thetaValue);
   _timeStepping = useTimeStepping;
   _spaceTime = useSpaceTime;
   
@@ -217,47 +223,59 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   for (int d=0; d<spaceDim; d++)
   {
     m[d] = _vf->fieldVar(S_m[d]);
-    q[d] = _vf->fieldVar(S_q[d]);
   }
-  for (int d1=0; d1<spaceDim; d1++)
+  
+  if (!_pureEulerMode)
   {
-    for (int d2=0; d2<spaceDim; d2++)
+    for (int d=0; d<spaceDim; d++)
     {
-      D[d1][d2] = _vf->fieldVar(S_D[d1][d2]);
+      q[d] = _vf->fieldVar(S_q[d]);
+    }
+    for (int d1=0; d1<spaceDim; d1++)
+    {
+      for (int d2=0; d2<spaceDim; d2++)
+      {
+        D[d1][d2] = _vf->fieldVar(S_D[d1][d2]);
+      }
     }
   }
   
   E = _vf->fieldVar(S_E);
   
   FunctionPtr one = Function::constant(1.0); // reuse Function to take advantage of accelerated BasisReconciliation (probably this is not the cleanest way to do this, but it should work)
-  if (! _spaceTime)
-  {
-    Space uHatSpace = useConformingTraces ? HGRAD : L2;
-    for (int d=0; d<spaceDim; d++)
-    {
-      // unfortunately, we don't have a way right now to say what u_hat is the trace of,
-      // because it is not linear in the field variables: it is m[d] / rho...
-      // We could resolve this by using a Function that depends on ParameterFunctions,
-      // and a map in place of the LinearTerm below, but there's some more work to be done to support this
-      // in the places that make use of the "termTraced" argument below, as well as adding support to Var
-      // TODO: add this support.  (Main use case right now is geometric multi-grid preconditioning.)
-      u_hat[d] = _vf->traceVar(S_u_hat[d], uHatSpace);
-    }
-  }
-  else
-  {
-    Space uHatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
-    for (int d=0; d<spaceDim; d++)
-    {
-      // see note above about the term traced...
-      u_hat[d] = _vf->traceVarSpaceOnly(S_u_hat[d], uHatSpace);
-    }
-  }
   
-  Space THatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
-  // same story with the T hat trace as with u_hat:
-  // T is a nonlinear function of the field variables, T = trace((1/rho) * (E - m * m / rho)).
-  T_hat = _vf->traceVarSpaceOnly(S_T_hat, THatSpace);
+  // u_hat, T_hat equations are not defined in Euler formulation...
+  if (!_pureEulerMode)
+  {
+    if (! _spaceTime)
+    {
+      Space uHatSpace = useConformingTraces ? HGRAD : L2;
+      for (int d=0; d<spaceDim; d++)
+      {
+        // unfortunately, we don't have a way right now to say what u_hat is the trace of,
+        // because it is not linear in the field variables: it is m[d] / rho...
+        // We could resolve this by using a Function that depends on ParameterFunctions,
+        // and a map in place of the LinearTerm below, but there's some more work to be done to support this
+        // in the places that make use of the "termTraced" argument below, as well as adding support to Var
+        // TODO: add this support.  (Main use case right now is geometric multi-grid preconditioning.)
+        u_hat[d] = _vf->traceVar(S_u_hat[d], uHatSpace);
+      }
+    }
+    else
+    {
+      Space uHatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
+      for (int d=0; d<spaceDim; d++)
+      {
+        // see note above about the term traced...
+        u_hat[d] = _vf->traceVarSpaceOnly(S_u_hat[d], uHatSpace);
+      }
+    }
+    
+    Space THatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
+    // same story with the T hat trace as with u_hat:
+    // T is a nonlinear function of the field variables, T = trace((1/rho) * (E - m * m / rho)).
+    T_hat = _vf->traceVarSpaceOnly(S_T_hat, THatSpace);
+  }
   
   // FunctionPtr n = Function::normal();
   FunctionPtr n_x = TFunction<double>::normal(); // spatial normal
@@ -365,53 +383,60 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   {
     m_prev[d1]      = Function::solution(m[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
     m_prev_time[d1] = Function::solution(m[d1], _solnPrevTime, previousTimeIdentifierExponent);
-    q_prev[d1]      = Function::solution(q[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
-    for (int d2=0; d2<spaceDim; d2++)
+    if (!_pureEulerMode)
     {
-      D_prev[d1][d2] = Function::solution(D[d1][d2], _backgroundFlow, backgroundFlowIdentifierExponent);
+      q_prev[d1]      = Function::solution(q[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
+      for (int d2=0; d2<spaceDim; d2++)
+      {
+        D_prev[d1][d2] = Function::solution(D[d1][d2], _backgroundFlow, backgroundFlowIdentifierExponent);
+      }
     }
     m_prev_dot_m_prev = m_prev_dot_m_prev + m_prev[d1] * m_prev[d1];
   }
   
-  // S terms:
-  Camellia::EOperator S_divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
-  auto n_S = (_spaceDim > 1) ? n_x : n_x->x();
-  for (int d=0; d<spaceDim; d++)
-  {
-    _bf->addTerm(m[d]/rho_prev - m_prev[d]/rho_prev_squared * rho, S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
-    _rhs->addTerm(-m_prev[d] / rho_prev * S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
-    for (int d2=0; d2<spaceDim; d2++)
-    {
-      VarPtr S_d2 = (_spaceDim > 1) ? S[d]->spatialComponent(d2+1) : S[d];
-      _bf->addTerm (1./_muFunc * D[d][d2],        S_d2);
-      _rhs->addTerm(-1./_muFunc * D_prev[d][d2] * S_d2);
-    }
-    _bf->addTerm(-u_hat[d], S[d] * n_S);
-  }
-  
-  // tau terms:
   double Cp    = this->Cp();
   double Pr    = this->Pr();
   double Cv    = this->Cv();
   double gamma = this->gamma();
-  auto n_tau = n_S;
-  FunctionPtr qWeight = Pr / (Cp * _muFunc); // q is defined such that q * qWeight = - grad T
-  Camellia::EOperator tauDivOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
   
-  _bf->addTerm (-1.0 / rho_prev * E + E_prev / rho_prev_squared * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
-  _rhs->addTerm(E_prev / rho_prev                                    * (1.0 / Cv) * tau->applyOp(tauDivOp));
-  
-  _bf->addTerm(T_hat,     tau * n_tau);
-  
-  _bf->addTerm( - m_prev_dot_m_prev / (rho_prev_squared * rho_prev) * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
-  _rhs->addTerm( - m_prev_dot_m_prev / (2. * rho_prev_squared)           * (1.0 / Cv) * tau->applyOp(tauDivOp));
-  for (int d=0; d<spaceDim; d++)
+  if (!_pureEulerMode) // S and tau equations (heat flux, scaled velocity gradient) vanish for Euler
   {
-    VarPtr tau_d = (_spaceDim > 1) ? tau->spatialComponent(d+1) : tau;
-    _bf->addTerm ( qWeight * q[d],       tau_d);
-    _rhs->addTerm(-qWeight * q_prev[d] * tau_d);
+    // S terms:
+    Camellia::EOperator S_divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
+    auto n_S = (_spaceDim > 1) ? n_x : n_x->x();
+    for (int d=0; d<spaceDim; d++)
+    {
+      _bf->addTerm(m[d]/rho_prev - m_prev[d]/rho_prev_squared * rho, S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
+      _rhs->addTerm(-m_prev[d] / rho_prev * S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
+      for (int d2=0; d2<spaceDim; d2++)
+      {
+        VarPtr S_d2 = (_spaceDim > 1) ? S[d]->spatialComponent(d2+1) : S[d];
+        _bf->addTerm (1./_muFunc * D[d][d2],        S_d2);
+        _rhs->addTerm(-1./_muFunc * D_prev[d][d2] * S_d2);
+      }
+      _bf->addTerm(-u_hat[d], S[d] * n_S);
+    }
     
-    _bf->addTerm(   m_prev[d] / rho_prev_squared * m[d], (1.0 / Cv) * tau->applyOp(tauDivOp));
+    // tau terms:
+    auto n_tau = n_S;
+    FunctionPtr qWeight = Pr / (Cp * _muFunc); // q is defined such that q * qWeight = - grad T
+    Camellia::EOperator tauDivOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
+    
+    _bf->addTerm (-1.0 / rho_prev * E + E_prev / rho_prev_squared * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
+    _rhs->addTerm(E_prev / rho_prev                                    * (1.0 / Cv) * tau->applyOp(tauDivOp));
+    
+    _bf->addTerm(T_hat,     tau * n_tau);
+    
+    _bf->addTerm( - m_prev_dot_m_prev / (rho_prev_squared * rho_prev) * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
+    _rhs->addTerm( - m_prev_dot_m_prev / (2. * rho_prev_squared)           * (1.0 / Cv) * tau->applyOp(tauDivOp));
+    for (int d=0; d<spaceDim; d++)
+    {
+      VarPtr tau_d = (_spaceDim > 1) ? tau->spatialComponent(d+1) : tau;
+      _bf->addTerm ( qWeight * q[d],       tau_d);
+      _rhs->addTerm(-qWeight * q_prev[d] * tau_d);
+      
+      _bf->addTerm(   m_prev[d] / rho_prev_squared * m[d], (1.0 / Cv) * tau->applyOp(tauDivOp));
+    }
   }
 
   // to avoid needing a bunch of casts below, do a cast once here:
@@ -441,13 +466,16 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   double D_traceWeight = -2./3.; // In Truman's code, this is hard-coded to -2/3 for 1D, 3D, and -2/2 for 2D.  This value arises from Stokes' hypothesis, and I think he probably was implementing a variant of this for 2D.  I'm going with what I think is the more standard choice of using the same value regardless of spatial dimension.
   LinearTermPtr D_trace;
   FunctionPtr D_trace_prev = Function::zero();
-  for (int d=0; d<spaceDim; d++)
+  if (!_pureEulerMode) // D is not defined in Euler formulation
   {
-    D_trace = D_trace + D[d][d];
-    D_trace_prev = D_trace_prev +  D_prev[d][d];
+    for (int d=0; d<spaceDim; d++)
+    {
+      D_trace = D_trace + D[d][d];
+      D_trace_prev = D_trace_prev +  D_prev[d][d];
+    }
   }
   
-  LinearTermPtr m_prev_dot_m;
+  LinearTermPtr m_prev_dot_m = Teuchos::rcp(new LinearTerm);
   for (int d=0; d<spaceDim; d++)
   {
     m_prev_dot_m = m_prev_dot_m + m_prev[d] * m[d];
@@ -474,13 +502,13 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
       _bf->addTerm( -(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev_squared) * rho, vm[d1]->di(d1+1));
       _rhs->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev)              * vm[d1]->di(d1+1));
       
-      // DEBUGGING: commenting out this line...
-      
-//      _bf->addTerm( ((gamma - 1.) / rho_prev) * m_prev_dot_m, vm[d1]->di(d1+1));
       _bf->addTerm( (gamma - 1.) * m_prev_dot_m / rho_prev, vm[d1]->di(d1+1));
       
-      _bf->addTerm(  D_traceWeight * D_trace,       vm[d1]->di(d1+1));
-      _rhs->addTerm(-D_traceWeight * D_trace_prev * vm[d1]->di(d1+1));
+      if (!_pureEulerMode) // no D for Euler
+      {
+        _bf->addTerm(  D_traceWeight * D_trace,       vm[d1]->di(d1+1));
+        _rhs->addTerm(-D_traceWeight * D_trace_prev * vm[d1]->di(d1+1));
+      }
     }
     for (int d2=0; d2<spaceDim; d2++)
     {
@@ -488,8 +516,11 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
       _bf->addTerm( (m_prev[d1] * m_prev[d2] / rho_prev_squared) * rho,          vm[d1]->di(d2+1));
       _rhs->addTerm( m_prev[d1] * m_prev[d2] / rho_prev                        * vm[d1]->di(d2+1));
       
-      _bf->addTerm(   D[d1][d2]      + D[d2][d1],        vm[d1]->di(d2+1));
-      _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * vm[d1]->di(d2+1));
+      if (!_pureEulerMode) // no D for Euler
+      {
+        _bf->addTerm(   D[d1][d2]      + D[d2][d1],        vm[d1]->di(d2+1));
+        _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * vm[d1]->di(d2+1));
+      }
     }
     _bf->addTerm(tm[d1], vm[d1]);
     _rhs->addTerm(FunctionPtr(_fm[d1]) * vm[d1]);
@@ -519,20 +550,22 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     
     _bf->addTerm( (gamma-1.) * m_prev_dot_m * m_prev[d1] / rho_prev_squared,                                ve->di(d1+1));
     
-    _bf->addTerm(-q[d1], ve->di(d1+1));
-    _rhs->addTerm(q_prev[d1] * ve->di(d1+1));
-    
-    _bf->addTerm((D_traceWeight * m_prev[d1] / rho_prev) * D_trace, ve->di(d1+1));
-    _bf->addTerm((D_traceWeight / rho_prev) * D_trace_prev * m[d1], ve->di(d1+1));
-    _bf->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev_squared) * D_trace_prev * rho, ve->di(d1+1));
-    _rhs->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev) * D_trace_prev * ve->di(d1+1));
-
-    for (int d2=0; d2<spaceDim; d2++)
+    if (!_pureEulerMode) // no viscous terms for Euler
     {
-      _bf->addTerm(m_prev[d2]/rho_prev * (D[d1][d2] + D[d2][d1]),                        ve->di(d1+1));
-      _bf->addTerm((1.0/rho_prev) * (D_prev[d1][d2] + D_prev[d2][d1])*m[d2],             ve->di(d1+1));
-      _bf->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev_squared * rho, ve->di(d1+1));
-      _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev             * ve->di(d1+1));
+      _bf->addTerm(-q[d1], ve->di(d1+1));
+      _rhs->addTerm(q_prev[d1] * ve->di(d1+1));
+      
+      _bf->addTerm((D_traceWeight * m_prev[d1] / rho_prev) * D_trace, ve->di(d1+1));
+      _bf->addTerm((D_traceWeight / rho_prev) * D_trace_prev * m[d1], ve->di(d1+1));
+      _bf->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev_squared) * D_trace_prev * rho, ve->di(d1+1));
+      _rhs->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev) * D_trace_prev * ve->di(d1+1));
+      for (int d2=0; d2<spaceDim; d2++)
+      {
+        _bf->addTerm(m_prev[d2]/rho_prev * (D[d1][d2] + D[d2][d1]),                        ve->di(d1+1));
+        _bf->addTerm((1.0/rho_prev) * (D_prev[d1][d2] + D_prev[d2][d1])*m[d2],             ve->di(d1+1));
+        _bf->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev_squared * rho, ve->di(d1+1));
+        _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev             * ve->di(d1+1));
+      }
     }
   }
   _bf->addTerm(te, ve);
@@ -591,20 +624,23 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   {
     FunctionPtr m_i_incr = Function::solution(this->m(comp_i), _solnIncrement);
     FunctionPtr m_i_prev = Function::solution(this->m(comp_i), _backgroundFlow);
-    FunctionPtr q_i_incr = Function::solution(this->q(comp_i), _solnIncrement);
-    FunctionPtr q_i_prev = Function::solution(this->q(comp_i), _backgroundFlow);
     
     _L2IncrementFunction = _L2IncrementFunction + m_i_incr * m_i_incr;
     _L2SolutionFunction = _L2SolutionFunction + m_i_prev * m_i_prev;
-    _L2IncrementFunction = _L2IncrementFunction + q_i_incr * q_i_incr;
-    _L2SolutionFunction = _L2SolutionFunction + q_i_prev * q_i_prev;
-    
-    for (int comp_j=1; comp_j <= _spaceDim; comp_j++)
+    if (!_pureEulerMode)
     {
-      FunctionPtr D_ij_incr = Function::solution(this->D(comp_i,comp_j), _solnIncrement);
-      FunctionPtr D_ij_prev = Function::solution(this->D(comp_i,comp_j), _backgroundFlow);
-      _L2IncrementFunction = _L2IncrementFunction + D_ij_incr * D_ij_incr;
-      _L2SolutionFunction = _L2SolutionFunction + D_ij_prev * D_ij_prev;
+      FunctionPtr q_i_incr = Function::solution(this->q(comp_i), _solnIncrement);
+      FunctionPtr q_i_prev = Function::solution(this->q(comp_i), _backgroundFlow);
+      _L2IncrementFunction = _L2IncrementFunction + q_i_incr * q_i_incr;
+      _L2SolutionFunction = _L2SolutionFunction + q_i_prev * q_i_prev;
+      
+      for (int comp_j=1; comp_j <= _spaceDim; comp_j++)
+      {
+        FunctionPtr D_ij_incr = Function::solution(this->D(comp_i,comp_j), _solnIncrement);
+        FunctionPtr D_ij_prev = Function::solution(this->D(comp_i,comp_j), _backgroundFlow);
+        _L2IncrementFunction = _L2IncrementFunction + D_ij_incr * D_ij_incr;
+        _L2SolutionFunction = _L2SolutionFunction + D_ij_prev * D_ij_prev;
+      }
     }
   }
   
@@ -1189,16 +1225,24 @@ double CompressibleNavierStokesConservationForm::solveAndAccumulate()
   _solveCode = _solnIncrement->solve(_solver);
   
   set<int> nonlinearVariables = {{rho()->ID(), E()->ID()}};
-  set<int> linearVariables = {{tc()->ID(), te()->ID(), T_hat()->ID()}};
+  set<int> linearVariables = {{tc()->ID(), te()->ID()}};
+  
+  if (!_pureEulerMode) // T_hat not defined for Euler
+  {
+    linearVariables.insert(T_hat()->ID());
+  }
   for (int d1=0; d1<_spaceDim; d1++)
   {
     nonlinearVariables.insert(m(d1+1)->ID());
-    nonlinearVariables.insert(q(d1+1)->ID());
     linearVariables.insert(tm(d1+1)->ID());
-    linearVariables.insert(u_hat(d1+1)->ID());
-    for (int d2=0; d2<_spaceDim; d2++)
+    if (!_pureEulerMode) // u_hat, q, D not defined in Euler
     {
-      nonlinearVariables.insert(D(d1+1,d2+1)->ID());
+      linearVariables.insert(u_hat(d1+1)->ID());
+      nonlinearVariables.insert(q(d1+1)->ID());
+      for (int d2=0; d2<_spaceDim; d2++)
+      {
+        nonlinearVariables.insert(D(d1+1,d2+1)->ID());
+      }
     }
   }
   

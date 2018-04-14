@@ -22,6 +22,7 @@ namespace Camellia
     
     int _spaceDim;
     bool _useConformingTraces;
+    bool _pureEulerMode; // turns off viscous terms, including tau and S equations (heat flux, velocity gradients)
     
     Teuchos::RCP<ParameterFunction> _fc, _fe; // forcing functions for continuity, energy equations
     std::vector<Teuchos::RCP<ParameterFunction> > _fm; // forcing for momentum equation(s)
@@ -311,8 +312,13 @@ namespace Camellia
     static Teuchos::RCP<CompressibleNavierStokesConservationForm> steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
                                                                                     MeshTopologyPtr meshTopo, int polyOrder, int delta_k);
     
-    static Teuchos::RCP<CompressibleNavierStokesConservationForm> timeSteppingFormulation(int spaceDim, double Re, bool useConformingTraces,
+    static Teuchos::RCP<CompressibleNavierStokesConservationForm> timeSteppingFormulation(int spaceDim, double Re,
+                                                                                          bool useConformingTraces,
                                                                                           MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
+    
+    static Teuchos::RCP<CompressibleNavierStokesConservationForm> timeSteppingEulerFormulation(int spaceDim, bool useConformingTraces,
+                                                                                               MeshTopologyPtr meshTopo,
+                                                                                               int spatialPolyOrder, int delta_k);
   };
 }
 

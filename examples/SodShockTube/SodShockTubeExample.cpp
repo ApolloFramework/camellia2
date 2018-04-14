@@ -180,7 +180,10 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
 {
   int rank = Teuchos::GlobalMPISession::getRank();
   const int spaceDim = 1;
-  double Re = 1.0 / form->mu();
+  double mu = form->mu();
+  bool pureEuler = (mu == 0.0);
+    
+  double Re = (!pureEuler) ? 1.0 / form->mu() : -1.0 ;
   
   int numTimeSteps = 0.20 / dt; // standard for Sod is to take it to t = 0.20
   
@@ -188,7 +191,10 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   {
     using namespace std;
     cout << "Solving with:\n";
-    cout << "Re = " << Re << endl;
+    if (pureEuler)
+      cout << "pure Euler\n";
+    else
+      cout << "Re = " << Re << endl;
     cout << "p  = " << polyOrder << endl;
     cout << "dt = " << dt << endl;
     cout << meshWidth << " elements; " << numTimeSteps << " timesteps.\n";
@@ -250,17 +256,23 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     initialState[form->rho()->ID()]   = rho;
     setVelocityOrMomentum(form, initialState, u, rho, T);
     setTempOrEnergy      (form, initialState, u, rho, T);
-    initialState[form->q(1)->ID()]    = Function::zero();
-    initialState[form->D(1,1)->ID()]  = Function::zero();
+    if (!pureEuler)
+    {
+      initialState[form->q(1)->ID()]    = Function::zero();
+      initialState[form->D(1,1)->ID()]  = Function::zero();
+    }
     
     // fluxes and traces; setting initial guesses for these should not actually matter, I don't think, but we follow Truman here...
     // (The below expressions might elucidate somewhat how the traces/fluxes relate to the fields, however...)
-    initialState[form->T_hat()->ID()] = T;
     initialState[form->tc()->ID()]    = rho * u * n_x;
     initialState[form->te()->ID()]    = (Cv * rho * u * T + 0.5 * rho * u * u * u + R * rho * u * T) * n_x;
-    
-    initialState[form->u_hat(1)->ID()] = u;
     initialState[form->tm(1)->ID()]    = (rho * u * u + form->R() * rho * T) * n_x;
+    
+    if (!pureEuler)
+    {
+      initialState[form->T_hat()->ID()] = T;
+      initialState[form->u_hat(1)->ID()] = u;
+    }
   }
   
   // define the pressure so we can plot in our solution export
@@ -275,7 +287,6 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   form->solution()->projectOntoMesh(initialState, solutionOrdinal);
   
   MeshPtr mesh = form->solutionIncrement()->mesh();
-
   
   vector<FunctionPtr> functionsToPlot;
   vector<string> functionNames;
@@ -296,7 +307,10 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   HDF5Exporter solutionIncrementHistoryExporter(mesh, "sodShockSolutionIncrementHistory", ".");
   
   ostringstream solnName;
-  solnName << "sodShockSolutionRe" << Re << "_dt" << dt << "_k" << polyOrder;
+  if (!pureEuler)
+    solnName << "sodShockSolutionRe" << Re << "_dt" << dt << "_k" << polyOrder;
+  else
+    solnName << "sodShockSolutionEuler" << "_dt" << dt << "_k" << polyOrder;
   if (conservationVariables) solnName << "_conservationVariables";
   HDF5Exporter solutionExporter(mesh, solnName.str(), ".");
   
@@ -330,10 +344,13 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   form->addEnergyFluxCondition           ( SpatialFilter::allSpace(), Function::zero());
   form->addMomentumFluxCondition(      leftX, Function::constant(rho_a), Function::constant(u_a), Function::constant(T_a));
   form->addMomentumFluxCondition(     rightX, Function::constant(rho_b), Function::constant(u_b), Function::constant(T_b));
-  form->addVelocityTraceCondition(     leftX, Function::constant(u_a));
-  form->addVelocityTraceCondition(    rightX, Function::constant(u_b));
-  form->addTemperatureTraceCondition(  leftX, Function::constant(T_a));
-  form->addTemperatureTraceCondition( rightX, Function::constant(T_b));
+  if (!pureEuler)
+  {
+    form->addVelocityTraceCondition(     leftX, Function::constant(u_a));
+    form->addVelocityTraceCondition(    rightX, Function::constant(u_b));
+    form->addTemperatureTraceCondition(  leftX, Function::constant(T_a));
+    form->addTemperatureTraceCondition( rightX, Function::constant(T_b));
+  }
   
   FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
   FunctionPtr m   = momentum(form, true); // true: previous time step
@@ -341,7 +358,6 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   FunctionPtr tc  = Function::solution(form->tc(),  form->solutionPreviousTimeStep(), true);
   FunctionPtr tm  = Function::solution(form->tm(1), form->solutionPreviousTimeStep(), true);
   FunctionPtr te  = Function::solution(form->te(),  form->solutionPreviousTimeStep(), true);
-  
   
   auto printConservationReport = [&]() -> void
   {
@@ -427,20 +443,38 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   
   printConservationReport();
   double t = 0;
-  double Re_0 = std::min(1e0,Re); // for continuation in Reynolds number
+  double Re_0;
   for (int timeStepNumber = 0; timeStepNumber < numTimeSteps; timeStepNumber++)
   {
     double l2NormOfIncrement = 1.0;
     int stepNumber = 0;
     int continuationStepNumber = 0;
     int maxNonlinearSteps = 10;
-    form->setMu(1.0 / Re_0);
-    if (rank == 0) cout << "for continuation, set Re to " << Re_0 << endl;
-    double Re_current = Re_0;
-    double Re_multiplier = pow(Re / Re_0, 1./continuationSteps);
+    double Re_current, Re_multiplier;
+    if (!pureEuler)
+    {
+      if (timeStepNumber == 0)
+      {
+        Re_0 = std::min(1e2,Re); // for continuation in Reynolds number
+      }
+      else
+      {
+        Re_0 = std::min(1e4,Re); // for continuation in Reynolds number
+      }
+      form->setMu(1.0 / Re_0);
+      if (rank == 0) cout << "for continuation, set Re to " << Re_0 << endl;
+      Re_current = Re_0;
+      Re_multiplier = pow(Re / Re_0, 1./continuationSteps);
+    }
+    else
+    {
+      // if Euler, no continuation
+      continuationStepNumber = continuationSteps;
+    }
+    double alpha = 1.0;
     while (((continuationStepNumber < continuationSteps) || (l2NormOfIncrement > nonlinearTolerance)) && (stepNumber < maxNonlinearSteps))
     {
-      double alpha = form->solveAndAccumulate();
+      alpha = form->solveAndAccumulate();
       int solveCode = form->getSolveCode();
       if (solveCode != 0)
       {
@@ -467,6 +501,14 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
         l2NormOfIncrement = 1.0;
         stepNumber = 0;
       }
+    }
+    if (l2NormOfIncrement > nonlinearTolerance)
+    {
+      if (rank == 0)
+      {
+        cout << "Nonlinear iteration failed.  Exiting...\n";
+      }
+      return -1;
     }
     t += dt;
     
@@ -535,6 +577,7 @@ int main(int argc, char *argv[])
   double dt    = 0.005; // time step
   
   bool useConservationFormulation = true;
+  bool useEuler = false;
   
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
   
@@ -547,6 +590,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("nonlinearTol", &nonlinearTolerance);
   cmdp.setOption("continuationTol", &continuationTolerance);
   cmdp.setOption("conservationVariables", "primitiveVariables", &useConservationFormulation);
+  cmdp.setOption("euler", "fullNS", &useEuler);
   
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -561,10 +605,20 @@ int main(int argc, char *argv[])
   bool useConformingTraces = true;
   if (useConservationFormulation)
   {
-    auto form = CompressibleNavierStokesConservationForm::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
-                                                                                  meshTopo, polyOrder, delta_k);
-    return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                     nonlinearTolerance, continuationSteps, continuationTolerance);
+    if (useEuler)
+    {
+      auto form = CompressibleNavierStokesConservationForm::timeSteppingEulerFormulation(spaceDim, useConformingTraces,
+                                                                                         meshTopo, polyOrder, delta_k);
+      return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
+                       nonlinearTolerance, continuationSteps, continuationTolerance);
+    }
+    else
+    {
+      auto form = CompressibleNavierStokesConservationForm::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
+                                                                                    meshTopo, polyOrder, delta_k);
+      return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
+                       nonlinearTolerance, continuationSteps, continuationTolerance);
+    }
   }
   else
   {
