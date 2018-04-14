@@ -451,7 +451,7 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     int continuationStepNumber = 0;
     int maxNonlinearSteps = 10;
     double Re_current, Re_multiplier;
-    if (!pureEuler)
+    if (!pureEuler && (continuationSteps > 0))
     {
       if (timeStepNumber == 0)
       {
