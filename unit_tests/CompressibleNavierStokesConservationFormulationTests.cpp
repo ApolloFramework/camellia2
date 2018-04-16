@@ -326,10 +326,8 @@ namespace
   
   void testSteadySolve_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr T, FunctionPtr u_guess, FunctionPtr rho_guess, FunctionPtr T_guess, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
   {
-//    int meshWidth = 4;
-//    int polyOrder = 3; // need 3rd order to exactly capture E for linear u and linear rho
-    int meshWidth = 1; // DEBUGGING
-    int polyOrder = 0; // DEBUGGING
+    int meshWidth = 4;
+    int polyOrder = 3; // need 3rd order to exactly capture E for linear u and linear rho
     
     int delta_k   = 2; // 1 is likely sufficient in 1D
     int spaceDim = 1;
@@ -399,12 +397,6 @@ namespace
     double l2NormTolerance = 1e-10;
     for (int stepNumber = 0; stepNumber<maxSteps; stepNumber++)
     {
-      if (stepNumber == 0)
-      {
-        // DEBUGGING
-        form->solutionIncrement()->setWriteMatrixToMatrixMarketFile(true, "/tmp/A.dat");
-        form->solutionIncrement()->setWriteRHSToMatrixMarketFile(true, "/tmp/b.dat");
-      }
       double alpha = form->solveAndAccumulate();
       if (alpha < 1.0)
       {
