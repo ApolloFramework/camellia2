@@ -254,7 +254,14 @@ const vector<int> & DofOrdering::getDofIndices(int varID, int sideOrdinal) const
   auto entryIt = _indices[sideIndex].find(varID);
   if ( entryIt == _indices[sideIndex].end() )
   {
-    cout << "No entry found for DofIndex " << varID << " on side " << sideIndex << endl;
+    if (sideIndex == _volumeIndex)
+    {
+      cout << "No entry found for DofIndex " << varID << " in volume.\n";
+    }
+    else
+    {
+      cout << "No entry found for DofIndex " << varID << " on side " << sideIndex << endl;
+    }
     cout << "DofOrdering has entries:\n";
     cout << *this;
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "No entry found for DofIndex.");
