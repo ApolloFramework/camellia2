@@ -5,6 +5,7 @@
 #include "EnergyErrorFunction.h"
 #include "Function.h"
 #include "GMGSolver.h"
+#include "GnuPlotUtil.h"
 #include "HDF5Exporter.h"
 #include "MeshFactory.h"
 #include "CompressibleNavierStokesFormulation.h"
@@ -167,7 +168,7 @@ void addConservationConstraint(Teuchos::RCP<CompressibleNavierStokesConservation
   LinearTermPtr vcTrialFunctional = bf->trialFunctional(vcEqualsOne) * dt;
   FunctionPtr   vcRHSFunction     = rhs->linearTerm()->evaluate(vcEqualsOne) * dt; // multiply both by dt in effort to improve conditioning...
   constraints->addConstraint(vcTrialFunctional == vcRHSFunction);
-  cout << "Added element constraint " << vcTrialFunctional->displayString() << " == " << vcRHSFunction->displayString() << endl;
+  if (rank == 0) cout << "Added element constraint " << vcTrialFunctional->displayString() << " == " << vcRHSFunction->displayString() << endl;
 
   const int spaceDim = 1;
   // vm constraint(s):
@@ -180,7 +181,7 @@ void addConservationConstraint(Teuchos::RCP<CompressibleNavierStokesConservation
     FunctionPtr rhsFxn = rhs->linearTerm()->evaluate(vmEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
     constraints->addConstraint(trialFunctional == rhsFxn);
 
-    cout << "Added element constraint " << trialFunctional->displayString() << " == " << rhsFxn->displayString() << endl;
+    if (rank == 0) cout << "Added element constraint " << trialFunctional->displayString() << " == " << rhsFxn->displayString() << endl;
   }
   // ve constraint:
   VarPtr ve = form->ve();
@@ -188,7 +189,7 @@ void addConservationConstraint(Teuchos::RCP<CompressibleNavierStokesConservation
   LinearTermPtr veTrialFunctional = bf->trialFunctional(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
   FunctionPtr   veRHSFunction     = rhs->linearTerm()->evaluate(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
   constraints->addConstraint(veTrialFunctional == veRHSFunction);
-  cout << "Added element constraint " << veTrialFunctional->displayString() << " == " << veRHSFunction->displayString() << endl;
+  if (rank == 0) cout << "Added element constraint " << veTrialFunctional->displayString() << " == " << veRHSFunction->displayString() << endl;
 
   // although enforcement only happens in solnIncrement, the constraints change numbering of dofs, so we need to set constraints in each Solution object
   solnIncrement->setLagrangeConstraints(constraints);
@@ -466,13 +467,13 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
       double timeDifferenceIntegral = momentumTimeStep->integrate(cellID, mesh);
       double fluxIntegral = momentumFlux->integrate(cellID, mesh);
       double cellIntegral = timeDifferenceIntegral + fluxIntegral;
-//      cout << "timeDifferenceIntegral = " << timeDifferenceIntegral << endl;
-//      cout << "fluxIntegral           = " << fluxIntegral << endl;
       cellIntegrals[cellOrdinal] = cellIntegral;
       maxConservationFailure = std::max(abs(cellIntegral), maxConservationFailure);
       cellOrdinal++;
     }
-    cout << "On rank " << rank << ", max cellwise momentum conservation failure: " << maxConservationFailure << endl;
+    double globalMaxConservationFailure;
+    mesh->Comm()->MaxAll(&maxConservationFailure, &globalMaxConservationFailure, 1);
+    if (rank == 0) cout << "Max cellwise momentum conservation failure: " << globalMaxConservationFailure << endl;
 //    for (int cellOrdinal=0; cellOrdinal<myCellCount; cellOrdinal++)
 //    {
 //      cout << "cell ordinal " << cellOrdinal << ", conservation failure: " << cellIntegrals[cellOrdinal] << endl;
@@ -559,38 +560,80 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     if (rank == 0) std::cout << "========== t = " << t << ", time step number " << timeStepNumber+1 << " ==========\n";
   }
   
-  //  // create a refStrategy, just for the purpose of uniform refinement.
-  //  // (The RHS is likely incorrect for refinement purposes, because of the treatment of fluxes.  We can fix this; see NavierStokesVGPFormulation for how...)
-  //  double energyThreshold = 0.2;
-  //  auto refStrategy = RefinementStrategy::energyErrorRefinementStrategy(form->solutionIncrement(), energyThreshold);
-  //
-  //  int numUniformRefinements = 0;
-  //  int stepOffset = stepNumber;
-  //  for (int refNumber = 0; refNumber < numUniformRefinements; refNumber++)
-  //  {
-  //    std::cout << "**** Performing Uniform Refinement ****\n";
-  //    refStrategy->hRefineUniformly();
-  //    stepNumber = 0;
-  //    l2NormOfIncrement = 1.0;
-  //    while ((l2NormOfIncrement > nonlinearTolerance) && (stepNumber < maxNonlinearSteps))
-  //    {
-  //      double alpha = form->solveAndAccumulate();
-  //      int solveCode = form->getSolveCode();
-  //      if (solveCode != 0)
-  //      {
-  //        if (rank==0) cout << "Solve not completed correctly; aborting..." << endl;
-  //        exit(1);
-  //      }
-  //      l2NormOfIncrement = form->L2NormSolutionIncrement();
-  //      std::cout << "In Newton step " << stepNumber << ", L^2 norm of increment = " << l2NormOfIncrement;
-  //      std::cout << " (alpha = " << alpha << ")" << std::endl;
-  //
-  //      stepNumber++;
-  //      solutionExporter.exportSolution(form->solution(), double(stepNumber + stepOffset));  // use stepNumber as the "time" value for export...
-  //      solutionIncrementExporter.exportSolution(form->solutionIncrement(), double(stepNumber + stepOffset));
-  //    }
-  //    stepOffset += stepNumber;
-  //  }
+  // now that we're at final time, let's output pressure, velocity, density in a format suitable for plotting
+  int numPoints = max(polyOrder*2 + 1, 2); // polyOrder * 2 will, hopefully, give reasonable approximation of high-order curves
+  Intrepid::FieldContainer<double> refCellPoints(numPoints,1);
+  double dx = 2.0 / (refCellPoints.size() - 1); // 2.0 is the size of the reference element
+  for (int i=0; i<refCellPoints.size(); i++)
+  {
+    refCellPoints(i,0) = -1.0 * + dx * i;
+  }
+  functionsToPlot.push_back(rho);
+  functionNames.push_back("density");
+  
+  functionsToPlot.push_back(Function::xn(1) + 0.5);
+  functionNames.push_back("linear");
+  
+  int numFunctions = functionNames.size();
+  vector<Intrepid::FieldContainer<double>> pointData(numFunctions, Intrepid::FieldContainer<double>(meshWidth,numPoints));
+  for (int functionOrdinal=0; functionOrdinal<numFunctions; functionOrdinal++)
+  {
+    pointData[functionOrdinal].initialize(0.0);
+  }
+  Teuchos::Array<int> cellDim;
+  cellDim.push_back(1);  // C
+  cellDim.push_back(numPoints); // P
+  auto & myCellIDs = mesh->cellIDsInPartition();
+  for (auto cellID : myCellIDs)
+  {
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+    basisCache->setRefCellPoints(refCellPoints);
+    
+    for (int functionOrdinal=0; functionOrdinal<numFunctions; functionOrdinal++)
+    {
+      auto f = functionsToPlot[functionOrdinal];
+      auto name = functionNames[functionOrdinal];
+      
+      Intrepid::FieldContainer<double> localData(cellDim, &pointData[functionOrdinal](cellID,0));
+      
+      f->values(localData, basisCache);
+    }
+  }
+  
+  for (auto & data : pointData)
+  {
+    MPIWrapper::entryWiseSum(*mesh->Comm(), data);
+  }
+  
+  // now, on rank 0, let's figure out x,y points and do the file output
+  if (rank == 0)
+  {
+    double h = 1.0 / meshWidth;
+    for (int functionOrdinal=0; functionOrdinal<functionNames.size(); functionOrdinal++)
+    {
+      int totalPoints = meshWidth*(numPoints-1); // cells overlap; eliminate duplicates
+      Intrepid::FieldContainer<double> xyPoints(totalPoints,2);
+      
+      string solnNameString = solnName.str();
+      ostringstream fileName;
+      fileName << solnNameString << "_" << functionNames[functionOrdinal] << ".dat";
+      
+      ofstream fout(fileName.str());
+      fout << setprecision(6);
+      
+      for (int i=0; i<totalPoints; i++)
+      {
+        double x = x_a + dx * i / 2.0 * h;
+        int cellOrdinal  = i / (numPoints-1);
+        int pointOrdinal = i % (numPoints-1);
+        
+        double y = pointData[functionOrdinal](cellOrdinal,pointOrdinal);
+        xyPoints(i,0) = x;
+        xyPoints(i,1) = y;
+      }
+      GnuPlotUtil::writeXYPoints(fileName.str(), xyPoints);
+    }
+  }
   
   return 0;
 }
