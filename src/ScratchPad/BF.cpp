@@ -1683,9 +1683,15 @@ namespace Camellia
   TLinearTermPtr<Scalar> TBF<Scalar>::trialFunctional(const std::map<int,FunctionPtr> &testMap)
   {
     TLinearTermPtr<Scalar> functional = Teuchos::rcp(new LinearTerm());
+    bool weightFluxesByParity = true; // trying something...
+    FunctionPtr parity = Function::sideParity();
     for (auto bilinearTerm : _terms)
     {
       TLinearTermPtr<Scalar> trialTerm = bilinearTerm.first;
+      if ((trialTerm->termType() == FLUX) && weightFluxesByParity)
+      {
+        trialTerm = parity * trialTerm;
+      }
       TLinearTermPtr<Scalar> testTerm = bilinearTerm.second;
       TFunctionPtr<Scalar> testValue = testTerm->evaluate(testMap);
       bool overrideTypeCheck = true; // we can have fluxes, traces, and fields all in this trial term
