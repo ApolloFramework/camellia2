@@ -10,6 +10,7 @@
 #include "CompressibleNavierStokesFormulation.h"
 #include "CompressibleNavierStokesFormulationRefactor.hpp"
 #include "CompressibleNavierStokesConservationForm.hpp"
+#include "LagrangeConstraints.h"
 #include "SimpleFunction.h"
 #include "SuperLUDistSolver.h"
 
@@ -32,6 +33,9 @@ FunctionPtr pressure(Teuchos::RCP<Form> form);
 
 template<class Form>
 FunctionPtr velocity(Teuchos::RCP<Form> form);
+
+template<class Form>
+void addConservationConstraint(Teuchos::RCP<Form> form);
 
 template<>
 FunctionPtr pressure<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form)
@@ -138,6 +142,60 @@ FunctionPtr velocity<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<C
   return u;
 }
 
+template<>
+void addConservationConstraint(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form)
+{
+  cout << "WARNING: addConservationConstraint unimplemented for primitive-variable formulation...\n";
+  // TODO: implement this
+}
+
+template<>
+void addConservationConstraint(Teuchos::RCP<CompressibleNavierStokesConservationForm> form)
+{
+  cout << "TRYING CONSERVATION ENFORCEMENT.\n";
+  auto soln = form->solution();
+  auto solnIncrement = form->solutionIncrement();
+  auto prevSoln = form->solutionPreviousTimeStep();
+  auto bf  = solnIncrement->bf();
+  auto rhs = solnIncrement->rhs();
+  auto dt = form->getTimeStep();
+  
+  Teuchos::RCP<LagrangeConstraints> constraints = Teuchos::rcp(new LagrangeConstraints);
+  // vc constraint:
+  VarPtr vc = form->vc();
+  map<int, FunctionPtr> vcEqualsOne = {{vc->ID(), Function::constant(1.0)}};
+  LinearTermPtr vcTrialFunctional = bf->trialFunctional(vcEqualsOne) * dt;
+  FunctionPtr   vcRHSFunction     = rhs->linearTerm()->evaluate(vcEqualsOne) * dt; // multiply both by dt in effort to improve conditioning...
+  constraints->addConstraint(vcTrialFunctional == vcRHSFunction);
+  cout << "Added element constraint " << vcTrialFunctional->displayString() << " == " << vcRHSFunction->displayString() << endl;
+
+  const int spaceDim = 1;
+  // vm constraint(s):
+  for (int d=0; d<spaceDim; d++)
+  {
+    // test with 1
+    VarPtr vm = form->vm(d+1);
+    map<int, FunctionPtr> vmEqualsOne = {{vm->ID(), Function::constant(1.0)}};
+    LinearTermPtr trialFunctional = bf->trialFunctional(vmEqualsOne) * dt; // multiply both by dt in effort to improve conditioning...
+    FunctionPtr rhsFxn = rhs->linearTerm()->evaluate(vmEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
+    constraints->addConstraint(trialFunctional == rhsFxn);
+
+    cout << "Added element constraint " << trialFunctional->displayString() << " == " << rhsFxn->displayString() << endl;
+  }
+  // ve constraint:
+  VarPtr ve = form->ve();
+  map<int, FunctionPtr> veEqualsOne = {{ve->ID(), Function::constant(1.0)}};
+  LinearTermPtr veTrialFunctional = bf->trialFunctional(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
+  FunctionPtr   veRHSFunction     = rhs->linearTerm()->evaluate(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
+  constraints->addConstraint(veTrialFunctional == veRHSFunction);
+  cout << "Added element constraint " << veTrialFunctional->displayString() << " == " << veRHSFunction->displayString() << endl;
+
+  // although enforcement only happens in solnIncrement, the constraints change numbering of dofs, so we need to set constraints in each Solution object
+  solnIncrement->setLagrangeConstraints(constraints);
+  soln->setLagrangeConstraints(constraints);
+  prevSoln->setLagrangeConstraints(constraints);
+}
+
 template<class Form>
 void setVelocityOrMomentum(Teuchos::RCP<Form> form, std::map<int, FunctionPtr> &initialStateMap, FunctionPtr u, FunctionPtr rho, FunctionPtr T);
 
@@ -178,10 +236,15 @@ template<class Form>
 int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, int meshWidth, double x_a, double x_b,
               int polyOrder, int cubatureEnrichment, bool useCondensedSolve, double nonlinearTolerance, int continuationSteps, double continuationTolerance)
 {
+  // TESTING:
+  addConservationConstraint(form);
   int rank = Teuchos::GlobalMPISession::getRank();
   const int spaceDim = 1;
   double mu = form->mu();
   bool pureEuler = (mu == 0.0);
+  
+  SolutionPtr solnIncrement = form->solutionIncrement();
+  SolutionPtr soln = form->solution();
     
   double Re = (!pureEuler) ? 1.0 / form->mu() : -1.0 ;
   
@@ -201,8 +264,10 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   }
   
   form->setTimeStep(dt);
-  form->solutionIncrement()->setUseCondensedSolve(useCondensedSolve);
-  form->solutionIncrement()->setCubatureEnrichmentDegree(cubatureEnrichment);
+  solnIncrement->setUseCondensedSolve(useCondensedSolve);
+  solnIncrement->setCubatureEnrichmentDegree(cubatureEnrichment);
+//  solnIncrement->setWriteMatrixToMatrixMarketFile(true, "/tmp/A.dat");
+//  solnIncrement->setWriteRHSToMatrixMarketFile(   true, "/tmp/b.dat");
   
   double gamma = form->gamma();
   double c_v   = form->Cv();
@@ -285,6 +350,7 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   const int solutionOrdinal = 0;
   form->solutionPreviousTimeStep()->projectOntoMesh(initialState, solutionOrdinal);
   form->solution()->projectOntoMesh(initialState, solutionOrdinal);
+  
   
   MeshPtr mesh = form->solutionIncrement()->mesh();
   
@@ -382,34 +448,7 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     }
   };
   
-//  BFPtr bf = form->solutionIncrement()->bf();
-//  LinearTermPtr residual = bf->testFunctional(form->solutionIncrement()) - form->solutionIncrement()->rhs()->linearTermCopy();
-//  VarPtr vm = form->vm(1);
-//  LinearTermPtr momentumResidualTerm = residual->getPartMatchingVariable(vm);
-//  map<int, FunctionPtr> vmEqualsOneMap = {{vm->ID(), Function::constant(1.0)}};
-//  FunctionPtr momentumResidualFunction = momentumResidualTerm->evaluate(vmEqualsOneMap);
-//
-//  auto printMomentumLocalConservationReport = [&]() -> void
-//  {
-//    auto & myCellIDs = mesh->cellIDsInPartition();
-//    int myCellCount = myCellIDs.size();
-//    Intrepid::FieldContainer<double> cellIntegrals(myCellCount);
-//    int cellOrdinal = 0;
-//    double maxConservationFailure = 0.0;
-//    for (auto cellID : myCellIDs)
-//    {
-//      double cellIntegral = momentumResidualFunction->integrate(cellID, mesh);
-//      cellIntegrals[cellOrdinal] = cellIntegral;
-//      maxConservationFailure = std::max(abs(cellIntegral), maxConservationFailure);
-//    }
-//    cout << "On rank " << rank << ", max cellwise momentum conservation failure: " << maxConservationFailure << endl;
-//  };
-  // The above local momentum conservation computation may be correct; I'm not sure.
-  // If you turn it on, the reported values are very high at times (implausibly so, is my thought).
-  // Might do better to formulate by hand.
-  /*
-   Something like:
-   */
+  // elementwise local momentum conservation:
   FunctionPtr rho_currentTime = Function::solution(form->rho(), form->solution());
   FunctionPtr momentum_soln = momentum(form, false); // false: not previous time step, but current
   FunctionPtr momentum_prev = momentum(form, true);
@@ -574,7 +613,7 @@ int main(int argc, char *argv[])
   double x_b   = 0.5;
 
   double Re    = 1e8;   // Reynolds number
-  double dt    = 0.005; // time step
+  double dt    = 0.001; // time step
   
   bool useConservationFormulation = true;
   bool useEuler = false;
