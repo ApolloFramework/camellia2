@@ -208,6 +208,9 @@ namespace Camellia
     // ! set the Solver for the linear updates
     void setSolver(SolverPtr solver);
     
+    // ! returns a FunctionPtr with the current timestep (dynamically updated)
+    FunctionPtr getTimeStep();
+    
     // ! set current time step used for transient solve
     void setTimeStep(double dt);
     

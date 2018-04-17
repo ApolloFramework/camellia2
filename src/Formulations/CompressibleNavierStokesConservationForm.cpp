@@ -649,22 +649,39 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   _nonlinearIterationCount = 0;
 
   // the following does not appear to work.  Unclear on what's wrong; we may need an entirely different strategy
-  // (The problem is, at least in part, that we do not here take into account BCs on tm, so we are trying to 
+  // IT MAY BE THAT LAGRANGE CONSTRAINTS ARE BROKEN.  (Constraint_StokesLocalConservation_UnitTest has been failing...)
 //  if (_timeStepping)
 //  {
-//    cout << "TRYING MOMENTUM CONSERVATION ENFORCEMENT.\n";
+//    cout << "TRYING CONSERVATION ENFORCEMENT.\n";
 //    Teuchos::RCP<LagrangeConstraints> constraints = Teuchos::rcp(new LagrangeConstraints);
+//    // vc constraint:
+//    VarPtr vc = this->vc();
+//    map<int, FunctionPtr> vcEqualsOne = {{vc->ID(), Function::constant(1.0)}};
+//    LinearTermPtr vcTrialFunctional = _bf->trialFunctional(vcEqualsOne) * dt;
+//    FunctionPtr   vcRHSFunction     = _rhs->linearTerm()->evaluate(vcEqualsOne) * dt; // multiply both by dt in effort to improve conditioning...
+//    constraints->addConstraint(vcTrialFunctional == vcRHSFunction);
+//    cout << "Added element constraint " << vcTrialFunctional->displayString() << " == " << vcRHSFunction->displayString() << endl;
+//
+//    // vm constraint(s):
 //    for (int d=0; d<spaceDim; d++)
 //    {
 //      // test with 1
 //      VarPtr vm = this->vm(d+1);
 //      map<int, FunctionPtr> vmEqualsOne = {{vm->ID(), Function::constant(1.0)}};
-//      LinearTermPtr trialFunctional = _bf->trialFunctional(vmEqualsOne);
-//      FunctionPtr rhsFxn = _rhs->linearTerm()->evaluate(vmEqualsOne);
+//      LinearTermPtr trialFunctional = _bf->trialFunctional(vmEqualsOne) * dt; // multiply both by dt in effort to improve conditioning...
+//      FunctionPtr rhsFxn = _rhs->linearTerm()->evaluate(vmEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
 //      constraints->addConstraint(trialFunctional == rhsFxn);
 //
 //      cout << "Added element constraint " << trialFunctional->displayString() << " == " << rhsFxn->displayString() << endl;
 //    }
+//    // ve constraint:
+//    VarPtr ve = this->ve();
+//    map<int, FunctionPtr> veEqualsOne = {{ve->ID(), Function::constant(1.0)}};
+//    LinearTermPtr veTrialFunctional = _bf->trialFunctional(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
+//    FunctionPtr   veRHSFunction     = _rhs->linearTerm()->evaluate(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
+//    constraints->addConstraint(veTrialFunctional == veRHSFunction);
+//    cout << "Added element constraint " << veTrialFunctional->displayString() << " == " << veRHSFunction->displayString() << endl;
+//
 //    // although enforcement only happens in solnIncrement, the constraints change numbering of dofs, so we need to set constraints in each Solution object
 //    _solnIncrement->setLagrangeConstraints(constraints);
 //    _backgroundFlow->setLagrangeConstraints(constraints);
@@ -1136,6 +1153,11 @@ double CompressibleNavierStokesConservationForm::gamma()
 int CompressibleNavierStokesConservationForm::getSolveCode()
 {
   return _solveCode;
+}
+
+FunctionPtr CompressibleNavierStokesConservationForm::getTimeStep()
+{
+  return _dt;
 }
 
 double CompressibleNavierStokesConservationForm::L2NormSolution()
