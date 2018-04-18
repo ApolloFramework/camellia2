@@ -153,6 +153,7 @@ void addConservationConstraint(Teuchos::RCP<CompressibleNavierStokesFormulationR
 template<>
 void addConservationConstraint(Teuchos::RCP<CompressibleNavierStokesConservationForm> form)
 {
+  int rank = MPIWrapper::CommWorld()->MyPID();
   cout << "TRYING CONSERVATION ENFORCEMENT.\n";
   auto soln = form->solution();
   auto solnIncrement = form->solutionIncrement();
@@ -233,9 +234,16 @@ void setTempOrEnergy<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<C
   initialStateMap[form->T()->ID()]     = T;
 }
 
+enum TestNormChoice
+{
+  GRAPH_NORM,
+  EXPERIMENTAL_CONSERVATIVE_NORM
+};
+
 template<class Form>
 int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, int meshWidth, double x_a, double x_b,
-              int polyOrder, int cubatureEnrichment, bool useCondensedSolve, double nonlinearTolerance, int continuationSteps, double continuationTolerance)
+              int polyOrder, int cubatureEnrichment, bool useCondensedSolve, double nonlinearTolerance, int continuationSteps,
+              double continuationTolerance, TestNormChoice normChoice)
 {
   // TESTING:
   addConservationConstraint(form);
@@ -248,6 +256,34 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   SolutionPtr soln = form->solution();
     
   double Re = (!pureEuler) ? 1.0 / form->mu() : -1.0 ;
+  
+  if (normChoice == EXPERIMENTAL_CONSERVATIVE_NORM)
+  {
+    IPPtr ip = Teuchos::rcp(new IP);
+    VarPtr vc  = form->vc();
+    VarPtr vm  = form->vm(1);
+    VarPtr ve  = form->ve();
+    VarPtr S   = form->S(1);
+    VarPtr tau = form->tau();
+    
+    ip->addBoundaryTerm(vc);
+    ip->addTerm(vc->dx()); // would be grad for spaceDim > 1
+    
+    ip->addBoundaryTerm(vm);
+    ip->addTerm(vm->dx()); // would be grad for spaceDim > 1
+    
+    ip->addBoundaryTerm(ve);
+    ip->addTerm(ve->dx()); // would be grad for spaceDim > 1
+    
+    // naive norm for the rest
+    ip->addTerm(S->dx());
+    ip->addTerm(S);
+    
+    ip->addTerm(tau);
+    ip->addTerm(tau->dx());
+    
+    form->solutionIncrement()->setIP(ip);
+  }
   
   int numTimeSteps = 0.20 / dt; // standard for Sod is to take it to t = 0.20
   
@@ -660,6 +696,7 @@ int main(int argc, char *argv[])
   
   bool useConservationFormulation = true;
   bool useEuler = false;
+  bool useExperimentalConservationNorm = false;
   
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
   
@@ -674,12 +711,24 @@ int main(int argc, char *argv[])
   cmdp.setOption("conservationVariables", "primitiveVariables", &useConservationFormulation);
   cmdp.setOption("euler", "fullNS", &useEuler);
   
+  cmdp.setOption("experimentalNorm", "graphNorm", &useExperimentalConservationNorm);
+  
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
 #ifdef HAVE_MPI
     MPI_Finalize();
 #endif
     return -1;
+  }
+  
+  TestNormChoice normChoice;
+  if (useExperimentalConservationNorm)
+  {
+    normChoice = EXPERIMENTAL_CONSERVATIVE_NORM;
+  }
+  else
+  {
+    normChoice = GRAPH_NORM;
   }
   
   MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
@@ -692,14 +741,14 @@ int main(int argc, char *argv[])
       auto form = CompressibleNavierStokesConservationForm::timeSteppingEulerFormulation(spaceDim, useConformingTraces,
                                                                                          meshTopo, polyOrder, delta_k);
       return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                       nonlinearTolerance, continuationSteps, continuationTolerance);
+                       nonlinearTolerance, continuationSteps, continuationTolerance, normChoice);
     }
     else
     {
       auto form = CompressibleNavierStokesConservationForm::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
                                                                                     meshTopo, polyOrder, delta_k);
       return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                       nonlinearTolerance, continuationSteps, continuationTolerance);
+                       nonlinearTolerance, continuationSteps, continuationTolerance, normChoice);
     }
   }
   else
@@ -707,6 +756,6 @@ int main(int argc, char *argv[])
     auto form = CompressibleNavierStokesFormulationRefactor::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
                                                                                      meshTopo, polyOrder, delta_k);
     return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                     nonlinearTolerance, continuationSteps, continuationTolerance);
+                     nonlinearTolerance, continuationSteps, continuationTolerance, normChoice);
   }
 }
