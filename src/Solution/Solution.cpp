@@ -935,14 +935,14 @@ GlobalIndexType TSolution<Scalar>::elementLagrangeIndex(GlobalIndexType cellID, 
   GlobalIndexType globalIndex = cellOffset + numGlobalDofs;
   int numElementConstraints = _lagrangeConstraints->numElementConstraints();
   
-  auto myCellIDs = &_mesh->cellIDsInPartition();
+  auto & myCellIDs = _mesh->cellIDsInPartition();
   int localCellOrdinal = 0;
-  for (GlobalIndexType myCellID : *myCellIDs)
+  for (GlobalIndexType myCellID : myCellIDs)
   {
     if (cellID == myCellID) break;
     ++localCellOrdinal;
   }
-  return globalIndex + localCellOrdinal * numElementConstraints;
+  return globalIndex + localCellOrdinal * numElementConstraints + lagrangeOrdinal;
 }
 
 //// ! provides the GID and LID corresponding to a global lagrange constraint
@@ -1028,6 +1028,8 @@ void TSolution<Scalar>::initializeStiffnessAndLoad()
   int maxRowSize = 0; // will cause more mallocs during insertion into the CrsMatrix, but will minimize the amount of memory allocated now.
   
   _globalStiffMatrix = Teuchos::rcp(new Epetra_FECrsMatrix(::Copy, partMap, maxRowSize));
+  
+//  cout << "_globalStiffMatrix has " << _globalStiffMatrix->NumGlobalRows() << " global rows, and " << _globalStiffMatrix->NumGlobalCols() << " global cols.\n";
   
   // for now, we assume that we will have a "standard" _rhs (whether that means DPG or
   // some Bubnov-Galerkin RHS depends on whether we have an _ip defined); and that we
@@ -1221,7 +1223,7 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
   //  cout << "Done computing local matrices" << endl;
   Epetra_Vector timeLocalStiffnessVector(timeMap);
   timeLocalStiffnessVector[0] = timeLocalStiffness;
-
+  
   int localRowIndex = myGlobalIndicesSet.size(); // starts where the dofs left off
 
   // order is: element-lagrange, then (on rank 0) global lagrange and ZMC
@@ -1303,13 +1305,14 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
         // insert column:
         globalStiffness->InsertGlobalValues(nnz+1,&globalDofIndices(0),1,&globalRowIndex,
                                             &nonzeroValues(0));
+//        cout << "cell ID " << cellID << ", adding Lagrange RHS value at global index " << globalRowIndex << " = " << rhs(cellIndex) << endl;
         _rhsVector->ReplaceGlobalValues(1,&globalRowIndex,&rhs(cellIndex));
 
         localRowIndex++;
       }
     }
   }
-
+  
   // TODO: change ZMC imposition to be a distributed computation, instead of doing it all on rank 0
   //       (It's both the code below and the integrateBasisFunctions() methods that will need revision.)
   vector<int> zeroMeanConstraints = getZeroMeanConstraints();
@@ -1330,7 +1333,6 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
     // a different matrix shape for the case where we rely on the coarse grid solve to impose the ZMC via Lagrange constraints
     // or when we have a rank-one update in an iterative solve to handle that.
     // (We put 1's in the diagonals of the new rows, but otherwise leave them unpopulated.)
-
     imposeZMCsUsingLagrange();
   }
   else
@@ -1407,9 +1409,9 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
   // determine and impose BCs
 
   timer.ResetStartTime();
-
+  
   imposeBCs();
-
+  
   double timeBCImposition = timer.ElapsedTime();
   Epetra_Vector timeBCImpositionVector(timeMap);
   timeBCImpositionVector[0] = timeBCImposition;
@@ -2082,7 +2084,7 @@ void TSolution<Scalar>::imposeBCs()
     {
       // impose homogeneous constraints for the solution corresponding to goal RHS
       v.ReplaceGlobalValue(bcGlobalIndices[i], goalSolutionOrdinal, 0.0);
-    }\
+    }
   }
   
   Epetra_MultiVector rhsDirichlet(partMap,1);
@@ -3684,6 +3686,7 @@ Epetra_Map TSolution<Scalar>::getPartitionMap(PartitionIndexType rank, set<Globa
 //  cout << "num global Lagrange GlobalDofIndices:  " << numGlobalLagrange << endl;
 //  cout << "num zero mean constraints:             " << zeroMeanConstraintsSize << endl;
   Epetra_Map partMap(totalRows, localDofsSize, myGlobalIndices, indexBase, *Comm);
+//  cout << "On rank " << rank << ", constructed partMap with " << partMap.NumGlobalElements() << " global elements.\n";
 
   if (localDofsSize!=0)
   {
