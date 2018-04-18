@@ -234,6 +234,81 @@ void setTempOrEnergy<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<C
   initialStateMap[form->T()->ID()]     = T;
 }
 
+void writeFunctions(MeshPtr mesh, int meshWidth, int polyOrder, double x_a, std::vector<FunctionPtr> &functions, std::vector<string> &functionNames, string filePrefix)
+{
+  int numPoints = max(polyOrder*2 + 1, 2); // polyOrder * 2 will, hopefully, give reasonable approximation of high-order curves
+  Intrepid::FieldContainer<double> refCellPoints(numPoints,1);
+  double dx = 2.0 / (refCellPoints.size() - 1); // 2.0 is the size of the reference element
+  for (int i=0; i<refCellPoints.size(); i++)
+  {
+    refCellPoints(i,0) = -1.0 + dx * i;
+  }
+//  cout << "numPoints = " << numPoints << endl;
+//  cout << "dx = " << dx << endl;
+//  cout << "refCellPoints:\n" << refCellPoints;
+  
+  int numFunctions = functionNames.size();
+  vector<Intrepid::FieldContainer<double>> pointData(numFunctions, Intrepid::FieldContainer<double>(meshWidth,numPoints));
+  for (int functionOrdinal=0; functionOrdinal<numFunctions; functionOrdinal++)
+  {
+    pointData[functionOrdinal].initialize(0.0);
+  }
+  Teuchos::Array<int> cellDim;
+  cellDim.push_back(1);  // C
+  cellDim.push_back(numPoints); // P
+  auto & myCellIDs = mesh->cellIDsInPartition();
+  for (auto cellID : myCellIDs)
+  {
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+    basisCache->setRefCellPoints(refCellPoints);
+    
+    for (int functionOrdinal=0; functionOrdinal<numFunctions; functionOrdinal++)
+    {
+      auto f = functions[functionOrdinal];
+      auto name = functionNames[functionOrdinal];
+      
+      Intrepid::FieldContainer<double> localData(cellDim, &pointData[functionOrdinal](cellID,0));
+      
+      f->values(localData, basisCache);
+    }
+  }
+  
+  for (auto & data : pointData)
+  {
+    MPIWrapper::entryWiseSum(*mesh->Comm(), data);
+  }
+  
+  double h = 1.0 / meshWidth;
+  for (int functionOrdinal=0; functionOrdinal<functionNames.size(); functionOrdinal++)
+  {
+    int totalPoints = meshWidth*(numPoints-1); // cells overlap; eliminate duplicates
+    Intrepid::FieldContainer<double> xyPoints(totalPoints,2);
+    
+    ostringstream fileName;
+    fileName << filePrefix << "_" << functionNames[functionOrdinal] << ".dat";
+    
+    ofstream fout(fileName.str());
+    fout << setprecision(6);
+    
+    for (int i=0; i<totalPoints; i++)
+    {
+      double x = x_a + dx * i / 2.0 * h;
+      int cellOrdinal  = i / (numPoints-1);
+      int pointOrdinal = i % (numPoints-1);
+      if (i == totalPoints - 1)
+      {
+        // for last cell, we do take its final point...
+        pointOrdinal = numPoints - 1;
+      }
+      
+      double y = pointData[functionOrdinal](cellOrdinal,pointOrdinal);
+      xyPoints(i,0) = x;
+      xyPoints(i,1) = y;
+    }
+    GnuPlotUtil::writeXYPoints(fileName.str(), xyPoints);
+  }
+}
+
 enum TestNormChoice
 {
   GRAPH_NORM,
@@ -597,79 +672,13 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   }
   
   // now that we're at final time, let's output pressure, velocity, density in a format suitable for plotting
-  int numPoints = max(polyOrder*2 + 1, 2); // polyOrder * 2 will, hopefully, give reasonable approximation of high-order curves
-  Intrepid::FieldContainer<double> refCellPoints(numPoints,1);
-  double dx = 2.0 / (refCellPoints.size() - 1); // 2.0 is the size of the reference element
-  for (int i=0; i<refCellPoints.size(); i++)
-  {
-    refCellPoints(i,0) = -1.0 * + dx * i;
-  }
   functionsToPlot.push_back(rho);
   functionNames.push_back("density");
   
   functionsToPlot.push_back(Function::xn(1) + 0.5);
   functionNames.push_back("linear");
   
-  int numFunctions = functionNames.size();
-  vector<Intrepid::FieldContainer<double>> pointData(numFunctions, Intrepid::FieldContainer<double>(meshWidth,numPoints));
-  for (int functionOrdinal=0; functionOrdinal<numFunctions; functionOrdinal++)
-  {
-    pointData[functionOrdinal].initialize(0.0);
-  }
-  Teuchos::Array<int> cellDim;
-  cellDim.push_back(1);  // C
-  cellDim.push_back(numPoints); // P
-  auto & myCellIDs = mesh->cellIDsInPartition();
-  for (auto cellID : myCellIDs)
-  {
-    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
-    basisCache->setRefCellPoints(refCellPoints);
-    
-    for (int functionOrdinal=0; functionOrdinal<numFunctions; functionOrdinal++)
-    {
-      auto f = functionsToPlot[functionOrdinal];
-      auto name = functionNames[functionOrdinal];
-      
-      Intrepid::FieldContainer<double> localData(cellDim, &pointData[functionOrdinal](cellID,0));
-      
-      f->values(localData, basisCache);
-    }
-  }
-  
-  for (auto & data : pointData)
-  {
-    MPIWrapper::entryWiseSum(*mesh->Comm(), data);
-  }
-  
-  // now, on rank 0, let's figure out x,y points and do the file output
-  if (rank == 0)
-  {
-    double h = 1.0 / meshWidth;
-    for (int functionOrdinal=0; functionOrdinal<functionNames.size(); functionOrdinal++)
-    {
-      int totalPoints = meshWidth*(numPoints-1); // cells overlap; eliminate duplicates
-      Intrepid::FieldContainer<double> xyPoints(totalPoints,2);
-      
-      string solnNameString = solnName.str();
-      ostringstream fileName;
-      fileName << solnNameString << "_" << functionNames[functionOrdinal] << ".dat";
-      
-      ofstream fout(fileName.str());
-      fout << setprecision(6);
-      
-      for (int i=0; i<totalPoints; i++)
-      {
-        double x = x_a + dx * i / 2.0 * h;
-        int cellOrdinal  = i / (numPoints-1);
-        int pointOrdinal = i % (numPoints-1);
-        
-        double y = pointData[functionOrdinal](cellOrdinal,pointOrdinal);
-        xyPoints(i,0) = x;
-        xyPoints(i,1) = y;
-      }
-      GnuPlotUtil::writeXYPoints(fileName.str(), xyPoints);
-    }
-  }
+  writeFunctions(mesh, meshWidth, polyOrder, x_a, functionsToPlot, functionNames, solnName.str());
   
   return 0;
 }
@@ -697,6 +706,7 @@ int main(int argc, char *argv[])
   bool useConservationFormulation = true;
   bool useEuler = false;
   bool useExperimentalConservationNorm = false;
+  bool runWriteFunctionTest = false; // option for debugging some output code...
   
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
   
@@ -734,6 +744,18 @@ int main(int argc, char *argv[])
   MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
   
   bool useConformingTraces = true;
+  
+  if (runWriteFunctionTest)
+  {
+    auto form = CompressibleNavierStokesConservationForm::timeSteppingEulerFormulation(spaceDim, useConformingTraces,
+                                                                                       meshTopo, polyOrder, delta_k);
+    vector<FunctionPtr> functions = {Function::xn(1)};
+    vector<string> functionNames  = {"linear"};
+    writeFunctions(form->solution()->mesh(), meshWidth, polyOrder, -0.5, functions, functionNames, "testWrite");
+    cout << "wrote test plot data; exiting...\n";
+    return 0;
+  }
+  
   if (useConservationFormulation)
   {
     if (useEuler)
