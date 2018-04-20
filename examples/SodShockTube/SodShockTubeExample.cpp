@@ -21,7 +21,7 @@ using namespace Camellia;
 
 // template logic on the formulation so that we can use either the conservation formulation or the primitive variable formulation
 template<class Form>
-FunctionPtr energy(Teuchos::RCP<Form> form);
+FunctionPtr energy(Teuchos::RCP<Form> form, bool previousTimeStep);
 
 template<class Form>
 FunctionPtr momentum(Teuchos::RCP<Form> form, bool previousTimeStep);
@@ -62,19 +62,21 @@ FunctionPtr pressure<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<C
 }
 
 template<>
-FunctionPtr energy<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form)
+FunctionPtr energy<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form, bool previousTimeStep)
 {
-  FunctionPtr E   = Function::solution(form->E(),   form->solutionPreviousTimeStep());
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
+  FunctionPtr E   = Function::solution(form->E(), soln);
   return E;
 }
 
 template<>
-FunctionPtr energy<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form)
+FunctionPtr energy<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form, bool previousTimeStep)
 {
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
   double Cv = form->Cv();
-  FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
-  FunctionPtr u   = Function::solution(form->u(1),  form->solutionPreviousTimeStep());
-  FunctionPtr T   = Function::solution(form->T(),   form->solutionPreviousTimeStep());
+  FunctionPtr rho = Function::solution(form->rho(), soln);
+  FunctionPtr u   = Function::solution(form->u(1),  soln);
+  FunctionPtr T   = Function::solution(form->T(),   soln);
   
   FunctionPtr E = rho * (Cv * T + 0.5 * u * u);
   return E;
@@ -318,10 +320,12 @@ enum TestNormChoice
 template<class Form>
 int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, int meshWidth, double x_a, double x_b,
               int polyOrder, int cubatureEnrichment, bool useCondensedSolve, double nonlinearTolerance, int continuationSteps,
-              double continuationTolerance, TestNormChoice normChoice)
+              double continuationTolerance, TestNormChoice normChoice, bool enforceConservationUsingLagrangeMultipliers)
 {
-  // TESTING:
-  addConservationConstraint(form);
+  if (enforceConservationUsingLagrangeMultipliers)
+  {
+    addConservationConstraint(form);
+  }
   int rank = Teuchos::GlobalMPISession::getRank();
   const int spaceDim = 1;
   double mu = form->mu();
@@ -338,8 +342,6 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     VarPtr vc  = form->vc();
     VarPtr vm  = form->vm(1);
     VarPtr ve  = form->ve();
-    VarPtr S   = form->S(1);
-    VarPtr tau = form->tau();
     
     ip->addBoundaryTerm(vc);
     ip->addTerm(vc->dx()); // would be grad for spaceDim > 1
@@ -350,12 +352,18 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     ip->addBoundaryTerm(ve);
     ip->addTerm(ve->dx()); // would be grad for spaceDim > 1
     
-    // naive norm for the rest
-    ip->addTerm(S->dx());
-    ip->addTerm(S);
-    
-    ip->addTerm(tau);
-    ip->addTerm(tau->dx());
+    if (!pureEuler)
+    {
+      // naive norm for the rest
+      VarPtr S   = form->S(1);
+      VarPtr tau = form->tau();
+      
+      ip->addTerm(S->dx());
+      ip->addTerm(S);
+      
+      ip->addTerm(tau);
+      ip->addTerm(tau->dx());
+    }
     
     form->solutionIncrement()->setIP(ip);
   }
@@ -532,7 +540,7 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   
   FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
   FunctionPtr m   = momentum(form, true); // true: previous time step
-  FunctionPtr E   = energy(form);
+  FunctionPtr E   = energy(form, true);
   FunctionPtr tc  = Function::solution(form->tc(),  form->solutionPreviousTimeStep(), true);
   FunctionPtr tm  = Function::solution(form->tm(1), form->solutionPreviousTimeStep(), true);
   FunctionPtr te  = Function::solution(form->te(),  form->solutionPreviousTimeStep(), true);
@@ -561,30 +569,57 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   };
   
   // elementwise local momentum conservation:
-  FunctionPtr rho_currentTime = Function::solution(form->rho(), form->solution());
+  FunctionPtr rho_soln = Function::solution(form->rho(), form->solution());
+  FunctionPtr rho_prev = Function::solution(form->rho(), form->solutionPreviousTimeStep());
+  FunctionPtr rhoTimeStep = (rho_soln - rho_prev) / dt;
+  FunctionPtr rhoFlux = Function::solution(form->tc(), form->solution(), true); // true: include sideParity weights
+  
   FunctionPtr momentum_soln = momentum(form, false); // false: not previous time step, but current
   FunctionPtr momentum_prev = momentum(form, true);
   FunctionPtr momentumTimeStep = (momentum_soln - momentum_prev) / dt;
   FunctionPtr momentumFlux = Function::solution(form->tm(1), form->solution(), true); // true: include sideParity weights
-  auto printMomentumLocalConservationReport = [&]() -> void
+  
+  FunctionPtr energy_soln = energy(form, false); // not previous time step, but current
+  FunctionPtr energy_prev = energy(form, true);
+  FunctionPtr energyTimeStep = (energy_soln - energy_prev) / dt;
+  FunctionPtr energyFlux = Function::solution(form->te(), form->solution(), true); // include sideParity weights
+
+//  vector<FunctionPtr> conservationFluxes = {momentumFlux};
+//  vector<FunctionPtr> timeDifferences    = {momentumTimeStep};
+  vector<FunctionPtr> conservationFluxes = {rhoFlux,     momentumFlux,     energyFlux};
+  vector<FunctionPtr> timeDifferences    = {rhoTimeStep, momentumTimeStep, energyTimeStep};
+  
+  int numConserved = conservationFluxes.size();
+  
+  auto printLocalConservationReport = [&]() -> void
   {
     auto & myCellIDs = mesh->cellIDsInPartition();
-    int myCellCount = myCellIDs.size();
-    Intrepid::FieldContainer<double> cellIntegrals(myCellCount);
     int cellOrdinal = 0;
-    double maxConservationFailure = 0.0;
-    for (auto cellID : myCellIDs)
+    vector<double> maxConservationFailures(numConserved);
+    for (int conservedOrdinal=0; conservedOrdinal<numConserved; conservedOrdinal++)
     {
-      double timeDifferenceIntegral = momentumTimeStep->integrate(cellID, mesh);
-      double fluxIntegral = momentumFlux->integrate(cellID, mesh);
-      double cellIntegral = timeDifferenceIntegral + fluxIntegral;
-      cellIntegrals[cellOrdinal] = cellIntegral;
-      maxConservationFailure = std::max(abs(cellIntegral), maxConservationFailure);
-      cellOrdinal++;
+      double maxConservationFailure = 0.0;
+      for (auto cellID : myCellIDs)
+      {
+//        cout << "timeDifferences function: " << timeDifferences[conservedOrdinal]->displayString() << endl;
+        double timeDifferenceIntegral = timeDifferences[conservedOrdinal]->integrate(cellID, mesh);
+        double fluxIntegral = conservationFluxes[conservedOrdinal]->integrate(cellID, mesh);
+        double cellIntegral = timeDifferenceIntegral + fluxIntegral;
+        maxConservationFailure = std::max(abs(cellIntegral), maxConservationFailure);
+        cellOrdinal++;
+      }
+      maxConservationFailures[conservedOrdinal] = maxConservationFailure;
     }
-    double globalMaxConservationFailure;
-    mesh->Comm()->MaxAll(&maxConservationFailure, &globalMaxConservationFailure, 1);
-    if (rank == 0) cout << "Max cellwise momentum conservation failure: " << globalMaxConservationFailure << endl;
+    vector<double> globalMaxConservationFailures(numConserved);
+    mesh->Comm()->MaxAll(&maxConservationFailures[0], &globalMaxConservationFailures[0], numConserved);
+    if (rank == 0) {
+      cout << "Max cellwise (rho,m,E) conservation failures: ";
+      for (double failure : globalMaxConservationFailures)
+      {
+        cout << failure << "\t";
+      }
+      cout << endl;
+    }
 //    for (int cellOrdinal=0; cellOrdinal<myCellCount; cellOrdinal++)
 //    {
 //      cout << "cell ordinal " << cellOrdinal << ", conservation failure: " << cellIntegrals[cellOrdinal] << endl;
@@ -663,7 +698,7 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     }
     t += dt;
     
-    printMomentumLocalConservationReport(); // since this depends on the difference between current/previous solution, we need to call before we set prev to current.
+    printLocalConservationReport(); // since this depends on the difference between current/previous solution, we need to call before we set prev to current.
     form->solutionPreviousTimeStep()->setSolution(form->solution());
     solutionExporter.exportSolution(form->solutionPreviousTimeStep(),functionsToPlot,functionNames,t);
     
@@ -674,9 +709,6 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   // now that we're at final time, let's output pressure, velocity, density in a format suitable for plotting
   functionsToPlot.push_back(rho);
   functionNames.push_back("density");
-  
-  functionsToPlot.push_back(Function::xn(1) + 0.5);
-  functionNames.push_back("linear");
   
   writeFunctions(mesh, meshWidth, polyOrder, x_a, functionsToPlot, functionNames, solnName.str());
   
@@ -707,6 +739,7 @@ int main(int argc, char *argv[])
   bool useEuler = false;
   bool useExperimentalConservationNorm = false;
   bool runWriteFunctionTest = false; // option for debugging some output code...
+  bool enforceConservationUsingLagrangeMultipliers = false;
   
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
   
@@ -720,6 +753,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("continuationTol", &continuationTolerance);
   cmdp.setOption("conservationVariables", "primitiveVariables", &useConservationFormulation);
   cmdp.setOption("euler", "fullNS", &useEuler);
+  cmdp.setOption("enforceConservation", "dontEnforceConservation", &enforceConservationUsingLagrangeMultipliers);
   
   cmdp.setOption("experimentalNorm", "graphNorm", &useExperimentalConservationNorm);
   
@@ -763,14 +797,14 @@ int main(int argc, char *argv[])
       auto form = CompressibleNavierStokesConservationForm::timeSteppingEulerFormulation(spaceDim, useConformingTraces,
                                                                                          meshTopo, polyOrder, delta_k);
       return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                       nonlinearTolerance, continuationSteps, continuationTolerance, normChoice);
+                       nonlinearTolerance, continuationSteps, continuationTolerance, normChoice, enforceConservationUsingLagrangeMultipliers);
     }
     else
     {
       auto form = CompressibleNavierStokesConservationForm::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
                                                                                     meshTopo, polyOrder, delta_k);
       return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                       nonlinearTolerance, continuationSteps, continuationTolerance, normChoice);
+                       nonlinearTolerance, continuationSteps, continuationTolerance, normChoice, enforceConservationUsingLagrangeMultipliers);
     }
   }
   else
@@ -778,6 +812,6 @@ int main(int argc, char *argv[])
     auto form = CompressibleNavierStokesFormulationRefactor::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
                                                                                      meshTopo, polyOrder, delta_k);
     return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                     nonlinearTolerance, continuationSteps, continuationTolerance, normChoice);
+                     nonlinearTolerance, continuationSteps, continuationTolerance, normChoice, enforceConservationUsingLagrangeMultipliers);
   }
 }
