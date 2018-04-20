@@ -936,6 +936,23 @@ namespace
     testTransientResidual_1D(u, rho, T, cubatureEnrichment, tol, out, success);
   }
 
+  TEUCHOS_UNIT_TEST(Euler, TestSpaceSize)
+  {
+    int spaceDim = 1;
+    double x_a = 0.0, x_b = 1.0;
+    int meshWidth = 2;
+    int polyOrder = 1, delta_k = 1;
+    MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
+    
+    bool useConformingTraces = true;
+    auto form = CompressibleNavierStokesConservationForm::timeSteppingEulerFormulation(spaceDim, useConformingTraces,
+                                                                                       meshTopo, polyOrder, delta_k);
+    
+    auto vf = form->solution()->bf()->varFactory();
+    int numVars = vf->testVars().size();
+    TEST_EQUALITY(numVars, 3); // 1D: vc, vm, ve
+  }
+  
   // Commenting out for now: zero density not allowed...
 //  TEUCHOS_UNIT_TEST(CompressibleNavierStokesConservationForm, Residual_1D_Transient_QuadraticTemp)
 //  {
