@@ -3318,7 +3318,7 @@ void TSolution<Scalar>::setSolnCoeffsForCellID(const Intrepid::FieldContainer<Sc
     // allocate new storage
     _solutionForCellID[solutionOrdinal][cellID] = Intrepid::FieldContainer<Scalar>(trialOrder->totalDofs());
   }
-  if (_solutionForCellID[cellID].size() != trialOrder->totalDofs())
+  if (_solutionForCellID[solutionOrdinal][cellID].size() != trialOrder->totalDofs())
   {
     // resize
     _solutionForCellID[solutionOrdinal][cellID].resize(trialOrder->totalDofs());
