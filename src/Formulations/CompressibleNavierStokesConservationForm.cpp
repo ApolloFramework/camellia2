@@ -297,14 +297,17 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   }
   ve = _vf->testVar(S_ve, HGRAD);
   
-  for (int d=0; d<spaceDim; d++)
+  if (! _pureEulerMode)
   {
-    Space S_space = (spaceDim == 1) ? HGRAD : HDIV;
-    S[d] = _vf->testVar(S_S[d], S_space);
+    for (int d=0; d<spaceDim; d++)
+    {
+      Space S_space = (spaceDim == 1) ? HGRAD : HDIV;
+      S[d] = _vf->testVar(S_S[d], S_space);
+    }
+    
+    if (spaceDim == 1)  tau = _vf->testVar(S_tau, HGRAD);
+    else                tau = _vf->testVar(S_tau, HDIV);
   }
-  
-  if (spaceDim == 1)  tau = _vf->testVar(S_tau, HGRAD);
-  else                tau = _vf->testVar(S_tau, HDIV);
   
   // now that we have all our variables defined, process any adjustments
   map<int,VarPtr> trialVars = _vf->trialVars();
@@ -1213,6 +1216,7 @@ RHSPtr CompressibleNavierStokesConservationForm::rhs()
 
 VarPtr CompressibleNavierStokesConservationForm::S(int i)
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "S test function is not defined in Euler formulation");
   CHECK_VALID_COMPONENT(i);
   Space SSpace = (_spaceDim == 1) ? HGRAD : HDIV;
   return _vf->testVar(S_S[i-1], SSpace);
@@ -1347,6 +1351,7 @@ SolutionPtr CompressibleNavierStokesConservationForm::solutionPreviousTimeStep()
 
 VarPtr CompressibleNavierStokesConservationForm::T_hat()
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "T_hat is not defined in Euler formulation");
   if (! _spaceTime)
     return _vf->traceVar(S_T_hat);
   else
@@ -1355,6 +1360,7 @@ VarPtr CompressibleNavierStokesConservationForm::T_hat()
 
 VarPtr CompressibleNavierStokesConservationForm::tau()
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "tau test function is not defined in Euler formulation");
   Space tauSpace = (_spaceDim == 1) ? HGRAD : HDIV;
   return _vf->testVar(S_tau, tauSpace);
 }
@@ -1379,6 +1385,7 @@ VarPtr CompressibleNavierStokesConservationForm::tm(int i)
 VarPtr CompressibleNavierStokesConservationForm::u_hat(int i)
 {
   CHECK_VALID_COMPONENT(i);
+  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "u_hat is not defined in Euler formulation");
   if (! _spaceTime)
     return _vf->traceVar(S_u_hat[i-1]);
   else
