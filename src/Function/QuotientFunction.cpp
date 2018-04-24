@@ -98,7 +98,7 @@ TFunctionPtr<Scalar> QuotientFunction<Scalar>::dt()
 template <typename Scalar>
 std::vector<TFunctionPtr<Scalar>> QuotientFunction<Scalar>::memberFunctions()
 {
-  return {{_f}};
+  return {{_f, _scalarDivisor}};
 }
 
 namespace Camellia
