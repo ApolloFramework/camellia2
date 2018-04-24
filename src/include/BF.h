@@ -52,6 +52,8 @@ protected:
   bool _warnAboutZeroRowsAndColumns = true;
   bool _useSubgridMeshForOptimalTestSolve = false;
   
+  TBFPtr<Scalar> _bfForOptimalTestSolve; // if not null, then _bfForOptimalTestSolve will be used as the RHS in the test solve, instead of "this"
+  
   bool checkSymmetry(Intrepid::FieldContainer<Scalar> &innerProductMatrix);
 public:
   TBF( bool isLegacySubclass ); // legacy version; new code should use a VarFactory version of the constructor
@@ -175,6 +177,10 @@ public:
                                   vector<Camellia::EOperator> &testOps); // default implementation calls trialTestOperator
 
   virtual VarFactoryPtr varFactory();
+  
+  // ! If not null, the provided BF will be used to compute the optimal test functions, instead of "this".
+  // ! In this case, "this" is integrated against the optimal test functions thus computed during "stiffness" matrix computations.
+  void setBFForOptimalTestSolve(TBFPtr<Scalar> bf);
   
   void setOptimalTestTimingCallback(std::function<void(int numElements, double timeG, double timeB, double timeT, double timeK, ElementTypePtr elemType)> &optimalTestTimingCallback);
   void setRHSTimingCallback(std::function<void(int numElements, double timeRHS, ElementTypePtr elemType)> &rhsTimingCallback);
