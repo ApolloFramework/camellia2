@@ -1044,6 +1044,11 @@ int CompressibleNavierStokesFormulationRefactor::getSolveCode()
   return _solveCode;
 }
 
+FunctionPtr CompressibleNavierStokesFormulationRefactor::getTimeStep()
+{
+  return _dt;
+}
+
 double CompressibleNavierStokesFormulationRefactor::L2NormSolution()
 {
   double l2_squared = _L2SolutionFunction->integrate(_backgroundFlow->mesh());

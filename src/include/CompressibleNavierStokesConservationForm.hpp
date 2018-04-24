@@ -319,6 +319,9 @@ namespace Camellia
                                                                                           bool useConformingTraces,
                                                                                           MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
     
+    static Teuchos::RCP<CompressibleNavierStokesConservationForm> steadyEulerFormulation(int spaceDim, bool useConformingTraces, MeshTopologyPtr meshTopo,
+                                                                                         int spatialPolyOrder, int delta_k);
+    
     static Teuchos::RCP<CompressibleNavierStokesConservationForm> timeSteppingEulerFormulation(int spaceDim, bool useConformingTraces,
                                                                                                MeshTopologyPtr meshTopo,
                                                                                                int spatialPolyOrder, int delta_k);

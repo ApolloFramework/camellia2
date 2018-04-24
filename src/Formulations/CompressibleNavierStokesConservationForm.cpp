@@ -115,6 +115,26 @@ Teuchos::RCP<CompressibleNavierStokesConservationForm> CompressibleNavierStokesC
   return Teuchos::rcp(new CompressibleNavierStokesConservationForm(meshTopo, parameters));
 }
 
+Teuchos::RCP<CompressibleNavierStokesConservationForm> CompressibleNavierStokesConservationForm::steadyEulerFormulation(int spaceDim, bool useConformingTraces,
+                                                                                                                        MeshTopologyPtr meshTopo,
+                                                                                                                        int spatialPolyOrder, int delta_k)
+{
+  Teuchos::ParameterList parameters;
+  
+  parameters.set("spaceDim", spaceDim);
+  parameters.set("mu", 0.0);
+  parameters.set("useConformingTraces",useConformingTraces);
+  parameters.set("useTimeStepping", false);
+  parameters.set("useSpaceTime", false);
+  
+  parameters.set("t0",0.0);
+  
+  parameters.set("spatialPolyOrder", spatialPolyOrder);
+  parameters.set("delta_k", delta_k);
+  
+  return Teuchos::rcp(new CompressibleNavierStokesConservationForm(meshTopo, parameters));
+}
+
 Teuchos::RCP<CompressibleNavierStokesConservationForm> CompressibleNavierStokesConservationForm::timeSteppingEulerFormulation(int spaceDim, bool useConformingTraces,
                                                                                     MeshTopologyPtr meshTopo,
                                                                                     int spatialPolyOrder, int delta_k)

@@ -307,6 +307,8 @@ namespace Camellia
     
     Teuchos::ParameterList getConstructorParameters() const;
     
+    FunctionPtr getTimeStep();
+    
     // ! Set the forcing functions for problem.  f_momentum should have components equal to the number of spatial dimensions
     void setForcing(FunctionPtr f_continuity, std::vector<FunctionPtr> f_momentum, FunctionPtr f_energy);
     
