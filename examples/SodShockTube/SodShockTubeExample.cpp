@@ -313,7 +313,8 @@ void writeFunctions(MeshPtr mesh, int meshWidth, int polyOrder, double x_a, std:
 
 enum TestNormChoice
 {
-  GRAPH_NORM,
+  STEADY_GRAPH_NORM,
+  TRANSIENT_GRAPH_NORM,
   EXPERIMENTAL_CONSERVATIVE_NORM
 };
 
@@ -336,36 +337,93 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     
   double Re = (!pureEuler) ? 1.0 / form->mu() : -1.0 ;
   
-  if (normChoice == EXPERIMENTAL_CONSERVATIVE_NORM)
+  auto ip = solnIncrement->ip(); // this will be the transient graph norm...
+  if (normChoice == STEADY_GRAPH_NORM)
   {
-    IPPtr ip = Teuchos::rcp(new IP);
-    VarPtr vc  = form->vc();
-    VarPtr vm  = form->vm(1);
-    VarPtr ve  = form->ve();
-    
-    ip->addBoundaryTerm(vc);
-    ip->addTerm(vc->dx()); // would be grad for spaceDim > 1
-    
-    ip->addBoundaryTerm(vm);
-    ip->addTerm(vm->dx()); // would be grad for spaceDim > 1
-    
-    ip->addBoundaryTerm(ve);
-    ip->addTerm(ve->dx()); // would be grad for spaceDim > 1
-    
-    if (!pureEuler)
+    auto dt = form->getTimeStep();
+    auto steadyIP = IP::ip();
+    // let's walk through the members, duplicating any summands that do not involve the time step
+    // this is a fairly fragile approach, but it should work OK for now
+    // (A better way would be to support within the formulation itself, and build up two BF objects:
+    //  one for steady, and one for transient.)
+    auto linearTerms = ip->getLinearTerms();
+    for (auto lt : linearTerms)
     {
-      // naive norm for the rest
-      VarPtr S   = form->S(1);
-      VarPtr tau = form->tau();
-      
-      ip->addTerm(S->dx());
-      ip->addTerm(S);
-      
-      ip->addTerm(tau);
-      ip->addTerm(tau->dx());
+      LinearTermPtr revisedLT = Teuchos::rcp(new LinearTerm);
+      auto summands = lt->summands();
+      for (auto summand : summands)
+      {
+        auto weight = summand.first;
+//        cout << "weight->displayString(): " << weight->displayString() << endl;
+        if (weight->displayString() != dt->displayString())
+        {
+          auto weightMembers = weight->memberFunctions();
+          bool involvesDt = false;
+          for (auto weightMember : weightMembers)
+          {
+//            cout << "weightMember->displayString(): " << weightMember->displayString() << endl;
+            
+            if (weightMember->displayString() == dt->displayString())
+            {
+//              cout << "found member that involves dt.\n";
+              involvesDt = true;
+              break;
+            }
+          }
+          if (!involvesDt) // no member matched: we can add summand
+          {
+            revisedLT = revisedLT + weight * summand.second;
+          }
+        }
+      }
+      if (revisedLT->summands().size() > 0)
+      {
+        steadyIP->addTerm(revisedLT);
+      }
     }
-    
-    form->solutionIncrement()->setIP(ip);
+    cout << "Using steady graph norm:\n";
+    steadyIP->printInteractions();
+    soln->setIP(steadyIP);
+    solnIncrement->setIP(steadyIP);
+    form->solutionPreviousTimeStep()->setIP(steadyIP);
+  }
+  else if (normChoice == EXPERIMENTAL_CONSERVATIVE_NORM)
+  {
+    auto dt = form->getTimeStep();
+    auto steadyIP = IP::ip();
+    // let's walk through the members, dropping any summands that involve test terms without gradients
+    auto linearTerms = ip->getLinearTerms();
+    for (auto lt : linearTerms)
+    {
+      LinearTermPtr revisedLT = Teuchos::rcp(new LinearTerm);
+      auto summands = lt->summands();
+      for (auto summand : summands)
+      {
+        auto weight = summand.first;
+        auto var = summand.second;
+        if (var->op() == OP_VALUE)
+        {
+          continue; // skip this summand
+        }
+        else
+        {
+          revisedLT = revisedLT + weight * var;
+        }
+      }
+      if (revisedLT->summands().size() > 0)
+      {
+        steadyIP->addTerm(revisedLT);
+      }
+    }
+    // now, add boundary terms for each test function:
+    steadyIP->addBoundaryTerm(form->vc());
+    steadyIP->addBoundaryTerm(form->vm(1));
+    steadyIP->addBoundaryTerm(form->ve());
+    cout << "Using modified steady graph norm:\n";
+    steadyIP->printInteractions();
+    soln->setIP(steadyIP);
+    solnIncrement->setIP(steadyIP);
+    form->solutionPreviousTimeStep()->setIP(steadyIP);
   }
   
   int numTimeSteps = 0.20 / dt; // standard for Sod is to take it to t = 0.20
@@ -741,6 +799,14 @@ int main(int argc, char *argv[])
   bool runWriteFunctionTest = false; // option for debugging some output code...
   bool enforceConservationUsingLagrangeMultipliers = false;
   
+  std::map<string, TestNormChoice> normChoices = {
+    {"steadyGraph", STEADY_GRAPH_NORM},
+    {"transientGraph", TRANSIENT_GRAPH_NORM},
+    {"experimental", EXPERIMENTAL_CONSERVATIVE_NORM}
+  };
+  
+  std::string normChoiceString = "transientGraph";
+  
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
   
   cmdp.setOption("polyOrder", &polyOrder);
@@ -755,7 +821,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("euler", "fullNS", &useEuler);
   cmdp.setOption("enforceConservation", "dontEnforceConservation", &enforceConservationUsingLagrangeMultipliers);
   
-  cmdp.setOption("experimentalNorm", "graphNorm", &useExperimentalConservationNorm);
+  cmdp.setOption("norm", &normChoiceString);
   
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -766,13 +832,13 @@ int main(int argc, char *argv[])
   }
   
   TestNormChoice normChoice;
-  if (useExperimentalConservationNorm)
+  if (normChoices.find(normChoiceString) != normChoices.end())
   {
-    normChoice = EXPERIMENTAL_CONSERVATIVE_NORM;
+    normChoice = normChoices[normChoiceString];
   }
   else
   {
-    normChoice = GRAPH_NORM;
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported norm choice");
   }
   
   MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
@@ -796,6 +862,7 @@ int main(int argc, char *argv[])
     {
       auto form = CompressibleNavierStokesConservationForm::timeSteppingEulerFormulation(spaceDim, useConformingTraces,
                                                                                          meshTopo, polyOrder, delta_k);
+      
       return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
                        nonlinearTolerance, continuationSteps, continuationTolerance, normChoice, enforceConservationUsingLagrangeMultipliers);
     }
