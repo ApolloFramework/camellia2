@@ -10,6 +10,7 @@
 #include "BC.h"
 #include "BF.h"
 #include "CompressibleNavierStokesProblem.hpp"
+#include "ExpFunction.h"
 #include "LagrangeConstraints.h"
 #include "MeshFactory.h"
 #include "ParameterFunction.h"
@@ -343,6 +344,8 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   }
   
   _bf = Teuchos::rcp( new BF(_vf) );
+  _steadyBF = Teuchos::rcp( new BF(_vf) );
+  BFPtr transientBF = Teuchos::rcp( new BF(_vf) ); // we'll end up writing _bf = _steadyBF + transientBF, basically
   _rhs = RHS::rhs();
   
   vector<int> H1Order;
@@ -429,15 +432,15 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     auto n_S = (_spaceDim > 1) ? n_x : n_x->x();
     for (int d=0; d<spaceDim; d++)
     {
-      _bf->addTerm(m[d]/rho_prev - m_prev[d]/rho_prev_squared * rho, S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
+      _steadyBF->addTerm(m[d]/rho_prev - m_prev[d]/rho_prev_squared * rho, S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
       _rhs->addTerm(-m_prev[d] / rho_prev * S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
       for (int d2=0; d2<spaceDim; d2++)
       {
         VarPtr S_d2 = (_spaceDim > 1) ? S[d]->spatialComponent(d2+1) : S[d];
-        _bf->addTerm (1./_muFunc * D[d][d2],        S_d2);
+        _steadyBF->addTerm (1./_muFunc * D[d][d2],        S_d2);
         _rhs->addTerm(-1./_muFunc * D_prev[d][d2] * S_d2);
       }
-      _bf->addTerm(-u_hat[d], S[d] * n_S);
+      _steadyBF->addTerm(-u_hat[d], S[d] * n_S);
     }
     
     // tau terms:
@@ -445,20 +448,20 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
     FunctionPtr qWeight = Pr / (Cp * _muFunc); // q is defined such that q * qWeight = - grad T
     Camellia::EOperator tauDivOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
     
-    _bf->addTerm (-1.0 / rho_prev * E + E_prev / rho_prev_squared * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
+    _steadyBF->addTerm (-1.0 / rho_prev * E + E_prev / rho_prev_squared * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
     _rhs->addTerm(E_prev / rho_prev                                    * (1.0 / Cv) * tau->applyOp(tauDivOp));
     
-    _bf->addTerm(T_hat,     tau * n_tau);
+    _steadyBF->addTerm(T_hat,     tau * n_tau);
     
-    _bf->addTerm( - m_prev_dot_m_prev / (rho_prev_squared * rho_prev) * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
+    _steadyBF->addTerm( - m_prev_dot_m_prev / (rho_prev_squared * rho_prev) * rho, (1.0 / Cv) * tau->applyOp(tauDivOp));
     _rhs->addTerm( - m_prev_dot_m_prev / (2. * rho_prev_squared)           * (1.0 / Cv) * tau->applyOp(tauDivOp));
     for (int d=0; d<spaceDim; d++)
     {
       VarPtr tau_d = (_spaceDim > 1) ? tau->spatialComponent(d+1) : tau;
-      _bf->addTerm ( qWeight * q[d],       tau_d);
+      _steadyBF->addTerm ( qWeight * q[d],       tau_d);
       _rhs->addTerm(-qWeight * q_prev[d] * tau_d);
       
-      _bf->addTerm(   m_prev[d] / rho_prev_squared * m[d], (1.0 / Cv) * tau->applyOp(tauDivOp));
+      _steadyBF->addTerm(   m_prev[d] / rho_prev_squared * m[d], (1.0 / Cv) * tau->applyOp(tauDivOp));
     }
   }
 
@@ -468,21 +471,21 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   // vc terms:
   if (_spaceTime)
   {
-    _bf->addTerm (-rho,       vc->dt());
-    _rhs->addTerm( rho_prev * vc->dt());
+    transientBF->addTerm (-rho, vc->dt());
+    _rhs->addTerm( rho_prev   * vc->dt());
   }
   else if (_timeStepping)
   {
-    _bf->addTerm (rho/dt,            vc);
+    transientBF->addTerm (rho/dt,                     vc);
     _rhs->addTerm(- (rho_prev - rho_prev_time) / dt * vc);
   }
   
   for (int d=0; d<spaceDim; d++)
   {
-    _bf->addTerm( -m[d],       vc->di(d+1));
+    _steadyBF->addTerm( -m[d], vc->di(d+1));
     _rhs->addTerm( m_prev[d] * vc->di(d+1));
   }
-  _bf->addTerm(tc, vc);
+  _steadyBF->addTerm(tc, vc);
   _rhs->addTerm(FunctionPtr(_fc) * vc);
   
   // D is the mu-weighted gradient of u
@@ -509,90 +512,102 @@ CompressibleNavierStokesConservationForm::CompressibleNavierStokesConservationFo
   {
     if (_spaceTime)
     {
-      _bf->addTerm( -m[d1],       vm[d1]->dt() );
-      _rhs->addTerm( m_prev[d1] * vm[d1]->dt() );
+      transientBF->addTerm( -m[d1], vm[d1]->dt() );
+      _rhs->addTerm( m_prev[d1]   * vm[d1]->dt() );
     }
     if (_timeStepping)
     {
-      _bf->addTerm( m[d1], vm[d1] / dt);
+      transientBF->addTerm( m[d1],                         vm[d1] / dt);
       _rhs->addTerm(-(m_prev[d1] - m_prev_time[d1]) / dt * vm[d1] );
     }
     
     { // terms of the form (Scalar * I, grad vm) -- simplifies to (Scalar, trace(grad vm))
-      _bf->addTerm(-(gamma - 1.) * E,       vm[d1]->di(d1+1));
+      _steadyBF->addTerm(-(gamma - 1.) * E,       vm[d1]->di(d1+1));
       _rhs->addTerm((gamma - 1.) * E_prev * vm[d1]->di(d1+1));
       
-      _bf->addTerm( -(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev_squared) * rho, vm[d1]->di(d1+1));
+      _steadyBF->addTerm( -(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev_squared) * rho, vm[d1]->di(d1+1));
       _rhs->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev)              * vm[d1]->di(d1+1));
       
-      _bf->addTerm( (gamma - 1.) * m_prev_dot_m / rho_prev, vm[d1]->di(d1+1));
+      _steadyBF->addTerm( (gamma - 1.) * m_prev_dot_m / rho_prev, vm[d1]->di(d1+1));
       
       if (!_pureEulerMode) // no D for Euler
       {
-        _bf->addTerm(  D_traceWeight * D_trace,       vm[d1]->di(d1+1));
+        _steadyBF->addTerm(  D_traceWeight * D_trace,       vm[d1]->di(d1+1));
         _rhs->addTerm(-D_traceWeight * D_trace_prev * vm[d1]->di(d1+1));
       }
     }
     for (int d2=0; d2<spaceDim; d2++)
     {
-      _bf->addTerm(-(m_prev[d2]/rho_prev * m[d1] + m_prev[d1]/rho_prev * m[d2]), vm[d1]->di(d2+1));
-      _bf->addTerm( (m_prev[d1] * m_prev[d2] / rho_prev_squared) * rho,          vm[d1]->di(d2+1));
+      _steadyBF->addTerm(-(m_prev[d2]/rho_prev * m[d1] + m_prev[d1]/rho_prev * m[d2]), vm[d1]->di(d2+1));
+      _steadyBF->addTerm( (m_prev[d1] * m_prev[d2] / rho_prev_squared) * rho,          vm[d1]->di(d2+1));
       _rhs->addTerm( m_prev[d1] * m_prev[d2] / rho_prev                        * vm[d1]->di(d2+1));
       
       if (!_pureEulerMode) // no D for Euler
       {
-        _bf->addTerm(   D[d1][d2]      + D[d2][d1],        vm[d1]->di(d2+1));
+        _steadyBF->addTerm(   D[d1][d2]      + D[d2][d1],        vm[d1]->di(d2+1));
         _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * vm[d1]->di(d2+1));
       }
     }
-    _bf->addTerm(tm[d1], vm[d1]);
+    _steadyBF->addTerm(tm[d1], vm[d1]);
     _rhs->addTerm(FunctionPtr(_fm[d1]) * vm[d1]);
   }
   
   // ve:
   if (_spaceTime)
   {
-    _bf->addTerm(-E, ve->dt());
-    _rhs->addTerm(E_prev * ve->dt());
+    transientBF->addTerm(-E, ve->dt());
+    _rhs->addTerm(E_prev   * ve->dt());
   }
   if (_timeStepping)
   {
-    _bf->addTerm(E, ve / dt);
+    transientBF->addTerm(E,                      ve / dt);
     _rhs->addTerm(-(E_prev - E_prev_time) / dt * ve);
   }
   for (int d1=0; d1<spaceDim; d1++)
   {
-    _bf->addTerm(- gamma * (E_prev / rho_prev) * m[d1],                    ve->di(d1+1));
-    _bf->addTerm(  gamma * (E_prev * m_prev[d1] / rho_prev_squared) * rho, ve->di(d1+1));
-    _bf->addTerm(- gamma * (m_prev[d1] / rho_prev) * E,                    ve->di(d1+1));
+    _steadyBF->addTerm(- gamma * (E_prev / rho_prev) * m[d1],                    ve->di(d1+1));
+    _steadyBF->addTerm(  gamma * (E_prev * m_prev[d1] / rho_prev_squared) * rho, ve->di(d1+1));
+    _steadyBF->addTerm(- gamma * (m_prev[d1] / rho_prev) * E,                    ve->di(d1+1));
     _rhs->addTerm( gamma * E_prev / rho_prev * m_prev[d1]                * ve->di(d1+1));
     
-    _bf->addTerm( -(gamma - 1.)     * m_prev_dot_m_prev * m_prev[d1] / (rho_prev_squared * rho_prev) * rho, ve->di(d1+1));
-    _bf->addTerm( ((gamma - 1.)/2.) * m_prev_dot_m_prev / rho_prev_squared * m[d1],                         ve->di(d1+1));
+    _steadyBF->addTerm( -(gamma - 1.)     * m_prev_dot_m_prev * m_prev[d1] / (rho_prev_squared * rho_prev) * rho, ve->di(d1+1));
+    _steadyBF->addTerm( ((gamma - 1.)/2.) * m_prev_dot_m_prev / rho_prev_squared * m[d1],                         ve->di(d1+1));
     _rhs->addTerm(-((gamma - 1.)/2.) * m_prev_dot_m_prev * m_prev[d1]/ rho_prev_squared                   * ve->di(d1+1));
     
-    _bf->addTerm( (gamma-1.) * m_prev_dot_m * m_prev[d1] / rho_prev_squared,                                ve->di(d1+1));
+    _steadyBF->addTerm( (gamma-1.) * m_prev_dot_m * m_prev[d1] / rho_prev_squared,                                ve->di(d1+1));
     
     if (!_pureEulerMode) // no viscous terms for Euler
     {
-      _bf->addTerm(-q[d1], ve->di(d1+1));
+      _steadyBF->addTerm(-q[d1], ve->di(d1+1));
       _rhs->addTerm(q_prev[d1] * ve->di(d1+1));
       
-      _bf->addTerm((D_traceWeight * m_prev[d1] / rho_prev) * D_trace, ve->di(d1+1));
-      _bf->addTerm((D_traceWeight / rho_prev) * D_trace_prev * m[d1], ve->di(d1+1));
-      _bf->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev_squared) * D_trace_prev * rho, ve->di(d1+1));
+      _steadyBF->addTerm((D_traceWeight * m_prev[d1] / rho_prev) * D_trace, ve->di(d1+1));
+      _steadyBF->addTerm((D_traceWeight / rho_prev) * D_trace_prev * m[d1], ve->di(d1+1));
+      _steadyBF->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev_squared) * D_trace_prev * rho, ve->di(d1+1));
       _rhs->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev) * D_trace_prev * ve->di(d1+1));
       for (int d2=0; d2<spaceDim; d2++)
       {
-        _bf->addTerm(m_prev[d2]/rho_prev * (D[d1][d2] + D[d2][d1]),                        ve->di(d1+1));
-        _bf->addTerm((1.0/rho_prev) * (D_prev[d1][d2] + D_prev[d2][d1])*m[d2],             ve->di(d1+1));
-        _bf->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev_squared * rho, ve->di(d1+1));
+        _steadyBF->addTerm(m_prev[d2]/rho_prev * (D[d1][d2] + D[d2][d1]),                        ve->di(d1+1));
+        _steadyBF->addTerm((1.0/rho_prev) * (D_prev[d1][d2] + D_prev[d2][d1])*m[d2],             ve->di(d1+1));
+        _steadyBF->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev_squared * rho, ve->di(d1+1));
         _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev             * ve->di(d1+1));
       }
     }
   }
-  _bf->addTerm(te, ve);
+  _steadyBF->addTerm(te, ve);
   _rhs->addTerm(FunctionPtr(_fe) * ve);
+  
+  // now, combine transient and steady into _bf:
+  auto steadyTerms = _steadyBF->getTerms();
+  auto transientTerms = transientBF->getTerms();
+  for (auto steadyTerm : steadyTerms)
+  {
+    _bf->addTerm(steadyTerm.first, steadyTerm.second);
+  }
+  for (auto transientTerm : transientTerms)
+  {
+    _bf->addTerm(transientTerm.first, transientTerm.second);
+  }
   
   vector<VarPtr> missingTestVars = _bf->missingTestVars();
   vector<VarPtr> missingTrialVars = _bf->missingTrialVars();
@@ -1304,20 +1319,44 @@ double CompressibleNavierStokesConservationForm::solveAndAccumulate()
   FunctionPtr EUpdated     = EPrevious + FunctionPtr(alphaParameter) * EIncrement;
   
   vector<FunctionPtr> mPrevious(_spaceDim), mIncrement(_spaceDim), mUpdated(_spaceDim);
+  FunctionPtr mDotmPrevious = Function::zero();
   FunctionPtr mDotmUpdated = Function::zero();
   for (int d=0; d<_spaceDim; d++)
   {
     mPrevious[d] = Function::solution(m(d+1),_backgroundFlow);
     mIncrement[d] = Function::solution(m(d+1),_solnIncrement);
     mUpdated[d] = mPrevious[d] + FunctionPtr(alphaParameter) * mIncrement[d];
-    mDotmUpdated = mDotmUpdated + mUpdated[d] * mUpdated[d];
+    mDotmPrevious = mDotmPrevious + mPrevious[d] * mPrevious[d];
+    mDotmUpdated  = mDotmUpdated  + mUpdated [d] * mUpdated [d];
   }
   
   double Cv = this->Cv();
-  FunctionPtr TUpdated = (1.0/Cv) / rhoUpdated * (EUpdated - 0.5 * mDotmUpdated / rhoUpdated);
+  FunctionPtr TUpdated  = (1.0/Cv) / rhoUpdated  * (EUpdated  - 0.5 * mDotmUpdated  / rhoUpdated);
+  FunctionPtr TPrevious = (1.0/Cv) / rhoPrevious * (EPrevious - 0.5 * mDotmPrevious / rhoPrevious);
   
+  // pointwise change in Entropy should also be positive
+  // s2 - s1 = c_p ln (T2/T1) - R ln (p2/p1)
+  
+  FunctionPtr ds;
+  {
+    // pressure = rho * R * T
+    double R  = this->R();
+    double Cp = this->Cp();
+    FunctionPtr pPrevious = R * rhoPrevious * TPrevious;
+    FunctionPtr pUpdated  = R * rhoUpdated  * TUpdated;
+    
+    auto ln = [&] (FunctionPtr arg) -> FunctionPtr
+    {
+      return Teuchos::rcp(new Ln<double>(arg));
+    };
+    
+    ds = Cp * ln(TUpdated / TPrevious) - R * ln(pUpdated / pPrevious);
+  }
+  
+  // we may need to do something else to ensure positive changes in entropy;
+  // if we just add ds to the list of positive functions, we stall on the first Newton step...
   vector<FunctionPtr> positiveFunctions = {rhoUpdated, TUpdated};
-  double minDistanceFromZero = .001; // "positive" values should not get *too* small...
+  double minDistanceFromZero = 0.001; // "positive" values should not get *too* small...
   int posEnrich = 5;
   
   // lambda for positivity checking
@@ -1367,6 +1406,11 @@ SolutionPtr CompressibleNavierStokesConservationForm::solutionIncrement()
 SolutionPtr CompressibleNavierStokesConservationForm::solutionPreviousTimeStep()
 {
   return _solnPrevTime;
+}
+
+BFPtr CompressibleNavierStokesConservationForm::steadyBF()
+{
+  return _steadyBF;
 }
 
 VarPtr CompressibleNavierStokesConservationForm::T_hat()

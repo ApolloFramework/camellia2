@@ -17,6 +17,7 @@ namespace Camellia
 {
   class CompressibleNavierStokesConservationForm
   {
+    BFPtr _steadyBF; // _bf with the time terms dropped, essentially
     BFPtr _bf;
     RHSPtr _rhs;
     
@@ -109,6 +110,9 @@ namespace Camellia
     
     // ! the compressible Navier-Stokes formulation rhs
     RHSPtr rhs();
+    
+    // ! the compressible Navier-Stokes formulation bilinear form, with any time terms dropped
+    BFPtr steadyBF();
     
     void addVelocityTraceComponentCondition(SpatialFilterPtr region, FunctionPtr ui_exact, int i); // i is 1-based (1,2, or 3)
     void addVelocityTraceCondition(SpatialFilterPtr region, FunctionPtr u_exact); // vector u_exact
