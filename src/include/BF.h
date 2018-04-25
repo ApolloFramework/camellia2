@@ -105,6 +105,7 @@ public:
 
   string displayString();
   
+  const std::vector< TBilinearTerm<Scalar> > & getTerms() const;
   const std::vector< TBilinearTerm<Scalar> > & getJumpTerms() const;
 
   static int factoredCholeskySolve(Intrepid::FieldContainer<Scalar> &ipMatrix, Intrepid::FieldContainer<Scalar> &stiffnessEnriched,

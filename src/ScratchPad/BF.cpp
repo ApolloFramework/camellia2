@@ -1080,6 +1080,12 @@ namespace Camellia
   }
   
   template <typename Scalar>
+  const vector< TBilinearTerm<Scalar> > & TBF<Scalar>::getTerms() const
+  {
+    return _terms;
+  }
+  
+  template <typename Scalar>
   TIPPtr<Scalar> TBF<Scalar>::l2Norm()
   {
     // L2 norm on test space:
@@ -1619,6 +1625,11 @@ namespace Camellia
   void TBF<Scalar>::setBFForOptimalTestSolve(TBFPtr<Scalar> bf)
   {
     _bfForOptimalTestSolve = bf;
+    if ((bf != Teuchos::null) && (_optimalTestSolver == FACTORED_CHOLESKY))
+    {
+      // can't use FACTORED_CHOLESKY if we have a different BF for optimal test solve
+      _optimalTestSolver = QR;
+    }
   }
   
   template <typename Scalar>
