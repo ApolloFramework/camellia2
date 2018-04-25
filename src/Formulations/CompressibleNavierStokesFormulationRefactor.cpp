@@ -116,6 +116,46 @@ Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> CompressibleNavierStok
   return Teuchos::rcp(new CompressibleNavierStokesFormulationRefactor(meshTopo, parameters));
 }
 
+Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> CompressibleNavierStokesFormulationRefactor::steadyEulerFormulation(int spaceDim, bool useConformingTraces,
+                                                                                                                              MeshTopologyPtr meshTopo,
+                                                                                                                              int spatialPolyOrder, int delta_k)
+{
+  Teuchos::ParameterList parameters;
+  
+  parameters.set("spaceDim", spaceDim);
+  parameters.set("mu", 0.0);
+  parameters.set("useConformingTraces",useConformingTraces);
+  parameters.set("useTimeStepping", false);
+  parameters.set("useSpaceTime", false);
+  
+  parameters.set("t0",0.0);
+  
+  parameters.set("spatialPolyOrder", spatialPolyOrder);
+  parameters.set("delta_k", delta_k);
+  
+  return Teuchos::rcp(new CompressibleNavierStokesFormulationRefactor(meshTopo, parameters));
+}
+
+Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> CompressibleNavierStokesFormulationRefactor::timeSteppingEulerFormulation(int spaceDim, bool useConformingTraces,
+                                                                                                                                    MeshTopologyPtr meshTopo,
+                                                                                                                                    int spatialPolyOrder, int delta_k)
+{
+  Teuchos::ParameterList parameters;
+  
+  parameters.set("spaceDim", spaceDim);
+  parameters.set("mu", 0.0);
+  parameters.set("useConformingTraces",useConformingTraces);
+  parameters.set("useTimeStepping", true);
+  parameters.set("useSpaceTime", false);
+  
+  parameters.set("t0",0.0);
+  
+  parameters.set("spatialPolyOrder", spatialPolyOrder);
+  parameters.set("delta_k", delta_k);
+  
+  return Teuchos::rcp(new CompressibleNavierStokesFormulationRefactor(meshTopo, parameters));
+}
+
 CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulationRefactor(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters)
 {
   _ctorParameters = parameters;
@@ -130,6 +170,7 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   _gamma = parameters.get<double>("gamma",1.4);
   _Pr = parameters.get<double>("Pr",0.713);
   _Cv = parameters.get<double>("Cv",1.0);
+  _pureEulerMode = (_mu == 0.0);
   bool useConformingTraces = parameters.get<bool>("useConformingTraces",false);
   int spatialPolyOrder = parameters.get<int>("spatialPolyOrder");
   int temporalPolyOrder = parameters.get<int>("temporalPolyOrder", 1);
@@ -209,38 +250,40 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   for (int d=0; d<spaceDim; d++)
   {
     u[d] = _vf->fieldVar(S_u[d]);
-    q[d] = _vf->fieldVar(S_q[d]);
   }
-  for (int d1=0; d1<spaceDim; d1++)
-  {
-    for (int d2=0; d2<spaceDim; d2++)
-    {
-      D[d1][d2] = _vf->fieldVar(S_D[d1][d2]);
-    }
-  }
-  
   T = _vf->fieldVar(S_T);
   
-  FunctionPtr one = Function::constant(1.0); // reuse Function to take advantage of accelerated BasisReconciliation (probably this is not the cleanest way to do this, but it should work)
-  if (! _spaceTime)
+  if (!_pureEulerMode)
   {
-    Space uHatSpace = useConformingTraces ? HGRAD : L2;
-    for (int d=0; d<spaceDim; d++)
+    for (int d1=0; d1<spaceDim; d1++)
     {
-      u_hat[d] = _vf->traceVar(S_u_hat[d], one * u[d], uHatSpace);
+      q[d1] = _vf->fieldVar(S_q[d1]);
+      for (int d2=0; d2<spaceDim; d2++)
+      {
+        D[d1][d2] = _vf->fieldVar(S_D[d1][d2]);
+      }
     }
-  }
-  else
-  {
-    Space uHatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
-    for (int d=0; d<spaceDim; d++)
+    FunctionPtr one = Function::constant(1.0); // reuse Function to take advantage of accelerated BasisReconciliation (probably this is not the cleanest way to do this, but it should work)
+    if (! _spaceTime)
     {
-      u_hat[d] = _vf->traceVarSpaceOnly(S_u_hat[d], one * u[d], uHatSpace);
+      Space uHatSpace = useConformingTraces ? HGRAD : L2;
+      for (int d=0; d<spaceDim; d++)
+      {
+        u_hat[d] = _vf->traceVar(S_u_hat[d], one * u[d], uHatSpace);
+      }
     }
+    else
+    {
+      Space uHatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
+      for (int d=0; d<spaceDim; d++)
+      {
+        u_hat[d] = _vf->traceVarSpaceOnly(S_u_hat[d], one * u[d], uHatSpace);
+      }
+    }
+    
+    Space THatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
+    T_hat = _vf->traceVarSpaceOnly(S_T_hat, one * T, THatSpace);
   }
-  
-  Space THatSpace = useConformingTraces ? HGRAD_SPACE_L2_TIME : L2;
-  T_hat = _vf->traceVarSpaceOnly(S_T_hat, one * T, THatSpace);
   
   // FunctionPtr n = Function::normal();
   FunctionPtr n_x = TFunction<double>::normal(); // spatial normal
@@ -262,14 +305,17 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   }
   ve = _vf->testVar(S_ve, HGRAD);
   
-  for (int d=0; d<spaceDim; d++)
+  if (!_pureEulerMode)
   {
-    Space S_space = (spaceDim == 1) ? HGRAD : HDIV;
-    S[d] = _vf->testVar(S_S[d], S_space);
+    for (int d=0; d<spaceDim; d++)
+    {
+      Space S_space = (spaceDim == 1) ? HGRAD : HDIV;
+      S[d] = _vf->testVar(S_S[d], S_space);
+    }
+    
+    if (spaceDim == 1)  tau = _vf->testVar(S_tau, HGRAD);
+    else                tau = _vf->testVar(S_tau, HDIV);
   }
-  
-  if (spaceDim == 1)  tau = _vf->testVar(S_tau, HGRAD);
-  else                tau = _vf->testVar(S_tau, HDIV);
   
   // now that we have all our variables defined, process any adjustments
   map<int,VarPtr> trialVars = _vf->trialVars();
@@ -285,6 +331,8 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   }
   
   _bf = Teuchos::rcp( new BF(_vf) );
+  _steadyBF = Teuchos::rcp( new BF(_vf) );
+  BFPtr transientBF = Teuchos::rcp( new BF(_vf) ); // we'll end up writing _bf = _steadyBF + transientBF, basically
   _rhs = RHS::rhs();
   
   vector<int> H1Order;
@@ -345,45 +393,51 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   {
     u_prev[d1]      = Function::solution(u[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
     u_prev_time[d1] = Function::solution(u[d1], _solnPrevTime, previousTimeIdentifierExponent);
-    q_prev[d1]      = Function::solution(q[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
-    for (int d2=0; d2<spaceDim; d2++)
+    if (!_pureEulerMode)
     {
-      D_prev[d1][d2] = Function::solution(D[d1][d2], _backgroundFlow, backgroundFlowIdentifierExponent);
+      q_prev[d1]      = Function::solution(q[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
+      for (int d2=0; d2<spaceDim; d2++)
+      {
+        D_prev[d1][d2] = Function::solution(D[d1][d2], _backgroundFlow, backgroundFlowIdentifierExponent);
+      }
     }
   }
   
-  // S terms:
-  Camellia::EOperator S_divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
-  auto n_S = (_spaceDim > 1) ? n_x : n_x->x();
-  for (int d=0; d<spaceDim; d++)
-  {
-    _bf->addTerm(u[d], S[d]->applyOp(S_divOp));         // D_i = mu() * grad u_i
-    _rhs->addTerm(-u_prev[d] * S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
-    for (int d2=0; d2<spaceDim; d2++)
-    {
-      VarPtr S_d2 = (_spaceDim > 1) ? S[d]->spatialComponent(d2+1) : S[d];
-      _bf->addTerm (1./_muFunc * D[d][d2],        S_d2);
-      _rhs->addTerm(-1./_muFunc * D_prev[d][d2] * S_d2);
-    }
-    _bf->addTerm(-u_hat[d], S[d] * n_S);
-  }
-  
-  // tau terms:
   double Cp = this->Cp();
   double Pr = this->Pr();
   double R  = this->R();
-  auto n_tau = n_S;
-  Camellia::EOperator tauDivOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
-  
-  _bf->addTerm (-T,       tau->applyOp(tauDivOp)); // tau = Cp*mu/Pr * grad T
-  _rhs->addTerm( T_prev * tau->applyOp(tauDivOp)); // tau = Cp*_mu/Pr * grad T
-  
-  _bf->addTerm(T_hat,     tau * n_tau);
-  for (int d=0; d<spaceDim; d++)
+  if (!_pureEulerMode)
   {
-    VarPtr tau_d = (_spaceDim > 1) ? tau->spatialComponent(d+1) : tau;
-    _bf->addTerm ( Pr/(Cp*_muFunc) * q[d],       tau_d);
-    _rhs->addTerm(-Pr/(Cp*_muFunc) * q_prev[d] * tau_d);
+    // S terms:
+    Camellia::EOperator S_divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
+    auto n_S = (_spaceDim > 1) ? n_x : n_x->x();
+    for (int d=0; d<spaceDim; d++)
+    {
+      _steadyBF->addTerm(u[d], S[d]->applyOp(S_divOp));         // D_i = mu() * grad u_i
+      _rhs->addTerm(-u_prev[d] * S[d]->applyOp(S_divOp)); // D_i = mu() * grad u_i
+      for (int d2=0; d2<spaceDim; d2++)
+      {
+        VarPtr S_d2 = (_spaceDim > 1) ? S[d]->spatialComponent(d2+1) : S[d];
+        _steadyBF->addTerm (1./_muFunc * D[d][d2],        S_d2);
+        _rhs->addTerm(-1./_muFunc * D_prev[d][d2] * S_d2);
+      }
+      _steadyBF->addTerm(-u_hat[d], S[d] * n_S);
+    }
+    
+    // tau terms:
+    auto n_tau = n_S;
+    Camellia::EOperator tauDivOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
+    
+    _steadyBF->addTerm (-T,       tau->applyOp(tauDivOp)); // tau = Cp*mu/Pr * grad T
+    _rhs->addTerm( T_prev * tau->applyOp(tauDivOp)); // tau = Cp*_mu/Pr * grad T
+    
+    _steadyBF->addTerm(T_hat,     tau * n_tau);
+    for (int d=0; d<spaceDim; d++)
+    {
+      VarPtr tau_d = (_spaceDim > 1) ? tau->spatialComponent(d+1) : tau;
+      _steadyBF->addTerm ( Pr/(Cp*_muFunc) * q[d],       tau_d);
+      _rhs->addTerm(-Pr/(Cp*_muFunc) * q_prev[d] * tau_d);
+    }
   }
 
   // to avoid needing a bunch of casts below, do a cast once here:
@@ -392,20 +446,20 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   // vc terms:
   if (_spaceTime)
   {
-    _bf->addTerm (-rho,       vc->dt());
+    transientBF->addTerm (-rho,       vc->dt());
     _rhs->addTerm( rho_prev * vc->dt());
   }
   else if (_timeStepping)
   {
-    _bf->addTerm (rho/dt,            vc);
+    transientBF->addTerm (rho/dt,            vc);
     _rhs->addTerm(- (rho_prev - rho_prev_time) / dt * vc);
   }
   for (int d=0; d<spaceDim; d++)
   {
-    _bf->addTerm(-(u_prev[d] * rho + rho_prev * u[d]), vc->di(d+1));
+    _steadyBF->addTerm(-(u_prev[d] * rho + rho_prev * u[d]), vc->di(d+1));
     _rhs->addTerm( rho_prev * u_prev[d] * vc->di(d+1));
   }
-  _bf->addTerm(tc, vc);
+  _steadyBF->addTerm(tc, vc);
   _rhs->addTerm(FunctionPtr(_fc) * vc);
   
   // D is the mu-weighted gradient of u
@@ -415,31 +469,34 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   {
     if (_spaceTime)
     {
-      _bf->addTerm(-(u_prev[d1]*rho+rho_prev*u[d1]), vm[d1]->dt());
+      transientBF->addTerm(-(u_prev[d1]*rho+rho_prev*u[d1]), vm[d1]->dt());
       _rhs->addTerm( rho_prev*u_prev[d1] * vm[d1]->dt() );
     }
     if (_timeStepping)
     {
-      _bf->addTerm( rho_prev * u[d1] + u_prev[d1] * rho, vm[d1] / dt);
+      transientBF->addTerm( rho_prev * u[d1] + u_prev[d1] * rho, vm[d1] / dt);
       _rhs->addTerm(-(rho_prev * u_prev[d1] - rho_prev_time * u_prev_time[d1]) / dt * vm[d1] );
     }
-    _bf->addTerm(-R * T_prev * rho, vm[d1]->di(d1+1));
-    _bf->addTerm(-R * rho_prev * T, vm[d1]->di(d1+1));
+    _steadyBF->addTerm(-R * T_prev * rho, vm[d1]->di(d1+1));
+    _steadyBF->addTerm(-R * rho_prev * T, vm[d1]->di(d1+1));
     _rhs->addTerm(R * rho_prev * T_prev * vm[d1]->di(d1+1));
     for (int d2=0; d2<spaceDim; d2++)
     {
-      _bf->addTerm(-u_prev[d1]*u_prev[d2]*rho, vm[d1]->di(d2+1));
-      _bf->addTerm(-rho_prev*u_prev[d1]*u[d2], vm[d1]->di(d2+1));
-      _bf->addTerm(-rho_prev*u_prev[d2]*u[d1], vm[d1]->di(d2+1));
+      _steadyBF->addTerm(-u_prev[d1]*u_prev[d2]*rho, vm[d1]->di(d2+1));
+      _steadyBF->addTerm(-rho_prev*u_prev[d1]*u[d2], vm[d1]->di(d2+1));
+      _steadyBF->addTerm(-rho_prev*u_prev[d2]*u[d1], vm[d1]->di(d2+1));
       _rhs->addTerm( rho_prev*u_prev[d1]*u_prev[d2] * vm[d1]->di(d2+1));
 
-      _bf->addTerm(D[d1][d2] + D[d2][d1], vm[d1]->di(d2+1));
-      _bf->addTerm(D_traceWeight * D[d2][d2], vm[d1]->di(d1+1));
-      
-      _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * vm[d1]->di(d2+1));
-      _rhs->addTerm(-D_traceWeight * D_prev[d2][d2] * vm[d1]->di(d1+1));
+      if (!_pureEulerMode)
+      {
+        _steadyBF->addTerm(D[d1][d2] + D[d2][d1], vm[d1]->di(d2+1));
+        _steadyBF->addTerm(D_traceWeight * D[d2][d2], vm[d1]->di(d1+1));
+        
+        _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * vm[d1]->di(d2+1));
+        _rhs->addTerm(-D_traceWeight * D_prev[d2][d2] * vm[d1]->di(d1+1));
+      }
     }
-    _bf->addTerm(tm[d1], vm[d1]);
+    _steadyBF->addTerm(tm[d1], vm[d1]);
     _rhs->addTerm(FunctionPtr(_fm[d1]) * vm[d1]);
   }
   
@@ -447,57 +504,72 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   double Cv = this->Cv();
   if (_spaceTime)
   {
-    _bf->addTerm(-(Cv*T_prev*rho+Cv*rho_prev*T), ve->dt());
+    transientBF->addTerm(-(Cv*T_prev*rho+Cv*rho_prev*T), ve->dt());
     _rhs->addTerm(Cv*rho_prev*T_prev * ve->dt());
   }
   if (_timeStepping)
   {
-    _bf->addTerm(rho_prev * Cv * T + T_prev * Cv * rho, ve / dt);
+    transientBF->addTerm(rho_prev * Cv * T + T_prev * Cv * rho, ve / dt);
     _rhs->addTerm(-(Cv*(rho_prev*T_prev - rho_prev_time * T_prev_time)) / dt * ve);
   }
   for (int d1=0; d1<spaceDim; d1++)
   {
     if (_spaceTime)
     {
-      _bf->addTerm(-0.5*(u_prev[d1]*u_prev[d1])*rho, ve->dt());
-      _bf->addTerm((-rho_prev*u_prev[d1])*u[d1],     ve->dt());
+      transientBF->addTerm(-0.5*(u_prev[d1]*u_prev[d1])*rho, ve->dt());
+      transientBF->addTerm((-rho_prev*u_prev[d1])*u[d1],     ve->dt());
       
       _rhs->addTerm(0.5*rho_prev*(u_prev[d1]*u_prev[d1]) * ve->dt());
     }
     if (_timeStepping)
     {
-      _bf->addTerm( rho_prev * u_prev[d1] * u[d1] + 0.5 * u_prev[d1] * u_prev[d1] * rho, ve / dt);
+      transientBF->addTerm( rho_prev * u_prev[d1] * u[d1] + 0.5 * u_prev[d1] * u_prev[d1] * rho, ve / dt);
       _rhs->addTerm( - (0.5 * (rho_prev * u_prev[d1] * u_prev[d1] - rho_prev_time * u_prev_time[d1] * u_prev_time[d1] )) / dt * ve );
     }
     
-    _bf->addTerm(-(Cv+R) * u_prev[d1] * T_prev * rho - (Cv+R) * rho_prev * T_prev * u[d1] - (Cv+R) * rho_prev * u_prev[d1] * T, ve->di(d1+1));
+    _steadyBF->addTerm(-(Cv+R) * u_prev[d1] * T_prev * rho - (Cv+R) * rho_prev * T_prev * u[d1] - (Cv+R) * rho_prev * u_prev[d1] * T, ve->di(d1+1));
     _rhs->addTerm((Cv+R) * rho_prev * u_prev[d1] * T_prev * ve->di(d1+1));
     
     for (int d2=0; d2<spaceDim; d2++)
     {
-      _bf->addTerm(-(0.5*(u_prev[d2]*u_prev[d2])*u_prev[d1]*rho), ve->di(d1+1));
-      _bf->addTerm(-(0.5*rho_prev*(u_prev[d2]*u_prev[d2]))*u[d1], ve->di(d1+1));
-      _bf->addTerm(-(rho_prev*u_prev[d1]*(u_prev[d2]*u[d2])), ve->di(d1+1));
+      _steadyBF->addTerm(-(0.5*(u_prev[d2]*u_prev[d2])*u_prev[d1]*rho), ve->di(d1+1));
+      _steadyBF->addTerm(-(0.5*rho_prev*(u_prev[d2]*u_prev[d2]))*u[d1], ve->di(d1+1));
+      _steadyBF->addTerm(-(rho_prev*u_prev[d1]*(u_prev[d2]*u[d2])), ve->di(d1+1));
       
       _rhs->addTerm(0.5 * rho_prev * (u_prev[d2]*u_prev[d2]) * u_prev[d1] * ve->di(d1+1));
     }
     
-    _bf->addTerm(-q[d1], ve->di(d1+1));
-    _rhs->addTerm(q_prev[d1] * ve->di(d1+1));
-
-    for (int d2=0; d2<spaceDim; d2++)
+    if (!_pureEulerMode)
     {
-      _bf->addTerm((D_prev[d1][d2] + D_prev[d2][d1])*u[d2], ve->di(d1+1));
-      _bf->addTerm((D_traceWeight * D_prev[d2][d2])*u[d1], ve->di(d1+1));
-      _bf->addTerm((D[d1][d2] + D[d2][d1])*u_prev[d2], ve->di(d1+1));
-      _bf->addTerm((D_traceWeight * u_prev[d1]) * D[d2][d2], ve->di(d1+1));
-      
-      _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * u_prev[d2] * ve->di(d1+1));
-      _rhs->addTerm(- D_traceWeight * D_prev[d2][d2] * u_prev[d1] * ve->di(d1+1));
+      _steadyBF->addTerm(-q[d1], ve->di(d1+1));
+      _rhs->addTerm(q_prev[d1] * ve->di(d1+1));
+
+      for (int d2=0; d2<spaceDim; d2++)
+      {
+        _steadyBF->addTerm((D_prev[d1][d2] + D_prev[d2][d1])*u[d2], ve->di(d1+1));
+        _steadyBF->addTerm((D_traceWeight * D_prev[d2][d2])*u[d1], ve->di(d1+1));
+        _steadyBF->addTerm((D[d1][d2] + D[d2][d1])*u_prev[d2], ve->di(d1+1));
+        _steadyBF->addTerm((D_traceWeight * u_prev[d1]) * D[d2][d2], ve->di(d1+1));
+        
+        _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1]) * u_prev[d2] * ve->di(d1+1));
+        _rhs->addTerm(- D_traceWeight * D_prev[d2][d2] * u_prev[d1] * ve->di(d1+1));
+      }
     }
   }
-  _bf->addTerm(te, ve);
+  _steadyBF->addTerm(te, ve);
   _rhs->addTerm(FunctionPtr(_fe) * ve);
+  
+  // now, combine transient and steady into _bf:
+  auto steadyTerms = _steadyBF->getTerms();
+  auto transientTerms = transientBF->getTerms();
+  for (auto steadyTerm : steadyTerms)
+  {
+    _bf->addTerm(steadyTerm.first, steadyTerm.second);
+  }
+  for (auto transientTerm : transientTerms)
+  {
+    _bf->addTerm(transientTerm.first, transientTerm.second);
+  }
   
   vector<VarPtr> missingTestVars = _bf->missingTestVars();
   vector<VarPtr> missingTrialVars = _bf->missingTrialVars();
@@ -565,20 +637,24 @@ CompressibleNavierStokesFormulationRefactor::CompressibleNavierStokesFormulation
   {
     FunctionPtr u_i_incr = Function::solution(this->u(comp_i), _solnIncrement);
     FunctionPtr u_i_prev = Function::solution(this->u(comp_i), _backgroundFlow);
-    FunctionPtr q_i_incr = Function::solution(this->q(comp_i), _solnIncrement);
-    FunctionPtr q_i_prev = Function::solution(this->q(comp_i), _backgroundFlow);
     
     _L2IncrementFunction = _L2IncrementFunction + u_i_incr * u_i_incr;
     _L2SolutionFunction = _L2SolutionFunction + u_i_prev * u_i_prev;
-    _L2IncrementFunction = _L2IncrementFunction + q_i_incr * q_i_incr;
-    _L2SolutionFunction = _L2SolutionFunction + q_i_prev * q_i_prev;
     
-    for (int comp_j=1; comp_j <= _spaceDim; comp_j++)
+    if (!_pureEulerMode)
     {
-      FunctionPtr D_ij_incr = Function::solution(this->D(comp_i,comp_j), _solnIncrement);
-      FunctionPtr D_ij_prev = Function::solution(this->D(comp_i,comp_j), _backgroundFlow);
-      _L2IncrementFunction = _L2IncrementFunction + D_ij_incr * D_ij_incr;
-      _L2SolutionFunction = _L2SolutionFunction + D_ij_prev * D_ij_prev;
+      FunctionPtr q_i_incr = Function::solution(this->q(comp_i), _solnIncrement);
+      FunctionPtr q_i_prev = Function::solution(this->q(comp_i), _backgroundFlow);
+      _L2IncrementFunction = _L2IncrementFunction + q_i_incr * q_i_incr;
+      _L2SolutionFunction = _L2SolutionFunction + q_i_prev * q_i_prev;
+      
+      for (int comp_j=1; comp_j <= _spaceDim; comp_j++)
+      {
+        FunctionPtr D_ij_incr = Function::solution(this->D(comp_i,comp_j), _solnIncrement);
+        FunctionPtr D_ij_prev = Function::solution(this->D(comp_i,comp_j), _backgroundFlow);
+        _L2IncrementFunction = _L2IncrementFunction + D_ij_incr * D_ij_incr;
+        _L2SolutionFunction = _L2SolutionFunction + D_ij_prev * D_ij_prev;
+      }
     }
   }
   
@@ -1080,6 +1156,7 @@ double CompressibleNavierStokesFormulationRefactor::Pr()
 
 VarPtr CompressibleNavierStokesFormulationRefactor::q(int i)
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "q is not defined in Euler formulation");
   CHECK_VALID_COMPONENT(i);
   
   return _vf->fieldVar(S_q[i-1]);
@@ -1102,6 +1179,7 @@ RHSPtr CompressibleNavierStokesFormulationRefactor::rhs()
 
 VarPtr CompressibleNavierStokesFormulationRefactor::S(int i)
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "S test function is not defined in Euler formulation");
   CHECK_VALID_COMPONENT(i);
   Space SSpace = (_spaceDim == 1) ? HGRAD : HDIV;
   return _vf->testVar(S_S[i-1], SSpace);
@@ -1136,16 +1214,24 @@ double CompressibleNavierStokesFormulationRefactor::solveAndAccumulate()
   _solveCode = _solnIncrement->solve(_solver);
   
   set<int> nonlinearVariables = {{rho()->ID(), T()->ID()}};
-  set<int> linearVariables = {{tc()->ID(), te()->ID(), T_hat()->ID()}};
+  set<int> linearVariables = {{tc()->ID(), te()->ID()}};
+  if (!_pureEulerMode)
+  {
+    linearVariables.insert(T_hat()->ID());
+  }
   for (int d1=0; d1<_spaceDim; d1++)
   {
     nonlinearVariables.insert(u(d1+1)->ID());
-    nonlinearVariables.insert(q(d1+1)->ID());
     linearVariables.insert(tm(d1+1)->ID());
-    linearVariables.insert(u_hat(d1+1)->ID());
-    for (int d2=0; d2<_spaceDim; d2++)
+    
+    if (!_pureEulerMode)
     {
-      nonlinearVariables.insert(D(d1+1,d2+1)->ID());
+      nonlinearVariables.insert(q(d1+1)->ID());
+      linearVariables.insert(u_hat(d1+1)->ID());
+      for (int d2=0; d2<_spaceDim; d2++)
+      {
+        nonlinearVariables.insert(D(d1+1,d2+1)->ID());
+      }
     }
   }
   
@@ -1182,10 +1268,6 @@ double CompressibleNavierStokesFormulationRefactor::solveAndAccumulate()
       }
       iter++;
     }
-    int commRank = Teuchos::GlobalMPISession::getRank();
-    // if (commRank==0 && alpha < 1.0){
-    //   cout << "Line search factor alpha = " << alpha << endl;
-    // }
   }
   
   _backgroundFlow->addReplaceSolution(_solnIncrement, alpha, nonlinearVariables, linearVariables);
@@ -1223,6 +1305,7 @@ VarPtr CompressibleNavierStokesFormulationRefactor::T()
 
 VarPtr CompressibleNavierStokesFormulationRefactor::T_hat()
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "T_hat is not defined in Euler formulation");
   if (! _spaceTime)
     return _vf->traceVar(S_T_hat);
   else
@@ -1231,6 +1314,7 @@ VarPtr CompressibleNavierStokesFormulationRefactor::T_hat()
 
 VarPtr CompressibleNavierStokesFormulationRefactor::tau()
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "tau test function is not defined in Euler formulation");
   Space tauSpace = (_spaceDim == 1) ? HGRAD : HDIV;
   return _vf->testVar(S_tau, tauSpace);
 }
