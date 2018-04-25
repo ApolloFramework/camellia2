@@ -1211,6 +1211,11 @@ SolutionPtr CompressibleNavierStokesFormulationRefactor::solutionPreviousTimeSte
   return _solnPrevTime;
 }
 
+BFPtr CompressibleNavierStokesFormulationRefactor::steadyBF()
+{
+  return _steadyBF; // TODO: set this in constructor (see ConservationForm implementation for a relatively simple way of setting this up)
+}
+
 VarPtr CompressibleNavierStokesFormulationRefactor::T()
 {
   return _vf->fieldVar(S_T);
