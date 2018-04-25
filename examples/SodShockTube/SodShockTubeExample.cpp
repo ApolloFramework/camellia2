@@ -3,6 +3,7 @@
 //
 
 #include "EnergyErrorFunction.h"
+#include "ExpFunction.h" // defines Ln
 #include "Function.h"
 #include "GMGSolver.h"
 #include "GnuPlotUtil.h"
@@ -27,36 +28,41 @@ template<class Form>
 FunctionPtr momentum(Teuchos::RCP<Form> form, bool previousTimeStep);
 
 template<class Form>
-FunctionPtr momentumFlux(Teuchos::RCP<Form> form); // the thing that we take a divergence of in the strong form (field variables only)
+FunctionPtr momentumFlux(Teuchos::RCP<Form> form, bool previousTimeStep); // the thing that we take a divergence of in the strong form (field variables only)
 
 template<class Form>
-FunctionPtr pressure(Teuchos::RCP<Form> form);
+FunctionPtr pressure(Teuchos::RCP<Form> form, bool previousTimeStep);
 
 template<class Form>
-FunctionPtr velocity(Teuchos::RCP<Form> form);
+FunctionPtr temperature(Teuchos::RCP<Form> form, bool previousTimeStep);
+
+template<class Form>
+FunctionPtr velocity(Teuchos::RCP<Form> form, bool previousTimeStep);
 
 template<class Form>
 void addConservationConstraint(Teuchos::RCP<Form> form);
 
 template<>
-FunctionPtr pressure<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form)
+FunctionPtr pressure<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form, bool previousTimeStep)
 {
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
   // pressure = (gamma - 1) * (E - 1/2 * m dot m / rho)
   double gamma = form->gamma();
-  FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
-  FunctionPtr m1  = Function::solution(form->m(1),  form->solutionPreviousTimeStep());
-  FunctionPtr E   = Function::solution(form->E(),   form->solutionPreviousTimeStep());
+  FunctionPtr rho = Function::solution(form->rho(), soln);
+  FunctionPtr m1  = Function::solution(form->m(1),  soln);
+  FunctionPtr E   = Function::solution(form->E(),   soln);
   
   FunctionPtr p = (gamma - 1) * (E - 0.5 * m1 * m1 / rho);
   return p;
 }
 
 template<>
-FunctionPtr pressure<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form)
+FunctionPtr pressure<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form, bool previousTimeStep)
 {
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
   double R = form->R();
-  FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
-  FunctionPtr T   = Function::solution(form->T(), form->solutionPreviousTimeStep());
+  FunctionPtr rho = Function::solution(form->rho(), soln);
+  FunctionPtr T   = Function::solution(form->T(),   soln);
   FunctionPtr p = R * rho * T;
   return p;
 }
@@ -102,27 +108,29 @@ FunctionPtr momentum<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<C
 }
 
 template<>
-FunctionPtr momentumFlux<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form)
+FunctionPtr momentumFlux<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form, bool previousTimeStep)
 {
-  FunctionPtr rho = Function::solution(form->rho(),  form->solutionPreviousTimeStep());
-  FunctionPtr m   = Function::solution(form->m(1),   form->solutionPreviousTimeStep());
-  FunctionPtr E   = Function::solution(form->E(),    form->solutionPreviousTimeStep());
-  FunctionPtr D   = Function::solution(form->D(1,1), form->solutionPreviousTimeStep());
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
+  FunctionPtr rho = Function::solution(form->rho(),  soln);
+  FunctionPtr m   = Function::solution(form->m(1),   soln);
+  FunctionPtr E   = Function::solution(form->E(),    soln);
+  FunctionPtr D   = Function::solution(form->D(1,1), soln);
   
-  FunctionPtr p = pressure(form);
+  FunctionPtr p = pressure(form, previousTimeStep);
   FunctionPtr sigma = (D + D - 2./3. * D);
   FunctionPtr mFlux = m * m / rho + p - sigma;
   return mFlux;
 }
 
 template<>
-FunctionPtr momentumFlux<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form)
+FunctionPtr momentumFlux<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form, bool previousTimeStep)
 {
-  FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
-  FunctionPtr u   = Function::solution(form->u(1),  form->solutionPreviousTimeStep());
-  FunctionPtr D   = Function::solution(form->D(1,1), form->solutionPreviousTimeStep());
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
+  FunctionPtr rho = Function::solution(form->rho(), soln);
+  FunctionPtr u   = Function::solution(form->u(1),  soln);
+  FunctionPtr D   = Function::solution(form->D(1,1), soln);
   
-  FunctionPtr p   = pressure(form);
+  FunctionPtr p   = pressure(form, previousTimeStep);
   
   FunctionPtr sigma = (D + D - 2./3. * D);
   
@@ -131,18 +139,44 @@ FunctionPtr momentumFlux<CompressibleNavierStokesFormulationRefactor>(Teuchos::R
 }
 
 template<>
-FunctionPtr velocity<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form)
+FunctionPtr velocity<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form, bool previousTimeStep)
 {
-  FunctionPtr rho = Function::solution(form->rho(),  form->solutionPreviousTimeStep());
-  FunctionPtr m   = Function::solution(form->m(1),   form->solutionPreviousTimeStep());
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
+  FunctionPtr rho = Function::solution(form->rho(), soln);
+  FunctionPtr m   = Function::solution(form->m(1),  soln);
   return m / rho;
 }
 
 template<>
-FunctionPtr velocity<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form)
+FunctionPtr velocity<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form, bool previousTimeStep)
 {
-  FunctionPtr u   = Function::solution(form->u(1),   form->solutionPreviousTimeStep());
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
+  FunctionPtr u   = Function::solution(form->u(1), soln);
   return u;
+}
+
+template<>
+FunctionPtr temperature<CompressibleNavierStokesConservationForm>(Teuchos::RCP<CompressibleNavierStokesConservationForm> form, bool previousTimeStep)
+{
+  // Ideal gas:
+  //            p = rho * R * T
+  // implies
+  //            T = p / (rho * R)
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
+  double R = form->R();
+  FunctionPtr rho = Function::solution(form->rho(), soln);
+  FunctionPtr p = pressure(form, previousTimeStep);
+  
+  FunctionPtr T = p / (rho * R);
+  return T;
+}
+
+template<>
+FunctionPtr temperature<CompressibleNavierStokesFormulationRefactor>(Teuchos::RCP<CompressibleNavierStokesFormulationRefactor> form, bool previousTimeStep)
+{
+  SolutionPtr soln = previousTimeStep ? form->solutionPreviousTimeStep() : form->solution();
+  FunctionPtr T = Function::solution(form->T(), soln);
+  return T;
 }
 
 template<>
@@ -318,6 +352,11 @@ enum TestNormChoice
   EXPERIMENTAL_CONSERVATIVE_NORM
 };
 
+FunctionPtr ln(FunctionPtr arg)
+{
+  return Teuchos::rcp(new Ln<double>(arg));
+}
+
 template<class Form>
 int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, int meshWidth, double x_a, double x_b,
               int polyOrder, int cubatureEnrichment, bool useCondensedSolve, double nonlinearTolerance, int continuationSteps,
@@ -340,47 +379,11 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   auto ip = solnIncrement->ip(); // this will be the transient graph norm...
   if (normChoice == STEADY_GRAPH_NORM)
   {
-    auto dt = form->getTimeStep();
-    auto steadyIP = IP::ip();
-    // let's walk through the members, duplicating any summands that do not involve the time step
-    // this is a fairly fragile approach, but it should work OK for now
-    // (A better way would be to support within the formulation itself, and build up two BF objects:
-    //  one for steady, and one for transient.)
-    auto linearTerms = ip->getLinearTerms();
-    for (auto lt : linearTerms)
-    {
-      LinearTermPtr revisedLT = Teuchos::rcp(new LinearTerm);
-      auto summands = lt->summands();
-      for (auto summand : summands)
-      {
-        auto weight = summand.first;
-//        cout << "weight->displayString(): " << weight->displayString() << endl;
-        if (weight->displayString() != dt->displayString())
-        {
-          auto weightMembers = weight->memberFunctions();
-          bool involvesDt = false;
-          for (auto weightMember : weightMembers)
-          {
-//            cout << "weightMember->displayString(): " << weightMember->displayString() << endl;
-            
-            if (weightMember->displayString() == dt->displayString())
-            {
-//              cout << "found member that involves dt.\n";
-              involvesDt = true;
-              break;
-            }
-          }
-          if (!involvesDt) // no member matched: we can add summand
-          {
-            revisedLT = revisedLT + weight * summand.second;
-          }
-        }
-      }
-      if (revisedLT->summands().size() > 0)
-      {
-        steadyIP->addTerm(revisedLT);
-      }
-    }
+    auto steadyBF = form->steadyBF();
+    auto steadyIP = steadyBF->graphNorm();
+    auto bf = form->bf();
+    cout << "steadyBF: " << steadyBF->displayString() << endl;
+    bf->setBFForOptimalTestSolve(steadyBF);
     cout << "Using steady graph norm:\n";
     steadyIP->printInteractions();
     soln->setIP(steadyIP);
@@ -519,16 +522,27 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   }
   
   // define the pressure so we can plot in our solution export
-  FunctionPtr p = pressure(form);
+  FunctionPtr p = pressure(form, true); // true: previous time step
   // define u so we can plot in solution export (in case we're in conservation variables)
-  FunctionPtr u = velocity(form);
+  FunctionPtr u = velocity(form, true); // true: previous time step
+  // define change in entropy so we can plot in our solution export
+  // s2 - s1 = c_p ln (T2/T1) - R ln (p2/p1)
+  
+  FunctionPtr ds;
+  {
+    FunctionPtr p1 = pressure(form, true);
+    FunctionPtr p2 = pressure(form,false);
+    FunctionPtr T1 = temperature(form, true);
+    FunctionPtr T2 = temperature(form, false);
+    double c_p = form->Cp();
+    ds = c_p * ln(T2 / T1) - R * ln(p2/p1);
+  }
   
   // project the initial state both onto the solution object representing the previous time state,
   // as well as the current state (the latter is the initial guess for the current time step).
   const int solutionOrdinal = 0;
   form->solutionPreviousTimeStep()->projectOntoMesh(initialState, solutionOrdinal);
   form->solution()->projectOntoMesh(initialState, solutionOrdinal);
-  
   
   MeshPtr mesh = form->solutionIncrement()->mesh();
   
@@ -537,13 +551,13 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
 
   if (conservationVariables)
   {
-    functionsToPlot = {p,u};
-    functionNames   = {"pressure","velocity"};
+    functionsToPlot = {p,u,ds};
+    functionNames   = {"pressure","velocity","entropy change"};
   }
   else
   {
-    functionsToPlot = {p};
-    functionNames   = {"pressure"};
+    functionsToPlot = {p,ds};
+    functionNames   = {"pressure","entropy change"};
   }
   
   // history export gets every nonlinear increment as a separate step
@@ -596,33 +610,26 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     form->addTemperatureTraceCondition( rightX, Function::constant(T_b));
   }
   
-  FunctionPtr rho = Function::solution(form->rho(), form->solutionPreviousTimeStep());
-  FunctionPtr m   = momentum(form, true); // true: previous time step
-  FunctionPtr E   = energy(form, true);
-  FunctionPtr tc  = Function::solution(form->tc(),  form->solutionPreviousTimeStep(), true);
-  FunctionPtr tm  = Function::solution(form->tm(1), form->solutionPreviousTimeStep(), true);
-  FunctionPtr te  = Function::solution(form->te(),  form->solutionPreviousTimeStep(), true);
+  FunctionPtr rho = Function::solution(form->rho(), form->solution());
+  FunctionPtr m   = momentum(form, false); // false: not previous time step (current)
+  FunctionPtr E   = energy(form, false);
+  FunctionPtr tc  = Function::solution(form->tc(),  form->solution(), true);
+  FunctionPtr tm  = Function::solution(form->tm(1), form->solution(), true);
+  FunctionPtr te  = Function::solution(form->te(),  form->solution(), true);
   
   auto printConservationReport = [&]() -> void
   {
     double totalMass = rho->integrate(mesh);
     double totalMomentum = m->integrate(mesh);
     double totalEnergy = E->integrate(mesh);
+    double dsIntegral = ds->integrate(mesh);
     
-//    double tc_left  = tc->evaluate(mesh, x_a);
-//    double tc_right = tc->evaluate(mesh, x_b);
-//    double tm_left  = tm->evaluate(mesh, x_a);
-//    double tm_right = tm->evaluate(mesh, x_b);
-//    double te_left  = te->evaluate(mesh, x_a);
-//    double te_right = te->evaluate(mesh, x_b);
     if (rank == 0)
     {
-      cout << "Total Mass:     " << totalMass << endl;
-      cout << "Total Momentum: " << totalMomentum << endl;
-      cout << "Total Energy:   " << totalEnergy << endl;
-//      cout << "tc at left, right: " << tc_left << "," << tc_right << endl;
-//      cout << "tm at left, right: " << tm_left << "," << tm_right << endl;
-//      cout << "te at left, right: " << te_left << "," << te_right << endl;
+      cout << "Total Mass:        " << totalMass << endl;
+      cout << "Total Momentum:    " << totalMomentum << endl;
+      cout << "Total Energy:      " << totalEnergy << endl;
+      cout << "Change in Entropy: " << dsIntegral << endl;
     }
   };
   
@@ -683,7 +690,6 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
 //      cout << "cell ordinal " << cellOrdinal << ", conservation failure: " << cellIntegrals[cellOrdinal] << endl;
 //    }
   };
-  
   
   printConservationReport();
   double t = 0;
@@ -757,11 +763,11 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     t += dt;
     
     printLocalConservationReport(); // since this depends on the difference between current/previous solution, we need to call before we set prev to current.
-    form->solutionPreviousTimeStep()->setSolution(form->solution());
-    solutionExporter.exportSolution(form->solutionPreviousTimeStep(),functionsToPlot,functionNames,t);
-    
+    solutionExporter.exportSolution(form->solution(),functionsToPlot,functionNames,t); // similarly, since the entropy compares current and previous, need this to happen before setSolution()
     printConservationReport();
+    
     if (rank == 0) std::cout << "========== t = " << t << ", time step number " << timeStepNumber+1 << " ==========\n";
+    form->solutionPreviousTimeStep()->setSolution(form->solution());
   }
   
   // now that we're at final time, let's output pressure, velocity, density in a format suitable for plotting
