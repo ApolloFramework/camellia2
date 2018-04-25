@@ -218,5 +218,62 @@ string Exp_at::displayString()
   return ss.str();
 }
 
-// explicitly instantiate Exp<double> class:
+template<class Scalar>
+Ln<Scalar>::Ln(TFunctionPtr<Scalar> argument) : _argument(argument)
+{}
+
+template<class Scalar>
+void Ln<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
+{
+  // first, fill values container with _argument values:
+  _argument->values(values,basisCache);
+  int numCells = values.dimension(0);
+  int numPoints = values.dimension(1);
+  for (int cellOrdinal=0; cellOrdinal<numCells; cellOrdinal++)
+  {
+    for (int pointOrdinal=0; pointOrdinal<numPoints; pointOrdinal++)
+    {
+      values(cellOrdinal,pointOrdinal) = log(values(cellOrdinal,pointOrdinal));
+    }
+  }
+}
+
+/*
+ d/dx (ln(f)) = d/dx(f) / f
+ */
+
+template<class Scalar>
+TFunctionPtr<Scalar> Ln<Scalar>::dx()
+{
+  return _argument->dx() / _argument;
+}
+
+template<class Scalar>
+TFunctionPtr<Scalar> Ln<Scalar>::dy()
+{
+  return _argument->dy() / _argument;
+}
+
+template<class Scalar>
+TFunctionPtr<Scalar> Ln<Scalar>::dz()
+{
+  return _argument->dy() / _argument;
+}
+
+template<class Scalar>
+std::string Ln<Scalar>::displayString()
+{
+  ostringstream str;
+  str << "{\\rm ln} (" << _argument->displayString() << ")";
+  return str.str();
+}
+
+template<class Scalar>
+std::vector< TFunctionPtr<Scalar> > Ln<Scalar>::memberFunctions()
+{
+  return {{_argument}};
+}
+
+// explicitly instantiate Exp<double>, Ln<double> classes:
 template class Camellia::Exp<double>;
+template class Camellia::Ln<double>;
