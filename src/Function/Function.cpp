@@ -1414,8 +1414,8 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::squaredL2NormOfJumps(MeshPt
     {
       case DIFFERENCE:
         return v1-v2;
-      case AVERAGE:
-        return v1+v2; // is this right?  Shouldn't it be (v1+v2)/2.0?
+      case SUM:
+        return v1+v2;
     }
   };
   
@@ -1705,7 +1705,7 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::squaredL2NormOfJumps(MeshPt
         neighborSideCache->setPhysicalCellNodes(neighborCellNodes, {neighborCellID}, false);
         {
           // Sanity check that the physical points agree:
-          double tol = 1e-10;
+          double tol = 1e-8;
           Intrepid::FieldContainer<double> myPhysicalPoints = cellBasisCacheSide->getPhysicalCubaturePoints();
           Intrepid::FieldContainer<double> neighborPhysicalPoints = neighborSideCache->getPhysicalCubaturePoints();
           
@@ -1952,7 +1952,8 @@ double TFunction<Scalar>::l1norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnri
 {
   TFunctionPtr<Scalar> thisPtr = Teuchos::rcp( this, false );
   bool testVsTest = false, requireSideCaches = false;
-  return abs(thisPtr->integrate(mesh, cubatureDegreeEnrichment, testVsTest, requireSideCaches, spatialSidesOnly));
+  TFunctionPtr<double> magnitudeFxn = TFunction<Scalar>::sqrtFunction(thisPtr * thisPtr);
+  return abs(magnitudeFxn->integrate(mesh, cubatureDegreeEnrichment, testVsTest, requireSideCaches, spatialSidesOnly));
 }
   
 template <typename Scalar>
@@ -1961,6 +1962,37 @@ double TFunction<Scalar>::l2norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnri
   TFunctionPtr<Scalar> thisPtr = Teuchos::rcp( this, false );
   bool testVsTest = false, requireSideCaches = false;
   return sqrt( abs((thisPtr * thisPtr)->integrate(mesh, cubatureDegreeEnrichment, testVsTest, requireSideCaches, spatialSidesOnly)) );
+}
+
+// BK: Method to compute the global maximum of a function
+template <typename Scalar>
+double TFunction<Scalar>::linfinitynorm(MeshPtr mesh, int cubatureDegreeEnrichment)
+{
+  // Kind of crude, but works!
+  TEUCHOS_TEST_FOR_EXCEPTION(_rank != 0, std::invalid_argument, "can only compute the L^infty norm of scalar functions, at least for now.");
+  double localMax = 0.0;
+  bool testVsTest = false;
+  set<GlobalIndexType> cellIDs = mesh->cellIDsInPartition();
+  for (GlobalIndexType cellID : cellIDs)
+  {
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID, testVsTest, cubatureDegreeEnrichment);
+    int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
+    int numPoints = basisCache->getPhysicalCubaturePoints().dimension(1);
+    Intrepid::FieldContainer<Scalar> fxnValues(numCells,numPoints);
+    this->values(fxnValues,basisCache);
+
+    Intrepid::FieldContainer<double> *weightedMeasures = &basisCache->getWeightedMeasures();
+    for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+    {
+      for (int ptIndex=0; ptIndex<numPoints; ptIndex++)
+      {
+        localMax = std::max(localMax,abs(fxnValues(cellIndex,ptIndex)));
+      }
+    }
+  }
+  double globalMax = 0.0;
+  mesh->Comm()->MaxAll(&localMax, &globalMax, 1);
+  return globalMax;
 }
 
 template <typename Scalar>

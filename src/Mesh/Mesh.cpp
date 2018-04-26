@@ -828,6 +828,12 @@ void Mesh::hRefine(const vector<GlobalIndexType> &cellIDs, Teuchos::RCP<Refineme
   hRefine(cellSet,refPattern);
 }
 
+void Mesh::hRefine(const vector<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern, bool repartitionAndRebuild)
+{
+  set<GlobalIndexType> cellSet(cellIDs.begin(),cellIDs.end());
+  hRefine(cellSet,refPattern,repartitionAndRebuild);
+}
+
 void Mesh::hRefine(const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern)
 {
   hRefine(cellIDs, refPattern, true);
