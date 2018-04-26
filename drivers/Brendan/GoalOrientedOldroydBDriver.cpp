@@ -837,10 +837,10 @@ int main(int argc, char *argv[])
       ///////////////////  CHOOSE REFINEMENT STRATEGY  ////////////////////
       if (errorIndicator == "Energy")
       {
-        RefinementStrategyPtr refStrategy = form.getRefinementStrategy();
-        refStrategy->setEnforceOneIrregularity(false);
-        refStrategy->refine();
-        // form.refine();
+        // RefinementStrategyPtr refStrategy = form.getRefinementStrategy();
+        // refStrategy->setEnforceOneIrregularity(false);
+        // refStrategy->refine();
+        form.refine();
       }
       if (errorIndicator == "hpEnergy")
       {
