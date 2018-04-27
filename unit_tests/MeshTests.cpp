@@ -11,6 +11,7 @@
 #include "Teuchos_UnitTestHarness.hpp"
 
 #include "BasisCache.h"
+#include "CamelliaDebugUtility.h"
 #include "GlobalDofAssignment.h"
 #include "MeshFactory.h"
 #include "MPIWrapper.h"
@@ -532,6 +533,228 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     
     numActiveElements = mesh->numActiveElements();
     TEST_EQUALITY(numActiveElements, numActiveElementsExpected);
+  }
+  
+  TEUCHOS_UNIT_TEST( Mesh, AnisotropicQuadNeighbors )
+  {
+    /*
+     Basic Steps:
+     1. Construct two-element quad mesh
+     2. Refine element 0 in x.
+     3. Now we have elements 2,3,1.
+     4. Check that 2 neighbors 3 and 3 neighbors 1.
+     */
+    
+    int H1Order = 2;
+    vector<int> elemCounts = {2,1};
+    vector<double> dims(2,1.0);
+    
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    // lambda for checking neighbors
+    auto testNeighbors = [&] (MeshPtr mesh, CellPtr cell, set<IndexType> expectedNeighbors) -> void
+    {
+      auto meshTopo = mesh->getTopology();
+      vector<CellPtr> cellNeighbors = cell->getNeighbors(meshTopo);
+      
+      set<IndexType> cellNeighborIDs;
+      for (auto neighbor : cellNeighbors)
+      {
+        cellNeighborIDs.insert(neighbor->cellIndex());
+      }
+      
+      if (cellNeighborIDs != expectedNeighbors)
+      {
+        out << "NeighborIDs for cell " << cell->cellIndex() << " do not match expected.\n";
+        print(out, "neighborIDs", cellNeighborIDs);
+        print(out, "expectedNeighborIDs", expectedNeighbors);
+        success = false;
+      }
+    };
+    
+    // first test: single refinement described above
+    {
+      auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+      
+      bool repartitionAndRebuild = true;
+      vector<GlobalIndexType> cellsToHxRefine = {0};
+      mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+      
+      TEST_EQUALITY(mesh->numActiveElements(), 3);
+    
+      auto meshTopo = mesh->getTopology();
+      CellPtr cell0 = meshTopo->getCell(0);
+      TEST_ASSERT(cell0->isParent(meshTopo));
+    
+      auto children = cell0->children();
+      for (auto child : children)
+      {
+        if (child->cellIndex() == 2)
+        {
+          testNeighbors(mesh,child,{3});
+        }
+        else if (child->cellIndex() == 3)
+        {
+          testNeighbors(mesh,child,{1,2});
+        }
+      }
+    
+      CellPtr cell1 = meshTopo->getCell(1);
+      testNeighbors(mesh,cell1,{3});
+    }
+    // next test: refine in both x and y
+    {
+      // we test both possible orders of refinement
+      vector<bool> xFirstChoices = {true,false};
+      
+      for (bool xFirst : xFirstChoices)
+      {
+        auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+        bool repartitionAndRebuild = true;
+        vector<GlobalIndexType> cellsToHxRefine = {0};
+        vector<GlobalIndexType> cellsToHyRefine = {1};
+        
+        vector<GlobalIndexType> cell0ChildIDs, cell1ChildIDs;
+        if (xFirst)
+        {
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {2,3};
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {4,5};
+        }
+        else
+        {
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {2,3};
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {4,5};
+        }
+        
+        TEST_EQUALITY(mesh->numActiveElements(), 4);
+        
+        auto meshTopo = mesh->getTopology();
+        CellPtr cell0 = meshTopo->getCell(0);
+        TEST_ASSERT(cell0->isParent(meshTopo));
+        
+        auto children = cell0->children();
+        for (auto child : children)
+        {
+          if (child->cellIndex() == cell0ChildIDs[0])
+          {
+            testNeighbors(mesh,child,{cell0ChildIDs[1]});
+          }
+          else if (child->cellIndex() == cell0ChildIDs[1])
+          {
+            testNeighbors(mesh,child,{1,cell0ChildIDs[0]});
+          }
+        }
+        
+        CellPtr cell1 = meshTopo->getCell(1);
+        TEST_ASSERT(cell1->isParent(meshTopo));
+        
+        children = cell1->children();
+        for (auto child : children)
+        {
+          if (child->cellIndex() == cell1ChildIDs[0])
+          {
+            testNeighbors(mesh,child,{cell0ChildIDs[1],cell1ChildIDs[1]});
+          }
+          else if (child->cellIndex() == cell1ChildIDs[1])
+          {
+            testNeighbors(mesh,child,{cell0ChildIDs[1],cell1ChildIDs[0]});
+          }
+        }
+      }
+    }
+    
+    
+    // now, refine in x and y as above, but refine one of the x children in y such that we get compatibility with the y refinement
+    // (should find the y-children as neighbors)
+    {
+      // we test both possible orders of refinement
+      vector<bool> xFirstChoices = {true,false};
+      
+      for (bool xFirst : xFirstChoices)
+      {
+        auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+        bool repartitionAndRebuild = true;
+        vector<GlobalIndexType> cellsToHxRefine = {0};
+        vector<GlobalIndexType> cellsToHyRefine = {1};
+        
+        vector<GlobalIndexType> cell0ChildIDs, cell1ChildIDs;
+        if (xFirst)
+        {
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {2,3};
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {4,5};
+        }
+        else
+        {
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {2,3};
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {4,5};
+        }
+        cellsToHyRefine = {cell0ChildIDs[1]}; // refine the child 0 cell that abuts cell 1
+        mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+        vector<GlobalIndexType> newlyCompatibleCells = {6,7};
+        
+        TEST_EQUALITY(mesh->numActiveElements(), 5);
+        
+        auto meshTopo = mesh->getTopology();
+        CellPtr cell6 = meshTopo->getCell(6);
+        // expected neighbors: the first of cell 0's children, and the first of cell 1's children, and the new cell 7
+        testNeighbors(mesh,cell6,{cell0ChildIDs[0],cell1ChildIDs[0],7});
+        CellPtr cell7 = meshTopo->getCell(7);
+        // expected neighbors: the first of cell 0's children, and the second of cell 1's children, and the new cell 6
+        testNeighbors(mesh,cell7,{cell0ChildIDs[0],cell1ChildIDs[1],6});
+      }
+    }
+    
+    // now, refine in x and y as above, but refine the rightmost of the x children in x
+    {
+      // we test both possible orders of refinement
+      vector<bool> xFirstChoices = {true,false};
+      
+      for (bool xFirst : xFirstChoices)
+      {
+        auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+        bool repartitionAndRebuild = true;
+        vector<GlobalIndexType> cellsToHxRefine = {0};
+        vector<GlobalIndexType> cellsToHyRefine = {1};
+        
+        vector<GlobalIndexType> cell0ChildIDs, cell1ChildIDs;
+        if (xFirst)
+        {
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {2,3};
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {4,5};
+        }
+        else
+        {
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {2,3};
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {4,5};
+        }
+        cellsToHxRefine = {cell0ChildIDs[1]}; // refine the child 0 cell that abuts cell 1
+        mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+        TEST_EQUALITY(mesh->numActiveElements(), 5);
+        
+        auto meshTopo = mesh->getTopology();
+        CellPtr cell6 = meshTopo->getCell(6);
+        // expected neighbors: the first of cell 0's children and the new cell 7
+        testNeighbors(mesh,cell6,{cell0ChildIDs[0],7});
+        CellPtr cell7 = meshTopo->getCell(7);
+        // expected neighbors: cell 1 (the parent), and the new cell 6
+        testNeighbors(mesh,cell7,{1,6});
+      }
+    }
+    
   }
   
 TEUCHOS_UNIT_TEST( Mesh, ParitySpaceTime1D )
