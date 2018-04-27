@@ -92,6 +92,7 @@ public:
   void setParent(Teuchos::RCP<Cell> parent);
 
   bool isBoundary(unsigned sideOrdinal);
+  bool isDescendant(IndexType ancestralCellIndex); // true if the provided cell index is one of this cell's ancestors
   bool isInteriorChild();
   bool isParent(ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
 
