@@ -13,3 +13,9 @@ target_link_libraries(StandingShockExample
   Camellia
 )
 
+set( STANDING_SHOCK_EXAMPLE_CONSERVATION_FORM "StandingShockConservationFormExample.cpp" )
+add_executable(StandingShockConservationFormExample ${STANDING_SHOCK_EXAMPLE_CONSERVATION_FORM})
+target_link_libraries(StandingShockConservationFormExample
+  Camellia
+)
+

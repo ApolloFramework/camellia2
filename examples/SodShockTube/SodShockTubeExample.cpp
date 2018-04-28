@@ -382,6 +382,14 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     auto steadyBF = form->steadyBF();
     auto steadyIP = steadyBF->graphNorm();
     auto bf = form->bf();
+    
+    if (conservationVariables)
+    {
+      // then steadyBF will have no rho terms wherever velocity is zero
+      // unclear what the right thing to do is; for now we just add something in
+      steadyBF = Teuchos::rcp( new BF(*steadyBF) ); // default copy constructor
+      steadyBF->addTerm(form->rho(),form->vc());
+    }
     cout << "steadyBF: " << steadyBF->displayString() << endl;
     bf->setBFForOptimalTestSolve(steadyBF);
     cout << "Using steady graph norm:\n";
@@ -767,7 +775,10 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     printConservationReport();
     
     if (rank == 0) std::cout << "========== t = " << t << ", time step number " << timeStepNumber+1 << " ==========\n";
-    form->solutionPreviousTimeStep()->setSolution(form->solution());
+    if (timeStepNumber != numTimeSteps - 1)
+    {
+      form->solutionPreviousTimeStep()->setSolution(form->solution());
+    }
   }
   
   // now that we're at final time, let's output pressure, velocity, density in a format suitable for plotting
@@ -801,7 +812,6 @@ int main(int argc, char *argv[])
   
   bool useConservationFormulation = true;
   bool useEuler = false;
-  bool useExperimentalConservationNorm = false;
   bool runWriteFunctionTest = false; // option for debugging some output code...
   bool enforceConservationUsingLagrangeMultipliers = false;
   
@@ -882,9 +892,19 @@ int main(int argc, char *argv[])
   }
   else
   {
-    auto form = CompressibleNavierStokesFormulationRefactor::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
-                                                                                     meshTopo, polyOrder, delta_k);
-    return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                     nonlinearTolerance, continuationSteps, continuationTolerance, normChoice, enforceConservationUsingLagrangeMultipliers);
+    if (useEuler)
+    {
+      auto form = CompressibleNavierStokesFormulationRefactor::timeSteppingEulerFormulation(spaceDim, useConformingTraces,
+                                                                                            meshTopo, polyOrder, delta_k);
+      return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
+                       nonlinearTolerance, continuationSteps, continuationTolerance, normChoice, enforceConservationUsingLagrangeMultipliers);
+    }
+    else
+    {
+      auto form = CompressibleNavierStokesFormulationRefactor::timeSteppingFormulation(spaceDim, Re, useConformingTraces,
+                                                                                       meshTopo, polyOrder, delta_k);
+      return runSolver(form, useConservationFormulation, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
+                       nonlinearTolerance, continuationSteps, continuationTolerance, normChoice, enforceConservationUsingLagrangeMultipliers);
+    }
   }
 }
