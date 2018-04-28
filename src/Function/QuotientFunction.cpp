@@ -44,11 +44,11 @@ string QuotientFunction<Scalar>::displayString()
 }
 
 template <typename Scalar>
-void QuotientFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::evaluateAt(SolutionPtr soln)
 {
-  this->CHECK_VALUES_RANK(values);
-  _f->values(values,basisCache);
-  _scalarDivisor->scalarDivideFunctionValues(values, basisCache);
+  auto f1 = Function::evaluateAt(_f, soln);
+  auto f2 = Function::evaluateAt(_scalarDivisor, soln);
+  return f1 / f2;
 }
 
 template <typename Scalar>
@@ -96,9 +96,27 @@ TFunctionPtr<Scalar> QuotientFunction<Scalar>::dt()
 }
 
 template <typename Scalar>
+TLinearTermPtr<Scalar> QuotientFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+{
+  auto f1 = Function::evaluateAt(_f, soln);
+  auto f2 = Function::evaluateAt(_scalarDivisor, soln);
+  auto df1 = _f->jacobian(soln);
+  auto df2 = _scalarDivisor->jacobian(soln);
+  return (1.0 / f2) * df1 - (1.0 / ( f2 * f2 )) * df2;
+}
+
+template <typename Scalar>
 std::vector<TFunctionPtr<Scalar>> QuotientFunction<Scalar>::memberFunctions()
 {
   return {{_f, _scalarDivisor}};
+}
+
+template <typename Scalar>
+void QuotientFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
+{
+  this->CHECK_VALUES_RANK(values);
+  _f->values(values,basisCache);
+  _scalarDivisor->scalarDivideFunctionValues(values, basisCache);
 }
 
 namespace Camellia

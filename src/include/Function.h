@@ -83,7 +83,12 @@ public:
   virtual TFunctionPtr<Scalar> div();
   virtual TFunctionPtr<Scalar> curl();
   virtual TFunctionPtr<Scalar> grad(int numComponents=-1);
-  virtual TFunctionPtr<Scalar> hessian(int spaceDim);
+  virtual TFunctionPtr<Scalar> hessian(int spaceDim); // grad grad (increases rank by 2)
+  
+  // ! For Functions that include VarFunctions among their members, takes Jacobian relative to corresponding variables,
+  // ! using the solution provided to determine where the Jacobian is evaluated.
+  // ! (For Functions that do not include VarFunctions among their members, returns zero.)
+  virtual TLinearTermPtr<Scalar> jacobian(TSolutionPtr<Scalar> soln);
 
   virtual void importCellData(std::vector<GlobalIndexType> cellIDs) {}
 
@@ -150,6 +155,16 @@ public:
   void writeBoundaryValuesToMATLABFile(Teuchos::RCP<Mesh> mesh, const string &filePath);
   void writeValuesToMATLABFile(Teuchos::RCP<Mesh> mesh, const string &filePath);
 
+  // ! returns true if this Function involves Vars.
+  virtual bool isAbstract();
+  
+  // ! For abstract function provided, returns the concrete function by evaluating Vars using Solution provided
+  // ! If the function provided is not abstract, just returns the function.
+  static TFunctionPtr<Scalar> evaluateAt(TFunctionPtr<Scalar> abstractFunction, SolutionPtr soln);
+  
+  // ! the static evaluateAt is generally preferred, as it can avoid copying the Function when it is not abstract...
+  virtual TFunctionPtr<Scalar> evaluateAt(SolutionPtr soln);
+  
   // Note that in general, repeated calls to Function::evaluate() would be significantly more expensive than a call with many points to Function::values().
   // Also, evaluate() may fail for certain Function subclasses, including any that depend on the Mesh.
   virtual Scalar evaluate(double x);

@@ -526,6 +526,34 @@ Scalar TFunction<Scalar>::evaluate(TFunctionPtr<Scalar> f, double x, double y, d
   return f->evaluate(x,y,z);
 }
 
+  template <typename Scalar>
+  TFunctionPtr<Scalar> TFunction<Scalar>::evaluateAt(SolutionPtr soln)
+  {
+    // this implementation should never be called, but if it is, there are two distinct errors that might have been made.
+    if (this->isAbstract())
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Abstract Function subclasses must implement evaluateAt()!");
+    }
+    else
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "evaluateAt() member function should not be called on non-abstract functions.  Use the static evaluateAt(f,soln) version instead!");
+    }
+  }
+  
+  template <typename Scalar>
+  TFunctionPtr<Scalar> TFunction<Scalar>::evaluateAt(TFunctionPtr<Scalar> f, SolutionPtr soln)
+  {
+    // this implementation should never be called, but if it is, there are two distinct errors that might have been made.
+    if (f->isAbstract())
+    {
+      return f->evaluateAt(soln);
+    }
+    else
+    {
+      return f;
+    }
+  }
+  
 template <typename Scalar>
 size_t TFunction<Scalar>::getCellDataSize(GlobalIndexType cellID)
 {
@@ -803,6 +831,31 @@ TFunctionPtr<double> TFunction<Scalar>::heavisideY(double yShift)
   TFunctionPtr<Scalar> TFunction<Scalar>::hessian(int numComponents)
   {
     return this->grad(numComponents)->grad(numComponents);
+  }
+
+  template <typename Scalar>
+  TLinearTermPtr<Scalar> TFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+  {
+    if (this->isAbstract())
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Abstract functions must implement Jacobian");
+    }
+    return Teuchos::rcp( new TLinearTerm<Scalar> );
+  }
+
+  template <typename Scalar>
+  bool TFunction<Scalar>::isAbstract()
+  {
+    // this is abstract if any of its members is abstract; otherwise, concrete
+    auto members = this->memberFunctions();
+    for (auto member : members)
+    {
+      if (member->isAbstract())
+      {
+        return true;
+      }
+    }
+    return false;
   }
   
 template <typename Scalar>
@@ -2630,6 +2683,23 @@ public:
     }
     // chain rule:
     return _arg_g->dz() * TFunction<double>::composedFunction(_f->dz(),_arg_g);
+  }
+  
+  TFunctionPtr<double> evaluateAt(SolutionPtr soln)
+  {
+    auto f = TFunction<double>::evaluateAt(_f, soln);
+    auto g = TFunction<double>::evaluateAt(_arg_g, soln);
+    return TFunction<double>::composedFunction(f,g);
+  }
+  
+  TLinearTermPtr<double> jacobian(TSolutionPtr<double> soln)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true,std::invalid_argument,"Jacobian evaluation is not yet supported for composed functions");
+  }
+  
+  std::vector<TFunctionPtr<double>> memberFunctions()
+  {
+    return {_f, _arg_g};
   }
 };
 

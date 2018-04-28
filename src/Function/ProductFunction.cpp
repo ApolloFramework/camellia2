@@ -75,6 +75,13 @@ TFunctionPtr<Scalar> ProductFunction<Scalar>::dt()
 }
 
 template <typename Scalar>
+TFunctionPtr<Scalar> ProductFunction<Scalar>::evaluateAt(SolutionPtr soln)
+{
+  auto f1 = Function::evaluateAt(_f1, soln);
+  auto f2 = Function::evaluateAt(_f2, soln);
+  return f1 * f2;
+}
+template <typename Scalar>
 bool ProductFunction<Scalar>::isZero(BasisCachePtr basisCache)
 {
   return _f1->isZero(basisCache) || _f2->isZero(basisCache);
@@ -90,6 +97,16 @@ template <typename Scalar>
 TFunctionPtr<Scalar> ProductFunction<Scalar>::f2()
 {
   return _f2;
+}
+
+template <typename Scalar>
+TLinearTermPtr<Scalar> ProductFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+{
+  auto f1 = Function::evaluateAt(_f1, soln);
+  auto f2 = Function::evaluateAt(_f2, soln);
+  auto df1 = _f1->jacobian(soln);
+  auto df2 = _f2->jacobian(soln);
+  return f1 * df2 + df1 * f2;
 }
 
 template <typename Scalar>
