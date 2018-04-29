@@ -19,13 +19,43 @@ namespace Camellia
     {
       return f1 * f2;
     }
+    TFunctionPtr<Scalar> sum;
     // f1 and f2 have the same rank >= 1, so we can recursively contract in each component
-    TFunctionPtr<Scalar> sum = TFunction<Scalar>::zero();
+    sum = TFunction<Scalar>::zero();
     for (int d=1; d<=spaceDim; d++)
     {
       sum = sum + contraction(spaceDim, f1->spatialComponent(d), f2->spatialComponent(d));
     }
     return sum;
+  }
+  
+  template<typename Scalar>
+  TFunctionPtr<Scalar> dot(int spaceDim, TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2)
+  {
+    bool bothRank1      = (f1->rank() == 1) && (f2->rank() == 1);
+    bool f1Rank1f2Rank2 = (f1->rank() == 1) && (f2->rank() == 2);
+    bool f1Rank2f2Rank1 = (f1->rank() == 2) && (f2->rank() == 1);
+    bool valid = bothRank1 || f1Rank1f2Rank2 || f1Rank2f2Rank1;
+    TEUCHOS_TEST_FOR_EXCEPTION(!valid, std::invalid_argument, "dot requires either that f1 and f2 both have rank 1, or one of them be rank 1 and the other rank 2");
+    int rank = bothRank1 ? 0 : 1;
+    auto sum = TFunction<Scalar>::zero(rank);
+    for (int d=1; d<=spaceDim; d++)
+    {
+      sum = sum + f1->spatialComponent(d) * f2->spatialComponent(d);
+    }
+    return sum;
+  }
+  
+  template<typename Scalar>
+  TFunctionPtr<Scalar> matvec(int spaceDim, TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION((f1->rank() == 2) && (f2->rank() == 1), std::invalid_argument, "matvec requires f2 be rank 2, f1 be rank 1");
+    std::vector<TFunctionPtr<Scalar>> components;
+    for (int d=1; d<=spaceDim; d++)
+    {
+      components.push_back(dot(spaceDim, f1->spatialComponent(d), f2));
+    }
+    return TFunction<Scalar>::vectorize(components);
   }
   
   template<typename Scalar>
@@ -48,5 +78,7 @@ namespace Camellia
 // ETIs below
 namespace Camellia {
   template TFunctionPtr<double> contraction<double> (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
+  template TFunctionPtr<double> dot<double>         (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
+  template TFunctionPtr<double> matvec<double>      (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
   template TFunctionPtr<double> outerProduct<double>(int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
 }
