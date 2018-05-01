@@ -543,7 +543,6 @@ Scalar TFunction<Scalar>::evaluate(TFunctionPtr<Scalar> f, double x, double y, d
   template <typename Scalar>
   TFunctionPtr<Scalar> TFunction<Scalar>::evaluateAt(TFunctionPtr<Scalar> f, SolutionPtr soln)
   {
-    // this implementation should never be called, but if it is, there are two distinct errors that might have been made.
     if (f->isAbstract())
     {
       return f->evaluateAt(soln);
@@ -2712,6 +2711,14 @@ TFunctionPtr<double> TFunction<Scalar>::composedFunction( TFunctionPtr<double> f
 template <typename Scalar>
 TFunctionPtr<Scalar> operator*(TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2)
 {
+  if (f1 == Teuchos::null)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "f1 is null!");
+  }
+  else if (f2 == Teuchos::null)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "f2 is null!");
+  }
   if (f1->isZero() || f2->isZero())
   {
     if ( f1->rank() == f2->rank() )

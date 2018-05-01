@@ -21,7 +21,10 @@ SimpleSolutionFunction<Scalar>::SimpleSolutionFunction(VarPtr var, TSolutionPtr<
   _soln = soln;
   _weightFluxesBySideParity = weightFluxesBySideParity;
   _solutionOrdinal = solutionOrdinal;
-  _solutionIdentifierExponent = solutionIdentifierExponent;
+  if (solutionIdentifierExponent != "")
+    _solutionIdentifierExponent = solutionIdentifierExponent;
+  else
+    _solutionIdentifierExponent = soln->getIdentifier();
 }
 
 template <typename Scalar>

@@ -12,6 +12,19 @@
 namespace Camellia
 {
   template<typename Scalar>
+  TFunctionPtr<Scalar> column(int spaceDim, TFunctionPtr<Scalar> f,  int colNumber)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(f->rank() < 2, std::invalid_argument, "f must rank >= 2");
+    vector<TFunctionPtr<Scalar>> components;
+    for (int d=1; d<=spaceDim; d++)
+    {
+      auto row = f->spatialComponent(d);
+      components.push_back(row->spatialComponent(colNumber));
+    }
+    return TFunction<Scalar>::vectorize(components);
+  }
+  
+  template<typename Scalar>
   TFunctionPtr<Scalar> contraction(int spaceDim, TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2)
   {
     TEUCHOS_TEST_FOR_EXCEPTION(f1->rank() != f2->rank(), std::invalid_argument, "f1 and f2 must have like rank");
@@ -46,6 +59,25 @@ namespace Camellia
     return sum;
   }
   
+  // ! returns the identity matrix in the provided number of spatial dimensions (a rank-2 function)
+  template<typename Scalar>
+  TFunctionPtr<Scalar> identityMatrix(int spaceDim)
+  {
+    vector<TFunctionPtr<Scalar>> rows;
+    for (int d1=1; d1<=spaceDim; d1++)
+    {
+      vector<TFunctionPtr<Scalar>> rowEntries;
+      for (int d2=1; d2<=spaceDim; d2++)
+      {
+        auto entry = (d1 == d2) ? TFunction<Scalar>::constant(1.0) : TFunction<Scalar>::zero();
+        rowEntries.push_back(entry);
+      }
+      auto row = TFunction<Scalar>::vectorize(rowEntries);
+      rows.push_back(row);
+    }
+    return TFunction<Scalar>::vectorize(rows);
+  }
+  
   template<typename Scalar>
   TFunctionPtr<Scalar> matvec(int spaceDim, TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2)
   {
@@ -77,8 +109,10 @@ namespace Camellia
 
 // ETIs below
 namespace Camellia {
-  template TFunctionPtr<double> contraction<double> (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
-  template TFunctionPtr<double> dot<double>         (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
-  template TFunctionPtr<double> matvec<double>      (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
-  template TFunctionPtr<double> outerProduct<double>(int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
+  template TFunctionPtr<double> column<double>         (int spaceDim, TFunctionPtr<double> f,  int colNumber);
+  template TFunctionPtr<double> contraction<double>    (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
+  template TFunctionPtr<double> dot<double>            (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
+  template TFunctionPtr<double> identityMatrix<double> (int spaceDim);
+  template TFunctionPtr<double> matvec<double>         (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
+  template TFunctionPtr<double> outerProduct<double>   (int spaceDim, TFunctionPtr<double> f1, TFunctionPtr<double> f2);
 }

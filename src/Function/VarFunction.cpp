@@ -5,6 +5,7 @@
 #include "VarFunction.h"
 
 #include "BasisCache.h"
+#include "LinearTerm.h"
 #include "Solution.h"
 
 using namespace Camellia;
@@ -15,6 +16,28 @@ template <typename Scalar>
 VarFunction<Scalar>::VarFunction(VarPtr var) : TFunction<Scalar>(var->rank())
 {
   _var = var;
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> VarFunction<Scalar>::abstractFunction(TLinearTermPtr<Scalar> lt)
+{
+  auto rank = lt->rank();
+  auto sum = TFunction<Scalar>::zero(rank);
+  const std::vector< TLinearSummand<Scalar> >& summands = lt->summands();
+  for (auto & summand : summands)
+  {
+    auto weight = summand.first;
+    auto var = summand.second;
+    auto varFunction = VarFunction<Scalar>::abstractFunction(var);
+    sum = sum + weight * varFunction;
+  }
+  return sum;
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> VarFunction<Scalar>::abstractFunction(VarPtr var)
+{
+  return Teuchos::rcp(new VarFunction(var));
 }
 
 template <typename Scalar>

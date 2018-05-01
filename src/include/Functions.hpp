@@ -21,11 +21,19 @@ namespace Camellia
   template<typename Scalar>
   TFunctionPtr<Scalar> dot(int spaceDim, TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2);
   
+  // ! returns the identity matrix in the provided number of spatial dimensions (a rank-2 function)
+  template<typename Scalar>
+  TFunctionPtr<Scalar> identityMatrix(int spaceDim);
+  
   // ! f1 a rank-2 Function (a matrix, with x(), y(), z() as rows if spaceDim == 3)
   // ! f2 a rank-1 Function (a vector)
   // ! return the usual matrix-vector product (a vector)
   template<typename Scalar>
   TFunctionPtr<Scalar> matvec(int spaceDim, TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2);
+  
+  // ! requires that f be rank >= 2.  colNumber is 1-based, and must be <= spaceDim.
+  template<typename Scalar>
+  TFunctionPtr<Scalar> column(int spaceDim, TFunctionPtr<Scalar> f, int colNumber);
   
   // ! requires that f1 and f2 be rank 1; returns their rank 2 outer product
   template<typename Scalar>

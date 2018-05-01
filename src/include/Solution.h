@@ -104,6 +104,8 @@ private:
 
   std::string _matrixFilePath;
   std::string _rhsFilePath;
+  
+  std::string _solutionIdentifier = ""; // used to allow Solutions to be presented distinctly to the user (e.g., current and previous time step)
 
   double _globalSystemConditionEstimate;
 
@@ -189,6 +191,9 @@ public:
   
   int cubatureEnrichmentDegree() const;
   void setCubatureEnrichmentDegree(int value);
+  
+  const std::string & getIdentifier() const;
+  void setIdentifier(const std::string &solutionIdentifier);
 
   void setSolution(TSolutionPtr<Scalar> soln); // thisSoln = soln
 

@@ -953,6 +953,12 @@ GlobalIndexType TSolution<Scalar>::elementLagrangeIndex(GlobalIndexType cellID, 
 //}
 
 template <typename Scalar>
+const std::string & TSolution<Scalar>::getIdentifier() const
+{
+  return _solutionIdentifier;
+}
+
+template <typename Scalar>
 int TSolution<Scalar>::solve()
 {
   return solve(TSolver<Scalar>::getDirectSolver());
@@ -2753,6 +2759,12 @@ template <typename Scalar>
 TMatrixPtr<Scalar> TSolution<Scalar>::getStiffnessMatrix2()
 {
   return _globalStiffMatrix2;
+}
+
+template <typename Scalar>
+void TSolution<Scalar>::setIdentifier(const std::string &solutionIdentifier)
+{
+  _solutionIdentifier = solutionIdentifier;
 }
 
 template <typename Scalar>

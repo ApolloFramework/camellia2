@@ -23,7 +23,6 @@ template <typename Scalar>
 class VarFunction : public TFunction<Scalar>
 {
   VarPtr _var;
-  bool _weightFluxesBySideParity;
 public:
   VarFunction(VarPtr var);
   
@@ -48,6 +47,12 @@ public:
 
   //! returns true
   bool isAbstract();
+  
+  // ! returns an abstract function that corresponds to the specified linear term
+  static TFunctionPtr<Scalar> abstractFunction(TLinearTermPtr<Scalar> lt);
+  
+  // ! returns an abstract function that corresponds to the specified Var
+  static TFunctionPtr<Scalar> abstractFunction(VarPtr var);
 };
 }
 

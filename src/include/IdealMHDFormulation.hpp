@@ -1,18 +1,18 @@
 //
-//  CompressibleNavierStokesConservationForm.hpp
+//  IdealMHDFormulation.hpp
 //  Camellia
 //
-//  Created by Roberts, Nathan V on 3/15/18.
+//  Created by Roberts, Nathan V on 5/1/18.
 //
 
-#ifndef CompressibleNavierStokesConservationForm_hpp
-#define CompressibleNavierStokesConservationForm_hpp
+#ifndef IdealMHDFormulation_hpp
+#define IdealMHDFormulation_hpp
 
 #include "TypeDefs.h"
 
 namespace Camellia
 {
-  class CompressibleNavierStokesConservationForm
+  class IdealMHDFormulation
   {
     BFPtr _steadyBF; // _bf with the time terms dropped, essentially
     BFPtr _bf;
@@ -20,15 +20,10 @@ namespace Camellia
     
     int _spaceDim;
     bool _useConformingTraces;
-    bool _pureEulerMode; // turns off viscous terms, including tau and S equations (heat flux, velocity gradients)
     
     Teuchos::RCP<ParameterFunction> _fc, _fe; // forcing functions for continuity, energy equations
     std::vector<Teuchos::RCP<ParameterFunction> > _fm; // forcing for momentum equation(s)
-    double _mu;
-    FunctionPtr _muFunc;
-    FunctionPtr _muSqrtFunc;
-    Teuchos::RCP<ParameterFunction> _muParamFunc;
-    Teuchos::RCP<ParameterFunction> _muSqrtParamFunc;
+    std::vector<Teuchos::RCP<ParameterFunction> > _fB; // forcing for magnetism equation(s)
     double _gamma;
     double _Pr;
     double _Cv;
@@ -48,8 +43,6 @@ namespace Camellia
     Teuchos::RCP<ParameterFunction> _dt;
     Teuchos::RCP<ParameterFunction> _t;  // use a ParameterFunction so that user can easily "ramp up" BCs in time...
     
-    Teuchos::RCP<ParameterFunction> _theta; // selector for time step method; 0.5 is Crank-Nicolson
-    
     SolverPtr _solver;
     
     int _solveCode;
@@ -59,8 +52,6 @@ namespace Camellia
     FunctionPtr _L2IncrementFunction, _L2SolutionFunction;
     
     SolutionPtr _backgroundFlow, _solnIncrement, _solnPrevTime;
-    
-    // SolutionPtr _solution, _previousSolution; // solution at current and previous time steps
     
     RefinementStrategyPtr _refinementStrategy, _hRefinementStrategy, _pRefinementStrategy;
     
@@ -73,58 +64,52 @@ namespace Camellia
     static const std::string S_rho;
     static const std::string S_m1, S_m2, S_m3;
     static const std::string S_E;
-    static const std::string S_D11, S_D12, S_D13, S_D21, S_D22, S_D23, S_D31, S_D32, S_D33;
-    static const std::string S_q1, S_q2, S_q3;
+    static const std::string S_B1, S_B2, S_B3;
     
     static const std::string S_tc;
     static const std::string S_tm1, S_tm2, S_tm3;
     static const std::string S_te;
-    static const std::string S_u1_hat, S_u2_hat, S_u3_hat;
-    static const std::string S_T_hat;
+    static const std::string S_tB1, S_tB2, S_tB3;
     
     static const std::string S_vc;
     static const std::string S_vm1, S_vm2, S_vm3;
     static const std::string S_ve;
-    static const std::string S_S1, S_S2, S_S3;
-    static const std::string S_tau;
+    static const std::string S_vB1, S_vB2, S_vB3;
     
     static const std::string S_m[3];
-    static const std::string S_q[3];
-    static const std::string S_D[3][3];
+    static const std::string S_B[3];
     
     static const std::string S_tm[3];
-    static const std::string S_u_hat[3];
+    static const std::string S_tB[3];
     
     static const std::string S_vm[3];
-    static const std::string S_S[3];
+    static const std::string S_vB[3];
     
     void CHECK_VALID_COMPONENT(int i); // throws exception on bad component value (should be between 1 and _spaceDim, inclusive)
   public:
-    CompressibleNavierStokesConservationForm(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters);
+    IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters);
     
-    // ! the compressible Navier-Stokes formulation bilinear form
+    // ! the Ideal MHD formulation bilinear form
     BFPtr bf();
     
-    // ! the compressible Navier-Stokes formulation rhs
+    // ! the Ideal MHD formulation rhs
     RHSPtr rhs();
     
-    // ! the compressible Navier-Stokes formulation bilinear form, with any time terms dropped
+    // ! the Ideal MHD formulation bilinear form, with any time terms dropped
     BFPtr steadyBF();
     
-    void addVelocityTraceComponentCondition(SpatialFilterPtr region, FunctionPtr ui_exact, int i); // i is 1-based (1,2, or 3)
-    void addVelocityTraceCondition(SpatialFilterPtr region, FunctionPtr u_exact); // vector u_exact
-    
-    void addTemperatureTraceCondition(SpatialFilterPtr region, FunctionPtr T_exact);
-    
-    void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact); // vector u_exact
+    void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B); // vector u, B
     void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr value);
     
-    void addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr tm_i_exact, int i);
-    void addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact, int i);
-    void addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact);
+//    void addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr tm_i_exact, int i);
+//    void addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact, int i);
+    void addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
     
     void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr value);
-    void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact);
+    void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+  
+    void addMagneticFluxCondition(SpatialFilterPtr region, FunctionPtr value);
+    void addMagneticFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
     
     // ! returns true if this is a space-time formulation; false otherwise.
     bool isSpaceTime() const;
@@ -140,9 +125,6 @@ namespace Camellia
     
     void setIP( std::string normName );
     
-    // ! L^2 norm of the difference in u1, u2, and p from previous time step, normalized
-    // double relativeL2NormOfTimeStep();
-    
     // ! returns the L^2 norm of the incremental solution
     double L2NormSolutionIncrement();
     
@@ -156,13 +138,7 @@ namespace Camellia
     // ! implementation, assumes that the constructor arguments provided to CompressibleNavierStokesFormulation were the same
     // ! on the CompressibleNavierStokesFormulation on which save() was invoked as they were for this CompressibleNavierStokesFormulation.
     void load(std::string prefixString);
-    
-    // ! Returns viscosity mu.
-    double mu();
-    
-    // ! Set viscosity
-    void setMu(double value);
-    
+  
     // ! Returns gamma
     double gamma();
     
@@ -190,10 +166,6 @@ namespace Camellia
     // ! returns the RefinementStrategy object being used to drive refinements
     RefinementStrategyPtr getRefinementStrategy();
     
-    // ! Returns an RHSPtr corresponding to the vector forcing function f and the formulation.
-    // RHSPtr rhs(FunctionPtr f, bool excludeFluxesAndTraces);
-    // RHSPtr rhs(bool excludeFluxesAndTraces);
-    
     // ! Saves the solution(s) and mesh to an HDF5 format.
     void save(std::string prefixString);
     
@@ -214,10 +186,7 @@ namespace Camellia
     
     // ! set current time step used for transient solve
     void setTimeStep(double dt);
-    
-    // ! Returns the specified component of the traction, expressed as a LinearTerm involving field variables.
-    // LinearTermPtr getTraction(int i);
-    
+  
     // ! Returns the solution (at current time)
     SolutionPtr solution();
     
@@ -242,64 +211,60 @@ namespace Camellia
     // ! Returns the spatial dimension.
     int spaceDim();
     
-    // ! Takes a time step
-    // void takeTimeStep();
-    
-    // ! Returns the sum of the time steps taken thus far.
-    // double getTime();
-    
-    // ! Returns a FunctionPtr which gets updated with the current time.  Useful for setting BCs that vary in time.
-    // FunctionPtr getTimeFunction();
-    
     // field variables:
     VarPtr rho();           // density
     VarPtr m(int i);        // momentum
     VarPtr E();             // total energy
-    VarPtr D(int i, int j); // Reynolds-weighted gradient of velocity
-    VarPtr q(int i);        // heat flux
+    VarPtr B(int i);        // magnetic field
     
     // traces:
     VarPtr tc();
     VarPtr tm(int i);
     VarPtr te();
-    VarPtr u_hat(int i);
-    VarPtr T_hat();
+    VarPtr tB();
     
     // test variables:
     VarPtr vc();
     VarPtr vm(int i);
     VarPtr ve();
-    VarPtr S(int i);
-    VarPtr tau();
+    VarPtr vB(int i);
     
-    // ! For an exact solution (u, rho, T), produces a map that includes these as well as solution variables that depend on them (fields, traces, fluxes).
+    // ! For an exact solution (u, rho, E, B), produces a map that includes these as well as solution variables that depend on them (fields, traces, fluxes).
     // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeFluxParity is false, fluxes do not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    std::map<int, FunctionPtr> exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr T, bool includeFluxParity);
+    std::map<int, FunctionPtr> exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeFluxParity);
     
-    // ! For an exact solution (u, rho, T), returns the corresponding tc flux
+    // ! For an exact solution (u, rho, E, B), returns the corresponding tc flux
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    FunctionPtr exactSolution_tc(FunctionPtr u, FunctionPtr rho, FunctionPtr T, bool includeParity);
+    FunctionPtr exactSolution_tc(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
     
-    // ! For an exact solution (u, rho, T), returns the corresponding tm flux.  (Since this is in general vector-valued, returns components in a std::vector.)
+    // ! For an exact solution (u, rho, E, B), returns the corresponding tm flux.  (Since this is in general vector-valued, returns components in a std::vector.)
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    std::vector<FunctionPtr> exactSolution_tm(FunctionPtr u, FunctionPtr rho, FunctionPtr T, bool includeParity);
+    std::vector<FunctionPtr> exactSolution_tm(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
     
-    // ! For an exact solution (u, rho, T), returns the corresponding te flux
+    // ! For an exact solution (u, rho, E, B), returns the corresponding te flux
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    FunctionPtr exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr T, bool includeParity);
+    FunctionPtr exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
+  
+    // ! For an exact solution (u, rho, E, B), returns the corresponding tB flux
+    // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
+    // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
+    FunctionPtr exactSolution_tB(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
     
-    // ! For an exact solution (u, rho, T), returns the corresponding forcing in the continuity equation
-    FunctionPtr exactSolution_fc(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    // ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the continuity equation
+    FunctionPtr exactSolution_fc(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
     
-    // ! For an exact solution (u, rho, T), returns the corresponding forcing in the momentum equation
-    std::vector<FunctionPtr> exactSolution_fm(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    // ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the momentum equation
+    std::vector<FunctionPtr> exactSolution_fm(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
     
-    // ! For an exact solution (u, rho, T), returns the corresponding forcing in the energy equation
-    FunctionPtr exactSolution_fe(FunctionPtr u, FunctionPtr rho, FunctionPtr T);
+    // ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the energy equation
+    FunctionPtr exactSolution_fe(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+  
+    // ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the magnetism equation
+    std::vector<FunctionPtr> exactSolution_fB(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
     
     // ! returns a std::map indicating any trial variables that have adjusted polynomial orders relative to the standard poly order for the element.  Keys are variable IDs, values the difference between the indicated variable and the standard polynomial order.
     const std::map<int,int> &getTrialVariablePolyOrderAdjustments();
@@ -309,25 +274,18 @@ namespace Camellia
     
     Teuchos::ParameterList getConstructorParameters() const;
     
-    // ! Set the forcing functions for problem.  f_momentum should have components equal to the number of spatial dimensions
-    void setForcing(FunctionPtr f_continuity, std::vector<FunctionPtr> f_momentum, FunctionPtr f_energy);
+    // ! Set the forcing functions for problem.  f_momentum and f_magnetic should have components equal to the number of spatial dimensions
+    void setForcing(FunctionPtr f_continuity, std::vector<FunctionPtr> f_momentum, FunctionPtr f_energy, std::vector<FunctionPtr> f_magnetic);
     
     // static utility functions:
-    static Teuchos::RCP<CompressibleNavierStokesConservationForm> steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                                                    MeshTopologyPtr meshTopo, int polyOrder, int delta_k);
+    static Teuchos::RCP<IdealMHDFormulation> steadyFormulation(int spaceDim, MeshTopologyPtr meshTopo, int polyOrder, int delta_k);
     
-    static Teuchos::RCP<CompressibleNavierStokesConservationForm> timeSteppingFormulation(int spaceDim, double Re,
-                                                                                          bool useConformingTraces,
-                                                                                          MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
+    static Teuchos::RCP<IdealMHDFormulation> timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
     
-    static Teuchos::RCP<CompressibleNavierStokesConservationForm> steadyEulerFormulation(int spaceDim, bool useConformingTraces, MeshTopologyPtr meshTopo,
-                                                                                         int spatialPolyOrder, int delta_k);
+    static Teuchos::RCP<IdealMHDFormulation> steadyEulerFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
     
-    static Teuchos::RCP<CompressibleNavierStokesConservationForm> timeSteppingEulerFormulation(int spaceDim, bool useConformingTraces,
-                                                                                               MeshTopologyPtr meshTopo,
-                                                                                               int spatialPolyOrder, int delta_k);
-  };
-}
+    static Teuchos::RCP<IdealMHDFormulation> timeSteppingEulerFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
+  }; // class IdealMHDFormulation
+} // namespace Camellia
 
-
-#endif /* CompressibleNavierStokesConservationForm_hpp */
+#endif /* IdealMHDFormulation_hpp */

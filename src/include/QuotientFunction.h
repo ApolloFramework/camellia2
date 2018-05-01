@@ -26,6 +26,11 @@ class QuotientFunction : public TFunction<Scalar>
 public:
   QuotientFunction(TFunctionPtr<Scalar> f, TFunctionPtr<Scalar> scalarDivisor);
   void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
+  TFunctionPtr<Scalar> x();
+  TFunctionPtr<Scalar> y();
+  TFunctionPtr<Scalar> z();
+  TFunctionPtr<Scalar> t();
+  
   virtual bool boundaryValueOnly();
   TFunctionPtr<Scalar> dx();
   TFunctionPtr<Scalar> dy();

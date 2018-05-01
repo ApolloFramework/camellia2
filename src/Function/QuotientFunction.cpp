@@ -119,6 +119,30 @@ void QuotientFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, 
   _scalarDivisor->scalarDivideFunctionValues(values, basisCache);
 }
 
+template <typename Scalar>
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::t()
+{
+  return _f->t() / _scalarDivisor;
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::x()
+{
+  return _f->x() / _scalarDivisor;
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::y()
+{
+  return _f->y() / _scalarDivisor;
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::z()
+{
+  return _f->z() / _scalarDivisor;
+}
+
 namespace Camellia
 {
 template class QuotientFunction<double>;
