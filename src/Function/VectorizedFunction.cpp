@@ -15,6 +15,7 @@ VectorizedFunction<Scalar>::VectorizedFunction(const vector< TFunctionPtr<Scalar
 {
   _fxns = fxns;
 }
+
 template <typename Scalar>
 VectorizedFunction<Scalar>::VectorizedFunction(TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2) : TFunction<Scalar>(f1->rank() + 1)
 {
@@ -22,6 +23,7 @@ VectorizedFunction<Scalar>::VectorizedFunction(TFunctionPtr<Scalar> f1, TFunctio
   _fxns.push_back(f1);
   _fxns.push_back(f2);
 }
+
 template <typename Scalar>
 VectorizedFunction<Scalar>::VectorizedFunction(TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2, TFunctionPtr<Scalar> f3) : TFunction<Scalar>(f1->rank() + 1)
 {
@@ -31,6 +33,7 @@ VectorizedFunction<Scalar>::VectorizedFunction(TFunctionPtr<Scalar> f1, TFunctio
   _fxns.push_back(f2);
   _fxns.push_back(f3);
 }
+
 template <typename Scalar>
 VectorizedFunction<Scalar>::VectorizedFunction(TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2, TFunctionPtr<Scalar> f3, TFunctionPtr<Scalar> f4) : TFunction<Scalar>(f1->rank() + 1)
 {
@@ -42,6 +45,7 @@ VectorizedFunction<Scalar>::VectorizedFunction(TFunctionPtr<Scalar> f1, TFunctio
   _fxns.push_back(f3);
   _fxns.push_back(f4);
 }
+
 template <typename Scalar>
 string VectorizedFunction<Scalar>::displayString()
 {
@@ -55,10 +59,39 @@ string VectorizedFunction<Scalar>::displayString()
   str << ")";
   return str.str();
 }
+
 template <typename Scalar>
 int VectorizedFunction<Scalar>::dim()
 {
   return _fxns.size();
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> VectorizedFunction<Scalar>::evaluateAt(SolutionPtr soln)
+{
+  vector<TFunctionPtr<Scalar>> evaluatedFxns;
+  for (auto fxn : _fxns)
+  {
+    evaluatedFxns.push_back(Function::evaluateAt(fxn, soln));
+  }
+  return Function::vectorize(evaluatedFxns);
+}
+
+template <typename Scalar>
+TLinearTermPtr<Scalar> VectorizedFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+{
+  int numComponents = _fxns.size();
+  TLinearTermPtr<Scalar> sum;
+  for (int comp=0; comp<numComponents; comp++)
+  {
+    vector<Scalar> compVector(numComponents,0.0);
+    compVector[comp] = 1.0;
+    auto fxn = _fxns[comp];
+    auto compFxn = TFunction<Scalar>::constant(compVector);
+    
+    sum = sum + compFxn * fxn->jacobian(soln);
+  }
+  return sum;
 }
 
 template <typename Scalar>

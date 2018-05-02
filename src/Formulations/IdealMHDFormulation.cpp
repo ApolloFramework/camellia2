@@ -135,10 +135,12 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   // basic parameters
   int spaceDim = parameters.get<int>("spaceDim");
   _spaceDim = spaceDim;
+  const int trueSpaceDim = 3; // as opposed to _spaceDim, which indicates the number of dimensions that can have non-zero derivatives (also the dimension of the mesh)
+
   _fc = ParameterFunction::parameterFunction(0.0);
   _fe = ParameterFunction::parameterFunction(0.0);
-  _fm = vector<Teuchos::RCP<ParameterFunction> >(_spaceDim, ParameterFunction::parameterFunction(0.0));
-  _fB = vector<Teuchos::RCP<ParameterFunction> >(_spaceDim, ParameterFunction::parameterFunction(0.0));
+  _fm = vector<Teuchos::RCP<ParameterFunction> >(trueSpaceDim, ParameterFunction::parameterFunction(0.0));
+  _fB = vector<Teuchos::RCP<ParameterFunction> >(trueSpaceDim, ParameterFunction::parameterFunction(0.0));
   _fc->setName("fc");
   _fe->setName("fe");
   for (int d=0; d<spaceDim; d++)
@@ -160,8 +162,6 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   string normName = parameters.get<string>("norm", "Graph");
   
   // nonlinear parameters
-  bool neglectFluxesOnRHS = true; // if ever we want to support a false value here, we will need to add terms corresponding to traces/fluxes to the RHS.
-  
   // time-related parameters:
   bool useTimeStepping = parameters.get<bool>("useTimeStepping",false);
   double initialDt = parameters.get<double>("dt",1.0);
@@ -177,13 +177,11 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   _dt->setName("dt");
   _t = ParameterFunction::parameterFunction(0);
   _t0 = parameters.get<double>("t0",0);
-  _neglectFluxesOnRHS = neglectFluxesOnRHS;
   _delta_k = delta_k;
   
   _timeStepping = useTimeStepping;
   _spaceTime = useSpaceTime;
   
-  const int trueSpaceDim = 3; // as opposed to _spaceDim, which indicates the number of dimensions that can have non-zero derivatives (also the dimension of the mesh)
   
   // TEUCHOS_TEST_FOR_EXCEPTION(_timeStepping, std::invalid_argument, "Time stepping not supported");
   
@@ -302,7 +300,7 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     // (gas) pressure is (gamma - 1) * (E - 0.5 * m * u)
     FunctionPtr p   = (gamma() - 1.0) * (E - 0.5 * dot(trueSpaceDim,m,u));
     // P* is p + 0.5 * (B * B)
-    cout << "B: " << B->displayString() << endl;
+//    cout << "B: " << B->displayString() << endl;
     FunctionPtr p_star = p + 0.5 * dot(trueSpaceDim, B, B);
     FunctionPtr I   = identityMatrix<double>(trueSpaceDim);
     
@@ -330,10 +328,10 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
       magneticFlux = Function::vectorize(magneticFlux->spatialComponent(x_comp),  magneticFlux->spatialComponent(y_comp));
     }
     
-    cout << "massFlux: " << massFlux->displayString() << endl;
-    cout << "energyFlux: " << energyFlux->displayString() << endl;
-    cout << "momentumFlux: " << momentumFlux->displayString() << endl;
-    cout << "magneticFlux: " << magneticFlux->displayString() << endl;
+//    cout << "massFlux: " << massFlux->displayString() << endl;
+//    cout << "energyFlux: " << energyFlux->displayString() << endl;
+//    cout << "momentumFlux: " << momentumFlux->displayString() << endl;
+//    cout << "magneticFlux: " << magneticFlux->displayString() << endl;
   }
   
   _bf = Teuchos::rcp( new BF(_vf) );
@@ -378,22 +376,23 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     FunctionPtr flux;
     VarPtr traceVar;
     VarPtr timeTerm; // term that is differentiated in time
+    FunctionPtr f_rhs;
   };
   
   vector<ScalarEquation> equations;
-  equations.push_back({vc,massFlux,tc,rhoVar});
+  equations.push_back({vc,massFlux,tc,rhoVar,_fc});
   for (int d=0; d<trueSpaceDim; d++)
   {
-    equations.push_back({vm[d],momentumFlux->spatialComponent(d+1),tm[d],mVar[d]});
+    auto momentumColumn = (_spaceDim > 1) ? column(_spaceDim,momentumFlux,d+1) : momentumFlux->spatialComponent(d+1);
+    equations.push_back({vm[d],momentumColumn,tm[d],mVar[d],_fm[d]});
     if ((d > 0) || (_spaceDim != 1))
     {
-      equations.push_back({vB[d],magneticFlux->spatialComponent(d+1),tB[d],BVar[d]});
+      auto magneticColumn = (_spaceDim > 1) ? column(_spaceDim,magneticFlux,d+1) : magneticFlux->spatialComponent(d+1);
+      equations.push_back({vB[d],magneticColumn,tB[d],BVar[d],_fB[d]});
     }
   }
-  equations.push_back({ve,energyFlux,te,EVar});
+  equations.push_back({ve,energyFlux,te,EVar,_fe});
   
-  /*
-  // Previous solution values
   std::string backgroundFlowIdentifierExponent = "";
   std::string previousTimeIdentifierExponent = "";
   if (_timeStepping)
@@ -401,205 +400,69 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     backgroundFlowIdentifierExponent = "k";
     previousTimeIdentifierExponent = "k-1";
   }
-  FunctionPtr rho_prev = Function::solution(rho, _backgroundFlow, backgroundFlowIdentifierExponent);
-  FunctionPtr rho_prev_time = Function::solution(rhoVar, _solnPrevTime, previousTimeIdentifierExponent);
-  FunctionPtr E_prev       = Function::solution(EVar, _backgroundFlow, backgroundFlowIdentifierExponent);
-  FunctionPtr E_prev_time  = Function::solution(EVar, _solnPrevTime, previousTimeIdentifierExponent);
-  
-  FunctionPtr B_prev; // vector-valued (3 components)
-  FunctionPtr B_prev_time; // vector-valued
-  vector<FunctionPtr> m_prev(spaceDim);
-  vector<FunctionPtr> m_prev_time(spaceDim);
-  vector<vector<FunctionPtr>> D_prev(spaceDim,vector<FunctionPtr>(spaceDim));
-  
-  FunctionPtr rho_prev_squared = rho_prev * rho_prev;
-  FunctionPtr m_prev_dot_m_prev = Function::zero();
-  
-  for (int d1=0; d1<spaceDim; d1++)
-  {
-    m_prev[d1]      = Function::solution(m[d1], _backgroundFlow, backgroundFlowIdentifierExponent);
-    m_prev_time[d1] = Function::solution(m[d1], _solnPrevTime,   previousTimeIdentifierExponent);
-    m_prev_dot_m_prev = m_prev_dot_m_prev + m_prev[d1] * m_prev[d1];
-  }
-  if (!_pureEulerMode)
-  {
-    B_prev      = B->evaluateAt(_backgroundFlow);
-    B_prev_time = B->evaluateAt(_solnPrevTime);
-  }
-  
-  double Cp    = this->Cp();
-  double Pr    = this->Pr();
-  double Cv    = this->Cv();
-  double gamma = this->gamma();
-  
   // to avoid needing a bunch of casts below, do a cast once here:
   FunctionPtr dt = (FunctionPtr)_dt;
   
-  // vc terms:
-  if (_spaceTime)
+  for (auto eqn : equations)
   {
-    transientBF->addTerm (-rho, vc->dt());
-    _rhs->addTerm( rho_prev   * vc->dt());
-  }
-  else if (_timeStepping)
-  {
-    transientBF->addTerm (rho/dt,                     vc);
-    _rhs->addTerm(- (rho_prev - rho_prev_time) / dt * vc);
-  }
-  
-  for (int d=0; d<spaceDim; d++)
-  {
-    _steadyBF->addTerm( -m[d], vc->di(d+1));
-    _rhs->addTerm( m_prev[d] * vc->di(d+1));
-  }
-  _steadyBF->addTerm(tc, vc);
-  _rhs->addTerm(FunctionPtr(_fc) * vc);
-  
-  LinearTermPtr m_prev_dot_m = Teuchos::rcp(new LinearTerm);
-  for (int d=0; d<spaceDim; d++)
-  {
-    m_prev_dot_m = m_prev_dot_m + m_prev[d] * m[d];
-  }
-  
-  // vm
-  for (int d1=0; d1<spaceDim; d1++)
-  {
+    auto testVar  = eqn.testVar;
+    auto timeTerm = eqn.timeTerm;
+    auto flux     = eqn.flux;
+    auto traceVar = eqn.traceVar;
+    auto f_rhs    = eqn.f_rhs;
+    auto timeTerm_prev      = Function::solution(timeTerm, _backgroundFlow, backgroundFlowIdentifierExponent);
+    auto timeTerm_prev_time = Function::solution(timeTerm, _solnPrevTime,   previousTimeIdentifierExponent);
     if (_spaceTime)
     {
-      transientBF->addTerm( -m[d1], vm[d1]->dt() );
-      _rhs->addTerm( m_prev[d1]   * vm[d1]->dt() );
+      _bf ->addTerm(-timeTerm,      testVar->dt());
+      _rhs->addTerm(timeTerm_prev * testVar->dt());
     }
-    if (_timeStepping)
+    else if (_timeStepping)
     {
-      transientBF->addTerm( m[d1],                         vm[d1] / dt);
-      _rhs->addTerm(-(m_prev[d1] - m_prev_time[d1]) / dt * vm[d1] );
+      _bf ->addTerm(  timeTerm / dt, testVar);
+      _rhs->addTerm(- (timeTerm_prev - timeTerm_prev_time) / dt  * testVar);
     }
+//    cout << "Test Var: " << testVar->displayString() << endl;
+//    cout << "Flux:     " << flux->displayString() << endl;
+    auto fluxJacobian = flux->jacobian(_backgroundFlow);
+    auto fluxPrevious = flux->evaluateAt(_backgroundFlow);
+    Camellia::EOperator gradOp = (_spaceDim > 1) ? OP_GRAD : OP_DX;
     
-    { // terms of the form (Scalar * I, grad vm) -- simplifies to (Scalar, trace(grad vm))
-      _steadyBF->addTerm(-(gamma - 1.) * E,       vm[d1]->di(d1+1));
-      _rhs->addTerm((gamma - 1.) * E_prev * vm[d1]->di(d1+1));
-      
-      _steadyBF->addTerm( -(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev_squared) * rho, vm[d1]->di(d1+1));
-      _rhs->addTerm(-(gamma - 1.) * m_prev_dot_m_prev / (2 * rho_prev)              * vm[d1]->di(d1+1));
-      
-      _steadyBF->addTerm( (gamma - 1.) * m_prev_dot_m / rho_prev, vm[d1]->di(d1+1));
-    }
-    for (int d2=0; d2<spaceDim; d2++)
-    {
-      _steadyBF->addTerm(-(m_prev[d2]/rho_prev * m[d1] + m_prev[d1]/rho_prev * m[d2]), vm[d1]->di(d2+1));
-      _steadyBF->addTerm( (m_prev[d1] * m_prev[d2] / rho_prev_squared) * rho,          vm[d1]->di(d2+1));
-      _rhs->addTerm( m_prev[d1] * m_prev[d2] / rho_prev                        * vm[d1]->di(d2+1));
-    }
-    _steadyBF->addTerm(tm[d1], vm[d1]);
-    _rhs->addTerm(FunctionPtr(_fm[d1]) * vm[d1]);
-  }
-  
-  if (! _pureEulerMode)
-  {
-    // add in B contributions to the vm equations...
-    auto I = identityMatrix<double>(_spaceDim);
-    std::vector<FunctionPtr> B_comps;
-    for (int d=1; d<=_spaceDim; d++)
-    {
-      
-    }
+    _bf->      addTerm(-fluxJacobian, testVar->applyOp(gradOp)); // negative from integration by parts
+    _steadyBF->addTerm(-fluxJacobian, testVar->applyOp(gradOp));
+    _rhs     ->addTerm(fluxPrevious * testVar->applyOp(gradOp));
     
-    
-  }
-  
-  // ve:
-  if (_spaceTime)
-  {
-    transientBF->addTerm(-E, ve->dt());
-    _rhs->addTerm(E_prev   * ve->dt());
-  }
-  if (_timeStepping)
-  {
-    transientBF->addTerm(E,                      ve / dt);
-    _rhs->addTerm(-(E_prev - E_prev_time) / dt * ve);
-  }
-  for (int d1=0; d1<spaceDim; d1++)
-  {
-    _steadyBF->addTerm(- gamma * (E_prev / rho_prev) * m[d1],                    ve->di(d1+1));
-    _steadyBF->addTerm(  gamma * (E_prev * m_prev[d1] / rho_prev_squared) * rho, ve->di(d1+1));
-    _steadyBF->addTerm(- gamma * (m_prev[d1] / rho_prev) * E,                    ve->di(d1+1));
-    _rhs->addTerm( gamma * E_prev / rho_prev * m_prev[d1]                * ve->di(d1+1));
-    
-    _steadyBF->addTerm( -(gamma - 1.)     * m_prev_dot_m_prev * m_prev[d1] / (rho_prev_squared * rho_prev) * rho, ve->di(d1+1));
-    _steadyBF->addTerm( ((gamma - 1.)/2.) * m_prev_dot_m_prev / rho_prev_squared * m[d1],                         ve->di(d1+1));
-    _rhs->addTerm(-((gamma - 1.)/2.) * m_prev_dot_m_prev * m_prev[d1]/ rho_prev_squared                   * ve->di(d1+1));
-    
-    _steadyBF->addTerm( (gamma-1.) * m_prev_dot_m * m_prev[d1] / rho_prev_squared,                                ve->di(d1+1));
-    
-    if (!_pureEulerMode) // no viscous terms for Euler
-    {
-      _steadyBF->addTerm(-q[d1], ve->di(d1+1));
-      _rhs->addTerm(q_prev[d1] * ve->di(d1+1));
-      
-      _steadyBF->addTerm((D_traceWeight * m_prev[d1] / rho_prev) * D_trace, ve->di(d1+1));
-      _steadyBF->addTerm((D_traceWeight / rho_prev) * D_trace_prev * m[d1], ve->di(d1+1));
-      _steadyBF->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev_squared) * D_trace_prev * rho, ve->di(d1+1));
-      _rhs->addTerm(-(D_traceWeight * m_prev[d1] / rho_prev) * D_trace_prev * ve->di(d1+1));
-      for (int d2=0; d2<spaceDim; d2++)
-      {
-        _steadyBF->addTerm(m_prev[d2]/rho_prev * (D[d1][d2] + D[d2][d1]),                        ve->di(d1+1));
-        _steadyBF->addTerm((1.0/rho_prev) * (D_prev[d1][d2] + D_prev[d2][d1])*m[d2],             ve->di(d1+1));
-        _steadyBF->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev_squared * rho, ve->di(d1+1));
-        _rhs->addTerm(-(D_prev[d1][d2] + D_prev[d2][d1])*m_prev[d2]/rho_prev             * ve->di(d1+1));
-      }
-    }
-  }
-  _steadyBF->addTerm(te, ve);
-  _rhs->addTerm(FunctionPtr(_fe) * ve);
-  
-  // now, combine transient and steady into _bf:
-  auto steadyTerms = _steadyBF->getTerms();
-  auto transientTerms = transientBF->getTerms();
-  for (auto steadyTerm : steadyTerms)
-  {
-    _bf->addTerm(steadyTerm.first, steadyTerm.second);
-  }
-  for (auto transientTerm : transientTerms)
-  {
-    _bf->addTerm(transientTerm.first, transientTerm.second);
+    _bf->      addTerm(traceVar, testVar);
+    _steadyBF->addTerm(traceVar, testVar);
+    _rhs     ->addTerm(f_rhs * testVar);
   }
   
   vector<VarPtr> missingTestVars = _bf->missingTestVars();
   vector<VarPtr> missingTrialVars = _bf->missingTrialVars();
-  for (int i=0; i < missingTestVars.size(); i++)
+  if (missingTestVars.size() > 0)
+    cout << "WARNING: in IdealMHDFormulation, missing test vars:\n";
+  for (auto var : missingTestVars)
   {
-    VarPtr var = missingTestVars[i];
     cout << var->displayString() << endl;
   }
-  for (int i=0; i < missingTrialVars.size(); i++)
+  if (missingTrialVars.size() > 0)
+    cout << "WARNING: in IdealMHDFormulation, missing trial vars:\n";
+  for (auto var : missingTrialVars)
   {
-    VarPtr var = missingTrialVars[i];
     cout << var->displayString() << endl;
   }
+
+  IPPtr ip = _bf->graphNorm();
   
-  // TODO: consider adding support for Truman's various IP definitions
-  // (For now, we just support the graph norm.)
-  
-  TEUCHOS_TEST_FOR_EXCEPTION(normName != "Graph", std::invalid_argument, "non-graph norms not yet supported in the refactor; use legacy instead");
-  _ips["Graph"] = _bf->graphNorm();
-  IPPtr ip = _ips.at(normName);
-  
-  // _solnIncrement->setBC(bc);
   _solnIncrement->setRHS(_rhs);
   _solnIncrement->setIP(ip);
-  // _solnIncrement->setRHS(rhs);
   
   mesh->registerSolution(_backgroundFlow);
   mesh->registerSolution(_solnIncrement);
   mesh->registerSolution(_solnPrevTime);
   
-  // LinearTermPtr residual = rhs->linearTerm() - _bf->testFunctional(_solnIncrement,true); // false: don't exclude boundary terms
-  // LinearTermPtr residual = _rhsForResidual->linearTerm() - _bf->testFunctional(_solnIncrement,false); // false: don't exclude boundary terms
-  // LinearTermPtr residual = _rhsForSolve->linearTerm() - _bf->testFunctional(_solnIncrement,true); // false: don't exclude boundary terms
-  
   double energyThreshold = 0.20;
   _refinementStrategy = Teuchos::rcp( new RefinementStrategy(_solnIncrement, energyThreshold) );
-  // _refinementStrategy = Teuchos::rcp( new RefinementStrategy( mesh, residual, _ips[normName], energyThreshold ) );
   
   double maxDouble = std::numeric_limits<double>::max();
   double maxP = 20;
@@ -607,80 +470,20 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   _pRefinementStrategy = Teuchos::rcp( new RefinementStrategy( _solnIncrement, energyThreshold, maxDouble, maxP, true ) );
   
   // Set up Functions for L^2 norm computations
-  
-  FunctionPtr rho_incr = Function::solution(rho, _solnIncrement);
-  FunctionPtr E_incr = Function::solution(E, _solnIncrement);
-  
-  _L2IncrementFunction = rho_incr * rho_incr + E_incr * E_incr;
-  _L2SolutionFunction = rho_prev * rho_prev + E_prev * E_prev;
-  for (int comp_i=1; comp_i <= _spaceDim; comp_i++)
+  auto fieldVars = _vf->fieldVars();
+  _L2IncrementFunction = Function::zero();
+  _L2SolutionFunction = Function::zero();
+  for (auto fieldVar : fieldVars)
   {
-    FunctionPtr m_i_incr = Function::solution(this->m(comp_i), _solnIncrement);
-    FunctionPtr m_i_prev = Function::solution(this->m(comp_i), _backgroundFlow);
-    
-    _L2IncrementFunction = _L2IncrementFunction + m_i_incr * m_i_incr;
-    _L2SolutionFunction = _L2SolutionFunction + m_i_prev * m_i_prev;
-    if (!_pureEulerMode)
-    {
-      FunctionPtr q_i_incr = Function::solution(this->q(comp_i), _solnIncrement);
-      FunctionPtr q_i_prev = Function::solution(this->q(comp_i), _backgroundFlow);
-      _L2IncrementFunction = _L2IncrementFunction + q_i_incr * q_i_incr;
-      _L2SolutionFunction = _L2SolutionFunction + q_i_prev * q_i_prev;
-      
-      for (int comp_j=1; comp_j <= _spaceDim; comp_j++)
-      {
-        FunctionPtr D_ij_incr = Function::solution(this->D(comp_i,comp_j), _solnIncrement);
-        FunctionPtr D_ij_prev = Function::solution(this->D(comp_i,comp_j), _backgroundFlow);
-        _L2IncrementFunction = _L2IncrementFunction + D_ij_incr * D_ij_incr;
-        _L2SolutionFunction = _L2SolutionFunction + D_ij_prev * D_ij_prev;
-      }
-    }
+    auto fieldIncrement = Function::solution(fieldVar, _solnIncrement);
+    _L2IncrementFunction = _L2IncrementFunction + fieldIncrement * fieldIncrement;
+    auto fieldSolution = Function::solution(fieldVar, _backgroundFlow);
+    _L2SolutionFunction = _L2SolutionFunction + fieldSolution * fieldSolution;
   }
   
   _solver = Solver::getDirectSolver();
   
   _nonlinearIterationCount = 0;
-  
-  // the following does not appear to work.  Unclear on what's wrong; we may need an entirely different strategy
-  // IT MAY BE THAT LAGRANGE CONSTRAINTS ARE BROKEN.  (Constraint_StokesLocalConservation_UnitTest has been failing...)
-  //  if (_timeStepping)
-  //  {
-  //    cout << "TRYING CONSERVATION ENFORCEMENT.\n";
-  //    Teuchos::RCP<LagrangeConstraints> constraints = Teuchos::rcp(new LagrangeConstraints);
-  //    // vc constraint:
-  //    VarPtr vc = this->vc();
-  //    map<int, FunctionPtr> vcEqualsOne = {{vc->ID(), Function::constant(1.0)}};
-  //    LinearTermPtr vcTrialFunctional = _bf->trialFunctional(vcEqualsOne) * dt;
-  //    FunctionPtr   vcRHSFunction     = _rhs->linearTerm()->evaluate(vcEqualsOne) * dt; // multiply both by dt in effort to improve conditioning...
-  //    constraints->addConstraint(vcTrialFunctional == vcRHSFunction);
-  //    cout << "Added element constraint " << vcTrialFunctional->displayString() << " == " << vcRHSFunction->displayString() << endl;
-  //
-  //    // vm constraint(s):
-  //    for (int d=0; d<spaceDim; d++)
-  //    {
-  //      // test with 1
-  //      VarPtr vm = this->vm(d+1);
-  //      map<int, FunctionPtr> vmEqualsOne = {{vm->ID(), Function::constant(1.0)}};
-  //      LinearTermPtr trialFunctional = _bf->trialFunctional(vmEqualsOne) * dt; // multiply both by dt in effort to improve conditioning...
-  //      FunctionPtr rhsFxn = _rhs->linearTerm()->evaluate(vmEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
-  //      constraints->addConstraint(trialFunctional == rhsFxn);
-  //
-  //      cout << "Added element constraint " << trialFunctional->displayString() << " == " << rhsFxn->displayString() << endl;
-  //    }
-  //    // ve constraint:
-  //    VarPtr ve = this->ve();
-  //    map<int, FunctionPtr> veEqualsOne = {{ve->ID(), Function::constant(1.0)}};
-  //    LinearTermPtr veTrialFunctional = _bf->trialFunctional(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
-  //    FunctionPtr   veRHSFunction     = _rhs->linearTerm()->evaluate(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
-  //    constraints->addConstraint(veTrialFunctional == veRHSFunction);
-  //    cout << "Added element constraint " << veTrialFunctional->displayString() << " == " << veRHSFunction->displayString() << endl;
-  //
-  //    // although enforcement only happens in solnIncrement, the constraints change numbering of dofs, so we need to set constraints in each Solution object
-  //    _solnIncrement->setLagrangeConstraints(constraints);
-  //    _backgroundFlow->setLagrangeConstraints(constraints);
-  //    _solnPrevTime->setLagrangeConstraints(constraints);
-  //  }
-   */
 }
 
 /*

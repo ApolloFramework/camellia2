@@ -102,7 +102,7 @@ TLinearTermPtr<Scalar> QuotientFunction<Scalar>::jacobian(TSolutionPtr<Scalar> s
   auto f2 = Function::evaluateAt(_scalarDivisor, soln);
   auto df1 = _f->jacobian(soln);
   auto df2 = _scalarDivisor->jacobian(soln);
-  return (1.0 / f2) * df1 - (1.0 / ( f2 * f2 )) * df2;
+  return (1.0 / f2) * df1 - (f1 / ( f2 * f2 )) * df2;
 }
 
 template <typename Scalar>

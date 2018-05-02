@@ -44,6 +44,9 @@ public:
 
   string displayString();
   
+  TFunctionPtr<Scalar> evaluateAt(SolutionPtr soln);
+  TLinearTermPtr<Scalar> jacobian(TSolutionPtr<Scalar> soln);
+  
   std::vector< TFunctionPtr<Scalar> > memberFunctions();
 };
 }

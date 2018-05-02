@@ -49,6 +49,9 @@ public:
 
   bool isZero();
 
+  TFunctionPtr<Scalar> evaluateAt(SolutionPtr soln);
+  TLinearTermPtr<Scalar> jacobian(TSolutionPtr<Scalar> soln);
+  
   virtual ~VectorizedFunction() { }
 };
 }

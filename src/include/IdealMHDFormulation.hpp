@@ -27,7 +27,6 @@ namespace Camellia
     double _gamma;
     double _Pr;
     double _Cv;
-    FunctionPtr _beta;
     int _spatialPolyOrder;
     int _temporalPolyOrder;
     int _delta_k;
@@ -36,7 +35,6 @@ namespace Camellia
     bool _timeStepping;
     bool _spaceTime;
     double _t0; // used in space-time
-    bool _neglectFluxesOnRHS;
     
     int _nonlinearIterationCount; // starts at 0, increases for each iterate
     
@@ -46,8 +44,6 @@ namespace Camellia
     SolverPtr _solver;
     
     int _solveCode;
-    
-    std::map<std::string, IPPtr> _ips;
     
     FunctionPtr _L2IncrementFunction, _L2SolutionFunction;
     

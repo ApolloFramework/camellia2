@@ -14,7 +14,7 @@ namespace Camellia
   template<typename Scalar>
   TFunctionPtr<Scalar> column(int spaceDim, TFunctionPtr<Scalar> f,  int colNumber)
   {
-    TEUCHOS_TEST_FOR_EXCEPTION(f->rank() < 2, std::invalid_argument, "f must rank >= 2");
+    TEUCHOS_TEST_FOR_EXCEPTION(f->rank() < 2, std::invalid_argument, "f must have rank >= 2");
     vector<TFunctionPtr<Scalar>> components;
     for (int d=1; d<=spaceDim; d++)
     {

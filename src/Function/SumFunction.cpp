@@ -32,6 +32,22 @@ string SumFunction<Scalar>::displayString()
 }
 
 template <typename Scalar>
+TFunctionPtr<Scalar> SumFunction<Scalar>::evaluateAt(SolutionPtr soln)
+{
+  auto f1 = Function::evaluateAt(_f1, soln);
+  auto f2 = Function::evaluateAt(_f2, soln);
+  return f1 + f2;
+}
+
+template <typename Scalar>
+TLinearTermPtr<Scalar> SumFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+{
+  auto df1 = _f1->jacobian(soln);
+  auto df2 = _f2->jacobian(soln);
+  return df1 + df2;
+}
+
+template <typename Scalar>
 void SumFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
 {
   this->CHECK_VALUES_RANK(values);

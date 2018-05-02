@@ -81,6 +81,7 @@ TFunctionPtr<Scalar> ProductFunction<Scalar>::evaluateAt(SolutionPtr soln)
   auto f2 = Function::evaluateAt(_f2, soln);
   return f1 * f2;
 }
+
 template <typename Scalar>
 bool ProductFunction<Scalar>::isZero(BasisCachePtr basisCache)
 {
