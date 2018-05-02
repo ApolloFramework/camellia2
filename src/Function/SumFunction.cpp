@@ -32,18 +32,18 @@ string SumFunction<Scalar>::displayString()
 }
 
 template <typename Scalar>
-TFunctionPtr<Scalar> SumFunction<Scalar>::evaluateAt(SolutionPtr soln)
+TFunctionPtr<Scalar> SumFunction<Scalar>::evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
-  auto f1 = Function::evaluateAt(_f1, soln);
-  auto f2 = Function::evaluateAt(_f2, soln);
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f1, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_f2, valueMap);
   return f1 + f2;
 }
 
 template <typename Scalar>
-TLinearTermPtr<Scalar> SumFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+TLinearTermPtr<Scalar> SumFunction<Scalar>::jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
-  auto df1 = _f1->jacobian(soln);
-  auto df2 = _f2->jacobian(soln);
+  auto df1 = _f1->jacobian(valueMap);
+  auto df2 = _f2->jacobian(valueMap);
   return df1 + df2;
 }
 

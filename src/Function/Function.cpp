@@ -527,7 +527,21 @@ Scalar TFunction<Scalar>::evaluate(TFunctionPtr<Scalar> f, double x, double y, d
 }
 
   template <typename Scalar>
-  TFunctionPtr<Scalar> TFunction<Scalar>::evaluateAt(SolutionPtr soln)
+  TFunctionPtr<Scalar> TFunction<Scalar>::evaluateFunctionAt(TFunctionPtr<Scalar> f,
+                                                             const map<int, TFunctionPtr<Scalar> > &valueMap)
+  {
+    if (f->isAbstract())
+    {
+      return f->evaluateAt(valueMap);
+    }
+    else
+    {
+      return f;
+    }
+  }
+  
+  template <typename Scalar>
+  TFunctionPtr<Scalar> TFunction<Scalar>::evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap)
   {
     // this implementation should never be called, but if it is, there are two distinct errors that might have been made.
     if (this->isAbstract())
@@ -537,19 +551,6 @@ Scalar TFunction<Scalar>::evaluate(TFunctionPtr<Scalar> f, double x, double y, d
     else
     {
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "evaluateAt() member function should not be called on non-abstract functions.  Use the static evaluateAt(f,soln) version instead!");
-    }
-  }
-  
-  template <typename Scalar>
-  TFunctionPtr<Scalar> TFunction<Scalar>::evaluateAt(TFunctionPtr<Scalar> f, SolutionPtr soln)
-  {
-    if (f->isAbstract())
-    {
-      return f->evaluateAt(soln);
-    }
-    else
-    {
-      return f;
     }
   }
   
@@ -833,7 +834,7 @@ TFunctionPtr<double> TFunction<Scalar>::heavisideY(double yShift)
   }
 
   template <typename Scalar>
-  TLinearTermPtr<Scalar> TFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+  TLinearTermPtr<Scalar> TFunction<Scalar>::jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap)
   {
     if (this->isAbstract())
     {
@@ -2684,14 +2685,14 @@ public:
     return _arg_g->dz() * TFunction<double>::composedFunction(_f->dz(),_arg_g);
   }
   
-  TFunctionPtr<double> evaluateAt(SolutionPtr soln)
+  TFunctionPtr<double> evaluateAt(const map<int, TFunctionPtr<double> > &valueMap)
   {
-    auto f = TFunction<double>::evaluateAt(_f, soln);
-    auto g = TFunction<double>::evaluateAt(_arg_g, soln);
+    auto f = TFunction<double>::evaluateFunctionAt(_f, valueMap);
+    auto g = TFunction<double>::evaluateFunctionAt(_arg_g, valueMap);
     return TFunction<double>::composedFunction(f,g);
   }
   
-  TLinearTermPtr<double> jacobian(TSolutionPtr<double> soln)
+  TLinearTermPtr<double> jacobian(const map<int, TFunctionPtr<double> > &valueMap)
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true,std::invalid_argument,"Jacobian evaluation is not yet supported for composed functions");
   }

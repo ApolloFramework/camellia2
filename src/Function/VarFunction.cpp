@@ -56,14 +56,22 @@ string VarFunction<Scalar>::displayString()
 
 //! evaluates, filling in _var values using soln
 template <typename Scalar>
-TFunctionPtr<Scalar> VarFunction<Scalar>::evaluateAt(SolutionPtr soln)
+TFunctionPtr<Scalar> VarFunction<Scalar>::evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
-  return Function::solution(_var, soln);
+  auto entry = valueMap.find(_var->ID());
+  if (entry != valueMap.end())
+  {
+    return entry->second;
+  }
+  else
+  {
+    return TFunction<Scalar>::zero(this->rank());
+  }
 }
 
 //! returns the LinearTerm corresponding to _var
 template <typename Scalar>
-TLinearTermPtr<Scalar> VarFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+TLinearTermPtr<Scalar> VarFunction<Scalar>::jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
   return 1.0 * _var;
 }

@@ -47,6 +47,12 @@ namespace Camellia
     
     FunctionPtr _L2IncrementFunction, _L2SolutionFunction;
     
+    // Abstract flux definitions (these are made concrete by evaluating at a Solution).
+    FunctionPtr _massFlux;
+    FunctionPtr _momentumFlux; // rank-2 tensor in 2D and 3D (_spaceDim rows, 3 columns).  In 1D, a 3-row vector.
+    FunctionPtr _magneticFlux; // rank-2 tensor in 2D and 3D (_spaceDim rows, 3 columns).  In 1D, a 3-row vector.
+    FunctionPtr _energyFlux;
+    
     SolutionPtr _backgroundFlow, _solnIncrement, _solnPrevTime;
     
     RefinementStrategyPtr _refinementStrategy, _hRefinementStrategy, _pRefinementStrategy;

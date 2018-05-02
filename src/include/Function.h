@@ -88,7 +88,7 @@ public:
   // ! For Functions that include VarFunctions among their members, takes Jacobian relative to corresponding variables,
   // ! using the solution provided to determine where the Jacobian is evaluated.
   // ! (For Functions that do not include VarFunctions among their members, returns zero.)
-  virtual TLinearTermPtr<Scalar> jacobian(TSolutionPtr<Scalar> soln);
+  virtual TLinearTermPtr<Scalar> jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap);
 
   virtual void importCellData(std::vector<GlobalIndexType> cellIDs) {}
 
@@ -158,12 +158,18 @@ public:
   // ! returns true if this Function involves Vars.
   virtual bool isAbstract();
   
+//  // ! For abstract function provided, returns the concrete function by evaluating Vars using Solution provided
+//  // ! If the function provided is not abstract, just returns the function.
+//  static TFunctionPtr<Scalar> evaluateAt(TFunctionPtr<Scalar> abstractFunction, SolutionPtr soln); // calls the version that takes a map argument
+  
   // ! For abstract function provided, returns the concrete function by evaluating Vars using Solution provided
   // ! If the function provided is not abstract, just returns the function.
-  static TFunctionPtr<Scalar> evaluateAt(TFunctionPtr<Scalar> abstractFunction, SolutionPtr soln);
+  // ! valueMap has keys corresponding to varID, values the function for that var.  Missing entries are by convention taken to be zero functions.
+  static TFunctionPtr<Scalar> evaluateFunctionAt(TFunctionPtr<Scalar> abstractFunction, const map<int, TFunctionPtr<Scalar> > &valueMap);
   
-  // ! the static evaluateAt is generally preferred, as it can avoid copying the Function when it is not abstract...
-  virtual TFunctionPtr<Scalar> evaluateAt(SolutionPtr soln);
+  // ! the static evaluateFunctionAt is generally preferred, as it can avoid copying the Function when it is not abstract...
+  // ! valueMap has keys corresponding to varID, values the function for that var.  Missing entries are by convention taken to be zero functions.
+  virtual TFunctionPtr<Scalar> evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap); // calls the version that takes a map argument
   
   // Note that in general, repeated calls to Function::evaluate() would be significantly more expensive than a call with many points to Function::values().
   // Also, evaluate() may fail for certain Function subclasses, including any that depend on the Mesh.

@@ -44,10 +44,10 @@ string QuotientFunction<Scalar>::displayString()
 }
 
 template <typename Scalar>
-TFunctionPtr<Scalar> QuotientFunction<Scalar>::evaluateAt(SolutionPtr soln)
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
-  auto f1 = Function::evaluateAt(_f, soln);
-  auto f2 = Function::evaluateAt(_scalarDivisor, soln);
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_scalarDivisor, valueMap);
   return f1 / f2;
 }
 
@@ -96,12 +96,12 @@ TFunctionPtr<Scalar> QuotientFunction<Scalar>::dt()
 }
 
 template <typename Scalar>
-TLinearTermPtr<Scalar> QuotientFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+TLinearTermPtr<Scalar> QuotientFunction<Scalar>::jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
-  auto f1 = Function::evaluateAt(_f, soln);
-  auto f2 = Function::evaluateAt(_scalarDivisor, soln);
-  auto df1 = _f->jacobian(soln);
-  auto df2 = _scalarDivisor->jacobian(soln);
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_scalarDivisor, valueMap);
+  auto df1 = _f->jacobian(valueMap);
+  auto df2 = _scalarDivisor->jacobian(valueMap);
   return (1.0 / f2) * df1 - (f1 / ( f2 * f2 )) * df2;
 }
 

@@ -40,10 +40,10 @@ public:
   bool boundaryValueOnly();
   
   //! evaluates, filling in _var values using soln
-  TFunctionPtr<Scalar> evaluateAt(SolutionPtr soln);
+  TFunctionPtr<Scalar> evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap);
   
   //! returns the LinearTerm corresponding to _var
-  TLinearTermPtr<Scalar> jacobian(TSolutionPtr<Scalar> soln);
+  TLinearTermPtr<Scalar> jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap);
 
   //! returns true
   bool isAbstract();

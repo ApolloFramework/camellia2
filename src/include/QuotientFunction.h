@@ -38,8 +38,8 @@ public:
   TFunctionPtr<Scalar> dt();
   std::string displayString();
   
-  TFunctionPtr<Scalar> evaluateAt(SolutionPtr soln);
-  TLinearTermPtr<Scalar> jacobian(TSolutionPtr<Scalar> soln);
+  TFunctionPtr<Scalar> evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap);
+  TLinearTermPtr<Scalar> jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap);
   
   std::vector<TFunctionPtr<Scalar>> memberFunctions();
 };

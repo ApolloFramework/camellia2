@@ -75,10 +75,10 @@ TFunctionPtr<Scalar> ProductFunction<Scalar>::dt()
 }
 
 template <typename Scalar>
-TFunctionPtr<Scalar> ProductFunction<Scalar>::evaluateAt(SolutionPtr soln)
+TFunctionPtr<Scalar> ProductFunction<Scalar>::evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
-  auto f1 = Function::evaluateAt(_f1, soln);
-  auto f2 = Function::evaluateAt(_f2, soln);
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f1, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_f2, valueMap);
   return f1 * f2;
 }
 
@@ -101,12 +101,12 @@ TFunctionPtr<Scalar> ProductFunction<Scalar>::f2()
 }
 
 template <typename Scalar>
-TLinearTermPtr<Scalar> ProductFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+TLinearTermPtr<Scalar> ProductFunction<Scalar>::jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
-  auto f1 = Function::evaluateAt(_f1, soln);
-  auto f2 = Function::evaluateAt(_f2, soln);
-  auto df1 = _f1->jacobian(soln);
-  auto df2 = _f2->jacobian(soln);
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f1, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_f2, valueMap);
+  auto df1 = _f1->jacobian(valueMap);
+  auto df2 = _f2->jacobian(valueMap);
   return f1 * df2 + df1 * f2;
 }
 

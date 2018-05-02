@@ -67,18 +67,18 @@ int VectorizedFunction<Scalar>::dim()
 }
 
 template <typename Scalar>
-TFunctionPtr<Scalar> VectorizedFunction<Scalar>::evaluateAt(SolutionPtr soln)
+TFunctionPtr<Scalar> VectorizedFunction<Scalar>::evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
   vector<TFunctionPtr<Scalar>> evaluatedFxns;
   for (auto fxn : _fxns)
   {
-    evaluatedFxns.push_back(Function::evaluateAt(fxn, soln));
+    evaluatedFxns.push_back(TFunction<Scalar>::evaluateFunctionAt(fxn, valueMap));
   }
   return Function::vectorize(evaluatedFxns);
 }
 
 template <typename Scalar>
-TLinearTermPtr<Scalar> VectorizedFunction<Scalar>::jacobian(TSolutionPtr<Scalar> soln)
+TLinearTermPtr<Scalar> VectorizedFunction<Scalar>::jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
   int numComponents = _fxns.size();
   TLinearTermPtr<Scalar> sum;
@@ -89,7 +89,7 @@ TLinearTermPtr<Scalar> VectorizedFunction<Scalar>::jacobian(TSolutionPtr<Scalar>
     auto fxn = _fxns[comp];
     auto compFxn = TFunction<Scalar>::constant(compVector);
     
-    sum = sum + compFxn * fxn->jacobian(soln);
+    sum = sum + compFxn * fxn->jacobian(valueMap);
   }
   return sum;
 }

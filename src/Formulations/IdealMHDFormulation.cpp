@@ -403,6 +403,15 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   // to avoid needing a bunch of casts below, do a cast once here:
   FunctionPtr dt = (FunctionPtr)_dt;
   
+  std::map<int,FunctionPtr> backgroundFlowFunctions, previousTimeFunctions;
+  bool weightFluxesByParity = true; // inconsequential for present purposes; will want to revisit if we store these maps as member variables...
+  for (auto varEntry : trialVars)
+  {
+    VarPtr var = varEntry.second;
+    backgroundFlowFunctions[var->ID()] = Function::solution(var, _backgroundFlow, weightFluxesByParity, backgroundFlowIdentifierExponent);
+    previousTimeFunctions[var->ID()]   = Function::solution(var, _solnPrevTime,   weightFluxesByParity, previousTimeIdentifierExponent);
+  }
+  
   for (auto eqn : equations)
   {
     auto testVar  = eqn.testVar;
@@ -410,8 +419,8 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     auto flux     = eqn.flux;
     auto traceVar = eqn.traceVar;
     auto f_rhs    = eqn.f_rhs;
-    auto timeTerm_prev      = Function::solution(timeTerm, _backgroundFlow, backgroundFlowIdentifierExponent);
-    auto timeTerm_prev_time = Function::solution(timeTerm, _solnPrevTime,   previousTimeIdentifierExponent);
+    auto timeTerm_prev      = backgroundFlowFunctions[timeTerm->ID()];
+    auto timeTerm_prev_time = previousTimeFunctions  [timeTerm->ID()];
     if (_spaceTime)
     {
       _bf ->addTerm(-timeTerm,      testVar->dt());
@@ -424,8 +433,8 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     }
 //    cout << "Test Var: " << testVar->displayString() << endl;
 //    cout << "Flux:     " << flux->displayString() << endl;
-    auto fluxJacobian = flux->jacobian(_backgroundFlow);
-    auto fluxPrevious = flux->evaluateAt(_backgroundFlow);
+    auto fluxJacobian = flux->jacobian(backgroundFlowFunctions);
+    auto fluxPrevious = flux->evaluateAt(backgroundFlowFunctions);
     Camellia::EOperator gradOp = (_spaceDim > 1) ? OP_GRAD : OP_DX;
     
     _bf->      addTerm(-fluxJacobian, testVar->applyOp(gradOp)); // negative from integration by parts
@@ -486,7 +495,6 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   _nonlinearIterationCount = 0;
 }
 
-/*
 void IdealMHDFormulation::addMassFluxCondition(SpatialFilterPtr region, FunctionPtr tc_exact)
 {
   VarPtr tc = this->tc();
@@ -546,354 +554,307 @@ VarPtr IdealMHDFormulation::E()
   return _vf->fieldVar(S_E);
 }
 
-// ! For an exact solution (u, rho, T), returns the corresponding forcing in the continuity equation
+// ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the continuity equation
 FunctionPtr IdealMHDFormulation::exactSolution_fc(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
 {
-  // strong form of the equation has
-  // d/dt rho + div ( rho u ) = f_c
-  FunctionPtr f_c = Function::zero();
-  if (rho->dt() != Teuchos::null)
+  auto abstractFlux = _massFlux;
+  FunctionPtr timeTerm = rho; // the thing that gets differentiated in time
+  
+  FunctionPtr f = Function::zero();
+  if (timeTerm->dt() != Teuchos::null)
   {
-    f_c = f_c + rho->dt();
+    f = f + timeTerm->dt();
   }
+  
+  bool includeFluxParity = false; // DPG fluxes won't be used here
+  map<int,FunctionPtr> exactMap = this->exactSolutionMap(u, rho, E, B, includeFluxParity);
+  auto flux = abstractFlux->evaluateAt(exactMap);
+
   Camellia::EOperator divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
-  f_c = f_c + Function::op(rho * u, divOp);
-  return f_c;
+  f = f + Function::op(flux, divOp);
+  return f;
 }
 
 // ! For an exact solution (u, rho, T), returns the corresponding forcing in the energy equation
 FunctionPtr IdealMHDFormulation::exactSolution_fe(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
 {
-  bool includeParity = false; // we don't use any traces or fluxes below, so this does not matter
-  auto exactMap = this->exactSolutionMap(u, rho, E, B, includeParity);
-  // strong form of the equation has
-  // f_e =   d/dt ( rho * ( c_v T + 0.5 * u * u) )
-  //       + div  ( rho * u * ( c_v T + 0.5 * u * u) + rho * u * R * T + q - u \dot (D + D^T - 2/3 tr(D) I) )
-  // define g_e = rho * ( c_v T + 0.5 * u * u)
-  FunctionPtr f_e = Function::zero();
-  double c_v = this->Cv();
-  double R   = this->R();
-  FunctionPtr g_e = rho * ( c_v * T + 0.5 * u * u);
-  if (g_e->dt() != Teuchos::null)
+  auto abstractFlux = _energyFlux;
+  FunctionPtr timeTerm = E; // the thing that gets differentiated in time
+  
+  FunctionPtr f = Function::zero();
+  if (timeTerm->dt() != Teuchos::null)
   {
-    f_e = f_e + g_e->dt();
+    f = f + timeTerm->dt();
   }
-  FunctionPtr q;
-  if (_spaceDim == 1)
-    q = exactMap[this->q(1)->ID()];
-  else
-  {
-    vector<FunctionPtr> q_vector(_spaceDim);
-    for (int d=0; d<_spaceDim; d++)
-    {
-      q_vector[d] = exactMap[this->q(d+1)->ID()];
-    }
-    q = (_spaceDim > 1) ? Function::vectorize(q_vector) : q_vector[0];
-  }
-  FunctionPtr D_trace = Function::zero();
-  for (int d=0; d<_spaceDim; d++)
-  {
-    VarPtr D_dd = this->D(d+1,d+1);
-    D_trace = D_trace + exactMap[D_dd->ID()];
-  }
-  FunctionPtr u_dot_sigma = Function::zero();
-  for (int d1=0; d1<_spaceDim; d1++)
-  {
-    int i = d1+1;
-    FunctionPtr u_i = exactMap[this->m(i)->ID()] / rho;
-    vector<FunctionPtr> sigmaRow_vector(_spaceDim); // sigma_i
-    for (int d2=0; d2<_spaceDim; d2++)
-    {
-      int j = d2 + 1;
-      FunctionPtr D_ij = exactMap[this->D(i,j)->ID()];
-      FunctionPtr D_ji = exactMap[this->D(j,i)->ID()];
-      FunctionPtr D_trace_contribution = (i==j)? -2./3. * D_trace : Function::zero();
-      sigmaRow_vector[d2] = D_ij + D_ji + D_trace_contribution;
-    }
-    FunctionPtr sigmaRow =  (_spaceDim > 1) ? Function::vectorize(sigmaRow_vector) : sigmaRow_vector[0];
-    u_dot_sigma = u_dot_sigma + u_i * sigmaRow;
-  }
-  FunctionPtr flux_term = u * g_e + rho * R * T * u + q - u_dot_sigma;
+  
+  bool includeFluxParity = false; // DPG fluxes won't be used here
+  map<int,FunctionPtr> exactMap = this->exactSolutionMap(u, rho, E, B, includeFluxParity);
+  auto flux = abstractFlux->evaluateAt(exactMap);
+  
   Camellia::EOperator divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
-  f_e = f_e + Function::op(flux_term, divOp);
-  return f_e;
+  f = f + Function::op(flux, divOp);
+  return f;
 }
 
 // ! For an exact solution (u, rho, T), returns the corresponding forcing in the momentum equation
 std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_fm(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
 {
-  bool includeParity = false; // we don't use any traces or fluxes below, so this does not matter
-  auto exactMap = this->exactSolutionMap(u, rho, T, includeParity);
-  double R   = this->R();
-  vector<FunctionPtr> f_m(_spaceDim, Function::zero());
-  FunctionPtr rho_u = rho * u;
-  if (rho_u->dt() != Teuchos::null)
-  {
-    if (_spaceDim == 1)
-    {
-      f_m[0] = f_m[0] + rho_u->dt();
-    }
-    else
-    {
-      FunctionPtr dt_part = rho_u->dt();
-      for (int d=0; d<_spaceDim; d++)
-      {
-        f_m[d] = f_m[d] + dt_part->spatialComponent(d+1);
-      }
-    }
-  }
-  vector<FunctionPtr> u_vector(_spaceDim);
-  for (int d=0; d<_spaceDim; d++)
-  {
-    u_vector[d] = exactMap[this->m(d+1)->ID()] / rho;
-  }
+  auto abstractFlux = _momentumFlux;
   
-  for (int d2=0; d2<_spaceDim; d2++)
+  vector<FunctionPtr> f(3);
+
+  bool includeFluxParity = false; // DPG fluxes won't be used here
+  map<int,FunctionPtr> exactMap = this->exactSolutionMap(u, rho, E, B, includeFluxParity);
+  auto fluxes = abstractFlux->evaluateAt(exactMap);
+  
+  for (int i=0; i<3; i++)
   {
-    int j = d2+1;
-    vector<FunctionPtr> column_vector(_spaceDim, Function::zero());
-    for (int d1=0; d1<_spaceDim; d1++)
+    // get the column (row in 1D) of the momentum tensor
+    auto flux = (_spaceDim > 1) ? column(_spaceDim,fluxes,i+1) : fluxes->spatialComponent(i+1);
+    
+    FunctionPtr timeTerm = (rho * u)->spatialComponent(i+1); // the thing that gets differentiated in time
+    f[i] = Function::zero();
+    if (timeTerm->dt() != Teuchos::null)
     {
-      int i = d1+1;
-      column_vector[d1] = rho * u_vector[d1] * u_vector[d2];
-      if (i==j)
-      {
-        column_vector[d1] = column_vector[d1] + R * (rho * T);
-      }
+      f[i] = f[i] + timeTerm->dt();
     }
-    FunctionPtr column = (_spaceDim > 1) ? Function::vectorize(column_vector) : column_vector[0];
+    
     Camellia::EOperator divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
-    f_m[d2] = f_m[d2] + Function::op(column, divOp);
+    f[i] = f[i] + Function::op(flux, divOp);
   }
-  return f_m;
+  return f;
 }
 
 FunctionPtr IdealMHDFormulation::exactSolution_tc(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity)
 {
-  FunctionPtr n = TFunction<double>::normal(); // spatial normal
-  FunctionPtr tc_exact = Function::zero();
-  for (int d=0; d<_spaceDim; d++)
-  {
-    auto u_i = (_spaceDim > 1) ? velocity->spatialComponent(d+1) : velocity;
-    auto n_i = n->spatialComponent(d+1);
-    tc_exact = tc_exact + rho * u_i * n_i;
-  }
-  if (_spaceTime)
-  {
-    FunctionPtr n_xt = TFunction<double>::normalSpaceTime();
-    FunctionPtr n_t = n_xt->t();
-    tc_exact = tc_exact + rho * n_t;
-  }
-  if (includeParity)
-  {
-    tc_exact = tc_exact * Function::sideParity();
-  }
-  return tc_exact;
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "method not yet implemented");
+//  FunctionPtr n = TFunction<double>::normal(); // spatial normal
+//  FunctionPtr tc_exact = Function::zero();
+//  for (int d=0; d<_spaceDim; d++)
+//  {
+//    auto u_i = (_spaceDim > 1) ? u->spatialComponent(d+1) : velocity;
+//    auto n_i = n->spatialComponent(d+1);
+//    tc_exact = tc_exact + rho * u_i * n_i;
+//  }
+//  if (_spaceTime)
+//  {
+//    FunctionPtr n_xt = TFunction<double>::normalSpaceTime();
+//    FunctionPtr n_t = n_xt->t();
+//    tc_exact = tc_exact + rho * n_t;
+//  }
+//  if (includeParity)
+//  {
+//    tc_exact = tc_exact * Function::sideParity();
+//  }
+//  return tc_exact;
 }
 
 FunctionPtr IdealMHDFormulation::exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity)
 {
-  // t_e is the trace of:
-  // ((c_v + R) T rho u + 0.5 * (u dot u) rho u + q - u dot (D + D^T - 2/3 tr(D) I)) dot n
-  
-  FunctionPtr n_xt = TFunction<double>::normalSpaceTime();
-  
-  FunctionPtr D_trace = Function::zero();
-  std::vector<FunctionPtr> Di_exact(_spaceDim);
-  std::vector<std::vector<FunctionPtr>> Dij_exact(_spaceDim, std::vector<FunctionPtr>(_spaceDim));
-  std::vector<FunctionPtr> u_vector(_spaceDim);
-  FunctionPtr q_exact;
-  
-  FunctionPtr qWeight = (-Cp()/Pr())*_muFunc;
-  if (_spaceDim == 1)
-  {
-    q_exact = qWeight * T->dx();
-  }
-  else
-  {
-    q_exact = qWeight * T->grad();
-  }
-  
-  for (int d=0; d<_spaceDim; d++)
-  {
-    if (_spaceDim == 1)
-    {
-      u_vector[d] = velocity;
-      Di_exact[d] = _mu * u_vector[d]->dx();
-      D_trace = Di_exact[d];
-      Dij_exact[0][0] = Di_exact[0];
-    }
-    else
-    {
-      u_vector[d] = velocity->spatialComponent(d+1);
-      Di_exact[d] = _mu * u_vector[d]->grad();
-      D_trace = D_trace + Di_exact[d]->spatialComponent(d+1);
-      for (int d2=0; d2<_spaceDim; d2++)
-      {
-        Dij_exact[d][d2] = Di_exact[d]->spatialComponent(d2+1);
-      }
-    }
-  }
-  
-  double R = this->R();
-  double Cv = this->Cv();
-  double D_traceWeight = -2./3.; // Stokes' hypothesis
-  
-  // defer the dotting with the normal until we've accumulated the other terms (other than the D + D^T terms, which we treat separately)
-  FunctionPtr te_exact = ((Cv + R) * T + (0.5 * velocity * velocity)) * rho * velocity + q_exact;
-  te_exact = te_exact - D_traceWeight * D_trace * velocity; // simplification of u dot (2/3 tr(D) I)
-  
-  // now, dot with normal
-  FunctionPtr n = TFunction<double>::normal(); // spatial normal
-  if (_spaceDim == 1)
-  {
-    // for 1D, the product with normal should yield a scalar result
-    te_exact = te_exact * n->x();
-  }
-  else
-  {
-    te_exact = te_exact * n; // dot product
-  }
-  // u dot (D + D^T) dot n = ((D + D^T) u) dot n
-  for (int d1=0; d1<_spaceDim; d1++)
-  {
-    for (int d2=0; d2<_spaceDim; d2++)
-    {
-      te_exact = te_exact - (Dij_exact[d1][d2] + Dij_exact[d2][d1]) * u_vector[d2] * n->spatialComponent(d1+1);
-    }
-  }
-  if (includeParity)
-  {
-    te_exact = te_exact * Function::sideParity();
-  }
-  return te_exact;
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "method not yet implemented");
+//  // t_e is the trace of:
+//  // ((c_v + R) T rho u + 0.5 * (u dot u) rho u + q - u dot (D + D^T - 2/3 tr(D) I)) dot n
+//
+//  FunctionPtr n_xt = TFunction<double>::normalSpaceTime();
+//
+//  FunctionPtr D_trace = Function::zero();
+//  std::vector<FunctionPtr> Di_exact(_spaceDim);
+//  std::vector<std::vector<FunctionPtr>> Dij_exact(_spaceDim, std::vector<FunctionPtr>(_spaceDim));
+//  std::vector<FunctionPtr> u_vector(_spaceDim);
+//  FunctionPtr q_exact;
+//
+//  FunctionPtr qWeight = (-Cp()/Pr())*_muFunc;
+//  if (_spaceDim == 1)
+//  {
+//    q_exact = qWeight * T->dx();
+//  }
+//  else
+//  {
+//    q_exact = qWeight * T->grad();
+//  }
+//
+//  for (int d=0; d<_spaceDim; d++)
+//  {
+//    if (_spaceDim == 1)
+//    {
+//      u_vector[d] = velocity;
+//      Di_exact[d] = _mu * u_vector[d]->dx();
+//      D_trace = Di_exact[d];
+//      Dij_exact[0][0] = Di_exact[0];
+//    }
+//    else
+//    {
+//      u_vector[d] = velocity->spatialComponent(d+1);
+//      Di_exact[d] = _mu * u_vector[d]->grad();
+//      D_trace = D_trace + Di_exact[d]->spatialComponent(d+1);
+//      for (int d2=0; d2<_spaceDim; d2++)
+//      {
+//        Dij_exact[d][d2] = Di_exact[d]->spatialComponent(d2+1);
+//      }
+//    }
+//  }
+//
+//  double R = this->R();
+//  double Cv = this->Cv();
+//  double D_traceWeight = -2./3.; // Stokes' hypothesis
+//
+//  // defer the dotting with the normal until we've accumulated the other terms (other than the D + D^T terms, which we treat separately)
+//  FunctionPtr te_exact = ((Cv + R) * T + (0.5 * velocity * velocity)) * rho * velocity + q_exact;
+//  te_exact = te_exact - D_traceWeight * D_trace * velocity; // simplification of u dot (2/3 tr(D) I)
+//
+//  // now, dot with normal
+//  FunctionPtr n = TFunction<double>::normal(); // spatial normal
+//  if (_spaceDim == 1)
+//  {
+//    // for 1D, the product with normal should yield a scalar result
+//    te_exact = te_exact * n->x();
+//  }
+//  else
+//  {
+//    te_exact = te_exact * n; // dot product
+//  }
+//  // u dot (D + D^T) dot n = ((D + D^T) u) dot n
+//  for (int d1=0; d1<_spaceDim; d1++)
+//  {
+//    for (int d2=0; d2<_spaceDim; d2++)
+//    {
+//      te_exact = te_exact - (Dij_exact[d1][d2] + Dij_exact[d2][d1]) * u_vector[d2] * n->spatialComponent(d1+1);
+//    }
+//  }
+//  if (includeParity)
+//  {
+//    te_exact = te_exact * Function::sideParity();
+//  }
+//  return te_exact;
 }
 
 std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_tm(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity)
 {
-  vector<FunctionPtr> tm_exact(_spaceDim);
-  for (int i=1; i<= _spaceDim; i++)
-  {
-    VarPtr tm_i = this->tm(i);
-    
-    // tm: trace of rho (u xx u) n + rho R T I n - (D + D^T - 2./3. * tr(D)I) n
-    //     (where xx is the outer product operator)
-    
-    FunctionPtr n = TFunction<double>::normal(); // spatial normal
-    
-    FunctionPtr D_trace = Function::zero();
-    std::vector<FunctionPtr> Di_exact(_spaceDim);
-    std::vector<std::vector<FunctionPtr>> Dij_exact(_spaceDim, std::vector<FunctionPtr>(_spaceDim));
-    std::vector<FunctionPtr> u_vector(_spaceDim);
-    for (int d=0; d<_spaceDim; d++)
-    {
-      if (_spaceDim == 1)
-      {
-        u_vector[d] = velocity;
-        Di_exact[d] = _mu * u_vector[d]->dx();
-        D_trace = Di_exact[d];
-        Dij_exact[0][0] = Di_exact[0];
-      }
-      else
-      {
-        u_vector[d] = velocity->spatialComponent(d+1);
-        Di_exact[d] = _mu * u_vector[d]->grad();
-        D_trace = D_trace + Di_exact[d]->spatialComponent(d+1);
-        for (int d2=0; d2<_spaceDim; d2++)
-        {
-          Dij_exact[d][d2] = Di_exact[d]->spatialComponent(d2+1);
-        }
-      }
-    }
-    
-    double R = this->R();
-    double D_traceWeight = -2./3.; // Stokes' hypothesis
-    
-    FunctionPtr tm_i_exact = Function::zero();
-    for (int d=0; d<_spaceDim; d++)
-    {
-      // rho (u xx u) n
-      tm_i_exact = tm_i_exact + rho * u_vector[d] * u_vector[i-1] * n->spatialComponent(d+1);
-      // - (D + D^T) n
-      tm_i_exact = tm_i_exact - (Dij_exact[d][i-1] + Dij_exact[i-1][d]) * n->spatialComponent(d+1);
-    }
-    // rho R T I n
-    tm_i_exact = tm_i_exact + rho * R * T * n->spatialComponent(i);
-    // - D_traceWeight * tr(D) I n
-    tm_i_exact = tm_i_exact - D_traceWeight * D_trace * n->spatialComponent(i);
-    
-    if (_spaceTime)
-    {
-      // TODO: confirm that this is correct (I'm not really focused on the space-time case in this refactor...)
-      FunctionPtr n_t = Function::normalSpaceTime()->t();
-      FunctionPtr u_i = u_vector[i-1];
-      tm_i_exact = tm_i_exact + rho * u_i * n_t;
-    }
-    
-    if (includeParity)
-    {
-      tm_i_exact = tm_i_exact * Function::sideParity();
-    }
-    tm_exact[i-1] = tm_i_exact;
-  }
-  return tm_exact;
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "method not yet implemented");
+//  vector<FunctionPtr> tm_exact(_spaceDim);
+//  for (int i=1; i<= _spaceDim; i++)
+//  {
+//    VarPtr tm_i = this->tm(i);
+//
+//    // tm: trace of rho (u xx u) n + rho R T I n - (D + D^T - 2./3. * tr(D)I) n
+//    //     (where xx is the outer product operator)
+//
+//    FunctionPtr n = TFunction<double>::normal(); // spatial normal
+//
+//    FunctionPtr D_trace = Function::zero();
+//    std::vector<FunctionPtr> Di_exact(_spaceDim);
+//    std::vector<std::vector<FunctionPtr>> Dij_exact(_spaceDim, std::vector<FunctionPtr>(_spaceDim));
+//    std::vector<FunctionPtr> u_vector(_spaceDim);
+//    for (int d=0; d<_spaceDim; d++)
+//    {
+//      if (_spaceDim == 1)
+//      {
+//        u_vector[d] = velocity;
+//        Di_exact[d] = _mu * u_vector[d]->dx();
+//        D_trace = Di_exact[d];
+//        Dij_exact[0][0] = Di_exact[0];
+//      }
+//      else
+//      {
+//        u_vector[d] = velocity->spatialComponent(d+1);
+//        Di_exact[d] = _mu * u_vector[d]->grad();
+//        D_trace = D_trace + Di_exact[d]->spatialComponent(d+1);
+//        for (int d2=0; d2<_spaceDim; d2++)
+//        {
+//          Dij_exact[d][d2] = Di_exact[d]->spatialComponent(d2+1);
+//        }
+//      }
+//    }
+//
+//    double R = this->R();
+//    double D_traceWeight = -2./3.; // Stokes' hypothesis
+//
+//    FunctionPtr tm_i_exact = Function::zero();
+//    for (int d=0; d<_spaceDim; d++)
+//    {
+//      // rho (u xx u) n
+//      tm_i_exact = tm_i_exact + rho * u_vector[d] * u_vector[i-1] * n->spatialComponent(d+1);
+//      // - (D + D^T) n
+//      tm_i_exact = tm_i_exact - (Dij_exact[d][i-1] + Dij_exact[i-1][d]) * n->spatialComponent(d+1);
+//    }
+//    // rho R T I n
+//    tm_i_exact = tm_i_exact + rho * R * T * n->spatialComponent(i);
+//    // - D_traceWeight * tr(D) I n
+//    tm_i_exact = tm_i_exact - D_traceWeight * D_trace * n->spatialComponent(i);
+//
+//    if (_spaceTime)
+//    {
+//      // TODO: confirm that this is correct (I'm not really focused on the space-time case in this refactor...)
+//      FunctionPtr n_t = Function::normalSpaceTime()->t();
+//      FunctionPtr u_i = u_vector[i-1];
+//      tm_i_exact = tm_i_exact + rho * u_i * n_t;
+//    }
+//
+//    if (includeParity)
+//    {
+//      tm_i_exact = tm_i_exact * Function::sideParity();
+//    }
+//    tm_exact[i-1] = tm_i_exact;
+//  }
+//  return tm_exact;
 }
 
 std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeFluxParity)
 {
-  using namespace std;
-  vector<FunctionPtr> q(_spaceDim);
-  vector<vector<FunctionPtr>> D(_spaceDim,vector<FunctionPtr>(_spaceDim));
-  vector<FunctionPtr> u(_spaceDim);
-  FunctionPtr qWeight = (-Cp()/Pr())*_muFunc;
-  FunctionPtr E = rho * Cv() * T; // we add u*u/2 to this below
-  if (_spaceDim == 1)
-  {
-    D[0][0] = _muFunc * velocity->dx();
-    q[0] = qWeight * T->dx();
-    u[0] = velocity;
-    E = E + 0.5 * rho * u[0]*u[0];
-  }
-  else
-  {
-    for (int d1=0; d1<_spaceDim; d1++)
-    {
-      q[d1] = qWeight * T->di(d1+1);
-      u[d1] = velocity->spatialComponent(d1+1);
-      for (int d2=0; d2<_spaceDim; d2++)
-      {
-        D[d1][d2] = _muFunc * u[d1]->di(d2+1);
-      }
-      E = E + 0.5 * rho * u[d1] * u[d1];
-    }
-  }
-  vector<FunctionPtr> tm = exactSolution_tm(velocity, rho, T, includeFluxParity);
-  FunctionPtr         te = exactSolution_te(velocity, rho, T, includeFluxParity);
-  FunctionPtr         tc = exactSolution_tc(velocity, rho, T, includeFluxParity);
-  
-  map<int, FunctionPtr> solnMap;
-  solnMap[this->E()->ID()]     = E;
-  solnMap[this->T_hat()->ID()] = T;
-  solnMap[this->rho()->ID()]   = rho;
-  solnMap[this->tc()->ID()]    = tc;
-  solnMap[this->te()->ID()]    = te;
-  for (int d1=0; d1<_spaceDim; d1++)
-  {
-    solnMap[this->m(d1+1)->ID()]     = u[d1] * rho;
-    solnMap[this->u_hat(d1+1)->ID()] = u[d1];
-    
-    solnMap[this->q(d1+1)->ID()]     = q[d1];
-    
-    solnMap[this->tm(d1+1)->ID()]    = tm[d1];
-    
-    for (int d2=0; d2<_spaceDim; d2++)
-    {
-      solnMap[this->D(d1+1,d2+1)->ID()] = D[d1][d2];
-    }
-  }
-  return solnMap;
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "exactSolutionMap not yet implemented!");
+//  using namespace std;
+//  vector<FunctionPtr> q(_spaceDim);
+//  vector<vector<FunctionPtr>> D(_spaceDim,vector<FunctionPtr>(_spaceDim));
+//  vector<FunctionPtr> u(_spaceDim);
+//  FunctionPtr qWeight = (-Cp()/Pr())*_muFunc;
+//  FunctionPtr E = rho * Cv() * T; // we add u*u/2 to this below
+//  if (_spaceDim == 1)
+//  {
+//    D[0][0] = _muFunc * velocity->dx();
+//    q[0] = qWeight * T->dx();
+//    u[0] = velocity;
+//    E = E + 0.5 * rho * u[0]*u[0];
+//  }
+//  else
+//  {
+//    for (int d1=0; d1<_spaceDim; d1++)
+//    {
+//      q[d1] = qWeight * T->di(d1+1);
+//      u[d1] = velocity->spatialComponent(d1+1);
+//      for (int d2=0; d2<_spaceDim; d2++)
+//      {
+//        D[d1][d2] = _muFunc * u[d1]->di(d2+1);
+//      }
+//      E = E + 0.5 * rho * u[d1] * u[d1];
+//    }
+//  }
+//  vector<FunctionPtr> tm = exactSolution_tm(velocity, rho, T, includeFluxParity);
+//  FunctionPtr         te = exactSolution_te(velocity, rho, T, includeFluxParity);
+//  FunctionPtr         tc = exactSolution_tc(velocity, rho, T, includeFluxParity);
+//
+//  map<int, FunctionPtr> solnMap;
+//  solnMap[this->E()->ID()]     = E;
+//  solnMap[this->T_hat()->ID()] = T;
+//  solnMap[this->rho()->ID()]   = rho;
+//  solnMap[this->tc()->ID()]    = tc;
+//  solnMap[this->te()->ID()]    = te;
+//  for (int d1=0; d1<_spaceDim; d1++)
+//  {
+//    solnMap[this->m(d1+1)->ID()]     = u[d1] * rho;
+//    solnMap[this->u_hat(d1+1)->ID()] = u[d1];
+//
+//    solnMap[this->q(d1+1)->ID()]     = q[d1];
+//
+//    solnMap[this->tm(d1+1)->ID()]    = tm[d1];
+//
+//    for (int d2=0; d2<_spaceDim; d2++)
+//    {
+//      solnMap[this->D(d1+1,d2+1)->ID()] = D[d1][d2];
+//    }
+//  }
+//  return solnMap;
 }
-*/
+
 double IdealMHDFormulation::gamma()
 {
   return _gamma;
@@ -1139,6 +1100,7 @@ VarPtr IdealMHDFormulation::tau()
   Space tauSpace = (_spaceDim == 1) ? HGRAD : HDIV;
   return _vf->testVar(S_tau, tauSpace);
 }
+ */
 
 VarPtr IdealMHDFormulation::tc()
 {
@@ -1156,6 +1118,7 @@ VarPtr IdealMHDFormulation::tm(int i)
   return _vf->fluxVar(S_tm[i-1]);
 }
 
+/*
 // traces:
 VarPtr IdealMHDFormulation::u_hat(int i)
 {
