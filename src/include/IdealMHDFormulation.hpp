@@ -88,6 +88,21 @@ namespace Camellia
     static const std::string S_vB[3];
     
     void CHECK_VALID_COMPONENT(int i); // throws exception on bad component value (should be between 1 and _spaceDim, inclusive)
+    
+    struct ScalarFluxEquation
+    {
+      VarPtr testVar;
+      FunctionPtr flux;
+      VarPtr traceVar;
+      VarPtr timeTerm; // term that is differentiated in time
+      FunctionPtr f_rhs;
+    };
+    
+    std::map<int,ScalarFluxEquation> _fluxEquations; // keys are test var IDs
+    
+    FunctionPtr getMomentumFluxComponent(FunctionPtr momentumFlux, int i);
+    
+    FunctionPtr exactSolutionFlux(VarPtr testVar, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
   public:
     IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters);
     
@@ -231,10 +246,14 @@ namespace Camellia
     VarPtr ve();
     VarPtr vB(int i);
     
-    // ! For an exact solution (u, rho, E, B), produces a map that includes these as well as solution variables that depend on them (fields, traces, fluxes).
+    // ! For an exact solution (u, rho, E, B), produces a map with solution variables that depend on them (fields, traces, fluxes).
     // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeFluxParity is false, fluxes do not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
     std::map<int, FunctionPtr> exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeFluxParity);
+    
+    // ! For an exact solution (u, rho, E, B), produces a map with volume solution variables that depend on them (fields).
+    // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
+    std::map<int, FunctionPtr> exactSolutionFieldMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
     
     // ! For an exact solution (u, rho, E, B), returns the corresponding tc flux
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object

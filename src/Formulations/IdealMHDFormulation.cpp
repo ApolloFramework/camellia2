@@ -61,7 +61,8 @@ const string IdealMHDFormulation::S_vB[3]   = {S_vB1, S_vB2, S_vB3};
 
 void IdealMHDFormulation::CHECK_VALID_COMPONENT(int i) // throws exception on bad component value (should be between 1 and _spaceDim, inclusive)
 {
-  if ((i > _spaceDim) || (i < 1))
+  const int trueSpaceDim = 3;
+  if ((i > trueSpaceDim) || (i < 1))
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "component indices must be at least 1 and less than or equal to _spaceDim");
   }
@@ -370,28 +371,18 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     _solnPrevTime->loadFromHDF5(savedSolutionAndMeshPrefix+"_prevtime.soln");
   }
   
-  struct ScalarEquation
-  {
-    VarPtr testVar;
-    FunctionPtr flux;
-    VarPtr traceVar;
-    VarPtr timeTerm; // term that is differentiated in time
-    FunctionPtr f_rhs;
-  };
-  
-  vector<ScalarEquation> equations;
-  equations.push_back({vc,massFlux,tc,rhoVar,_fc});
+  _fluxEquations[vc->ID()] = {vc,massFlux,tc,rhoVar,_fc};
   for (int d=0; d<trueSpaceDim; d++)
   {
     auto momentumColumn = (_spaceDim > 1) ? column(_spaceDim,momentumFlux,d+1) : momentumFlux->spatialComponent(d+1);
-    equations.push_back({vm[d],momentumColumn,tm[d],mVar[d],_fm[d]});
+    _fluxEquations[vm[d]->ID()] = {vm[d],momentumColumn,tm[d],mVar[d],_fm[d]};
     if ((d > 0) || (_spaceDim != 1))
     {
       auto magneticColumn = (_spaceDim > 1) ? column(_spaceDim,magneticFlux,d+1) : magneticFlux->spatialComponent(d+1);
-      equations.push_back({vB[d],magneticColumn,tB[d],BVar[d],_fB[d]});
+      _fluxEquations[vB[d]->ID()] = {vB[d],magneticColumn,tB[d],BVar[d],_fB[d]};
     }
   }
-  equations.push_back({ve,energyFlux,te,EVar,_fe});
+  _fluxEquations[ve->ID()] = {ve,energyFlux,te,EVar,_fe};
   
   std::string backgroundFlowIdentifierExponent = "";
   std::string previousTimeIdentifierExponent = "";
@@ -412,8 +403,9 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     previousTimeFunctions[var->ID()]   = Function::solution(var, _solnPrevTime,   weightFluxesByParity, previousTimeIdentifierExponent);
   }
   
-  for (auto eqn : equations)
+  for (auto eqnEntry : _fluxEquations)
   {
+    auto eqn = eqnEntry.second;
     auto testVar  = eqn.testVar;
     auto timeTerm = eqn.timeTerm;
     auto flux     = eqn.flux;
@@ -534,6 +526,11 @@ void IdealMHDFormulation::addEnergyFluxCondition(SpatialFilterPtr region, Functi
   _solnIncrement->bc()->addDirichlet(te, region, te_exact);
 }
 
+VarPtr IdealMHDFormulation::B(int i)
+{
+  return _vf->trialVar(S_B[i]);
+}
+
 BFPtr IdealMHDFormulation::bf()
 {
   return _bf;
@@ -627,176 +624,78 @@ std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_fm(FunctionPtr u, Fu
 
 FunctionPtr IdealMHDFormulation::exactSolution_tc(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity)
 {
-  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "method not yet implemented");
-//  FunctionPtr n = TFunction<double>::normal(); // spatial normal
-//  FunctionPtr tc_exact = Function::zero();
-//  for (int d=0; d<_spaceDim; d++)
-//  {
-//    auto u_i = (_spaceDim > 1) ? u->spatialComponent(d+1) : velocity;
-//    auto n_i = n->spatialComponent(d+1);
-//    tc_exact = tc_exact + rho * u_i * n_i;
-//  }
-//  if (_spaceTime)
-//  {
-//    FunctionPtr n_xt = TFunction<double>::normalSpaceTime();
-//    FunctionPtr n_t = n_xt->t();
-//    tc_exact = tc_exact + rho * n_t;
-//  }
-//  if (includeParity)
-//  {
-//    tc_exact = tc_exact * Function::sideParity();
-//  }
-//  return tc_exact;
+  auto testVar = this->vc();
+  return exactSolutionFlux(testVar, u, rho, E, B, includeParity);
 }
 
 FunctionPtr IdealMHDFormulation::exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity)
 {
-  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "method not yet implemented");
-//  // t_e is the trace of:
-//  // ((c_v + R) T rho u + 0.5 * (u dot u) rho u + q - u dot (D + D^T - 2/3 tr(D) I)) dot n
-//
-//  FunctionPtr n_xt = TFunction<double>::normalSpaceTime();
-//
-//  FunctionPtr D_trace = Function::zero();
-//  std::vector<FunctionPtr> Di_exact(_spaceDim);
-//  std::vector<std::vector<FunctionPtr>> Dij_exact(_spaceDim, std::vector<FunctionPtr>(_spaceDim));
-//  std::vector<FunctionPtr> u_vector(_spaceDim);
-//  FunctionPtr q_exact;
-//
-//  FunctionPtr qWeight = (-Cp()/Pr())*_muFunc;
-//  if (_spaceDim == 1)
-//  {
-//    q_exact = qWeight * T->dx();
-//  }
-//  else
-//  {
-//    q_exact = qWeight * T->grad();
-//  }
-//
-//  for (int d=0; d<_spaceDim; d++)
-//  {
-//    if (_spaceDim == 1)
-//    {
-//      u_vector[d] = velocity;
-//      Di_exact[d] = _mu * u_vector[d]->dx();
-//      D_trace = Di_exact[d];
-//      Dij_exact[0][0] = Di_exact[0];
-//    }
-//    else
-//    {
-//      u_vector[d] = velocity->spatialComponent(d+1);
-//      Di_exact[d] = _mu * u_vector[d]->grad();
-//      D_trace = D_trace + Di_exact[d]->spatialComponent(d+1);
-//      for (int d2=0; d2<_spaceDim; d2++)
-//      {
-//        Dij_exact[d][d2] = Di_exact[d]->spatialComponent(d2+1);
-//      }
-//    }
-//  }
-//
-//  double R = this->R();
-//  double Cv = this->Cv();
-//  double D_traceWeight = -2./3.; // Stokes' hypothesis
-//
-//  // defer the dotting with the normal until we've accumulated the other terms (other than the D + D^T terms, which we treat separately)
-//  FunctionPtr te_exact = ((Cv + R) * T + (0.5 * velocity * velocity)) * rho * velocity + q_exact;
-//  te_exact = te_exact - D_traceWeight * D_trace * velocity; // simplification of u dot (2/3 tr(D) I)
-//
-//  // now, dot with normal
-//  FunctionPtr n = TFunction<double>::normal(); // spatial normal
-//  if (_spaceDim == 1)
-//  {
-//    // for 1D, the product with normal should yield a scalar result
-//    te_exact = te_exact * n->x();
-//  }
-//  else
-//  {
-//    te_exact = te_exact * n; // dot product
-//  }
-//  // u dot (D + D^T) dot n = ((D + D^T) u) dot n
-//  for (int d1=0; d1<_spaceDim; d1++)
-//  {
-//    for (int d2=0; d2<_spaceDim; d2++)
-//    {
-//      te_exact = te_exact - (Dij_exact[d1][d2] + Dij_exact[d2][d1]) * u_vector[d2] * n->spatialComponent(d1+1);
-//    }
-//  }
-//  if (includeParity)
-//  {
-//    te_exact = te_exact * Function::sideParity();
-//  }
-//  return te_exact;
+  auto testVar = this->ve();
+  return exactSolutionFlux(testVar, u, rho, E, B, includeParity);
 }
 
 std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_tm(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity)
 {
-  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "method not yet implemented");
-//  vector<FunctionPtr> tm_exact(_spaceDim);
-//  for (int i=1; i<= _spaceDim; i++)
-//  {
-//    VarPtr tm_i = this->tm(i);
-//
-//    // tm: trace of rho (u xx u) n + rho R T I n - (D + D^T - 2./3. * tr(D)I) n
-//    //     (where xx is the outer product operator)
-//
-//    FunctionPtr n = TFunction<double>::normal(); // spatial normal
-//
-//    FunctionPtr D_trace = Function::zero();
-//    std::vector<FunctionPtr> Di_exact(_spaceDim);
-//    std::vector<std::vector<FunctionPtr>> Dij_exact(_spaceDim, std::vector<FunctionPtr>(_spaceDim));
-//    std::vector<FunctionPtr> u_vector(_spaceDim);
-//    for (int d=0; d<_spaceDim; d++)
-//    {
-//      if (_spaceDim == 1)
-//      {
-//        u_vector[d] = velocity;
-//        Di_exact[d] = _mu * u_vector[d]->dx();
-//        D_trace = Di_exact[d];
-//        Dij_exact[0][0] = Di_exact[0];
-//      }
-//      else
-//      {
-//        u_vector[d] = velocity->spatialComponent(d+1);
-//        Di_exact[d] = _mu * u_vector[d]->grad();
-//        D_trace = D_trace + Di_exact[d]->spatialComponent(d+1);
-//        for (int d2=0; d2<_spaceDim; d2++)
-//        {
-//          Dij_exact[d][d2] = Di_exact[d]->spatialComponent(d2+1);
-//        }
-//      }
-//    }
-//
-//    double R = this->R();
-//    double D_traceWeight = -2./3.; // Stokes' hypothesis
-//
-//    FunctionPtr tm_i_exact = Function::zero();
-//    for (int d=0; d<_spaceDim; d++)
-//    {
-//      // rho (u xx u) n
-//      tm_i_exact = tm_i_exact + rho * u_vector[d] * u_vector[i-1] * n->spatialComponent(d+1);
-//      // - (D + D^T) n
-//      tm_i_exact = tm_i_exact - (Dij_exact[d][i-1] + Dij_exact[i-1][d]) * n->spatialComponent(d+1);
-//    }
-//    // rho R T I n
-//    tm_i_exact = tm_i_exact + rho * R * T * n->spatialComponent(i);
-//    // - D_traceWeight * tr(D) I n
-//    tm_i_exact = tm_i_exact - D_traceWeight * D_trace * n->spatialComponent(i);
-//
-//    if (_spaceTime)
-//    {
-//      // TODO: confirm that this is correct (I'm not really focused on the space-time case in this refactor...)
-//      FunctionPtr n_t = Function::normalSpaceTime()->t();
-//      FunctionPtr u_i = u_vector[i-1];
-//      tm_i_exact = tm_i_exact + rho * u_i * n_t;
-//    }
-//
-//    if (includeParity)
-//    {
-//      tm_i_exact = tm_i_exact * Function::sideParity();
-//    }
-//    tm_exact[i-1] = tm_i_exact;
-//  }
-//  return tm_exact;
+  const int trueSpaceDim = 3;
+  std::vector<FunctionPtr> tm(trueSpaceDim);
+  for (int d=0; d<trueSpaceDim; d++)
+  {
+    auto testVar = this->vm(d+1);
+    tm[d] = exactSolutionFlux(testVar, u, rho, E, B, includeParity);
+  }
+  return tm;
+}
+
+std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionFieldMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
+{
+  map<int, FunctionPtr> exactMap;
+  const int trueSpaceDim = 3;
+  exactMap[this->rho()->ID()] = rho;
+  exactMap[this->E()->ID()] = E;
+  for (int d=1; d<trueSpaceDim; d++)
+  {
+    exactMap[this->m(d)->ID()] = rho * u->spatialComponent(d);
+    if ((d > 1) || (_spaceDim > 1))
+    {
+      exactMap[this->B(d)->ID()] = B->spatialComponent(d);
+    }
+  }
+  return exactMap;
+}
+
+FunctionPtr IdealMHDFormulation::exactSolutionFlux(VarPtr testVar, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B,
+                                                   bool includeParity)
+{
+  ScalarFluxEquation equation = _fluxEquations.find(testVar->ID())->second;
+  auto abstractFlux = equation.flux;
+  auto timeTerm = equation.timeTerm;
+  
+  map<int,FunctionPtr> exactMap = exactSolutionFieldMap(u, rho, E, B);
+  auto flux = abstractFlux->evaluateAt(exactMap);
+  
+  auto n = TFunction<double>::normal();
+  FunctionPtr flux_dot_n;
+  if (_spaceDim == 1) //flux is a scalar, then
+  {
+    auto n_x = n->spatialComponent(1);
+    flux_dot_n = flux * n_x;
+  }
+  else
+  {
+    flux_dot_n = dot(_spaceDim,flux,n);
+  }
+  auto exactFlux = flux_dot_n;
+  if (_spaceTime)
+  {
+    FunctionPtr n_t = TFunction<double>::normalSpaceTime()->t();
+    auto timeTermExact = VarFunction<double>::abstractFunction(timeTerm)->evaluateAt(exactMap);
+    exactFlux = exactFlux + timeTermExact * n_t;
+  }
+  if (includeParity)
+  {
+    exactFlux = exactFlux * Function::sideParity();
+  }
+  return exactFlux;
 }
 
 std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeFluxParity)
@@ -859,7 +758,7 @@ double IdealMHDFormulation::gamma()
 {
   return _gamma;
 }
-/*
+
 int IdealMHDFormulation::getSolveCode()
 {
   return _solveCode;
@@ -882,6 +781,13 @@ double IdealMHDFormulation::L2NormSolutionIncrement()
   return sqrt(l2_squared);
 }
 
+FunctionPtr IdealMHDFormulation::getMomentumFluxComponent(FunctionPtr momentumFlux, int i)
+{
+  // get the column (row in 1D) of the momentum tensor
+  auto flux = (_spaceDim > 1) ? column(_spaceDim,momentumFlux,i+1) : momentumFlux->spatialComponent(i+1);
+  return flux;
+}
+
 VarPtr IdealMHDFormulation::m(int i)
 {
   CHECK_VALID_COMPONENT(i);
@@ -889,11 +795,7 @@ VarPtr IdealMHDFormulation::m(int i)
   return _vf->fieldVar(S_m[i-1]);
 }
 
-double IdealMHDFormulation::mu()
-{
-  return _mu;
-}
-
+/*
 double IdealMHDFormulation::Pr()
 {
   return _Pr;
@@ -910,10 +812,10 @@ double IdealMHDFormulation::R()
 {
   return Cp()-Cv();
 }
-
+*/
 VarPtr IdealMHDFormulation::rho()
 {
-  return _vf->fieldVar(S_rho);
+  return _vf->trialVar(S_rho);
 }
 
 RHSPtr IdealMHDFormulation::rhs()
@@ -921,30 +823,19 @@ RHSPtr IdealMHDFormulation::rhs()
   return _rhs;
 }
 
-VarPtr IdealMHDFormulation::S(int i)
+void IdealMHDFormulation::setForcing(FunctionPtr f_continuity, std::vector<FunctionPtr> f_momentum, FunctionPtr f_energy,
+                                     std::vector<FunctionPtr> f_magnetic)
 {
-  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "S test function is not defined in Euler formulation");
-  CHECK_VALID_COMPONENT(i);
-  Space SSpace = (_spaceDim == 1) ? HGRAD : HDIV;
-  return _vf->testVar(S_S[i-1], SSpace);
-}
-
-void IdealMHDFormulation::setForcing(FunctionPtr f_continuity, vector<FunctionPtr> f_momentum, FunctionPtr f_energy)
-{
-  TEUCHOS_TEST_FOR_EXCEPTION(f_momentum.size() != _spaceDim, std::invalid_argument, "f_momentum should have size equal to the spatial dimension");
+  const int trueSpaceDim = 3;
+  TEUCHOS_TEST_FOR_EXCEPTION(f_momentum.size() != trueSpaceDim, std::invalid_argument, "f_momentum should have size equal to 3, the true spatial dimension");
+  TEUCHOS_TEST_FOR_EXCEPTION(f_magnetic.size() != trueSpaceDim, std::invalid_argument, "f_magnetic should have size equal to 3, the true spatial dimension");
   _fc->setValue(f_continuity);
   _fe->setValue(f_energy);
-  for (int d=0; d<_spaceDim; d++)
+  for (int d=0; d<trueSpaceDim; d++)
   {
     _fm[d]->setValue(f_momentum[d]);
+    _fB[d]->setValue(f_magnetic[d]);
   }
-}
-
-void IdealMHDFormulation::setMu(double value)
-{
-  _mu = value;
-  _muParamFunc->setValue(_mu);
-  _muSqrtParamFunc->setValue(sqrt(_mu));
 }
 
 // ! set current time step used for transient solve
@@ -960,23 +851,11 @@ double IdealMHDFormulation::solveAndAccumulate()
   set<int> nonlinearVariables = {{rho()->ID(), E()->ID()}};
   set<int> linearVariables = {{tc()->ID(), te()->ID()}};
   
-  if (!_pureEulerMode) // T_hat not defined for Euler
-  {
-    linearVariables.insert(T_hat()->ID());
-  }
-  for (int d1=0; d1<_spaceDim; d1++)
+  const int trueSpaceDim = 3;
+  for (int d1=0; d1<trueSpaceDim; d1++)
   {
     nonlinearVariables.insert(m(d1+1)->ID());
     linearVariables.insert(tm(d1+1)->ID());
-    if (!_pureEulerMode) // u_hat, q, D not defined in Euler
-    {
-      linearVariables.insert(u_hat(d1+1)->ID());
-      nonlinearVariables.insert(q(d1+1)->ID());
-      for (int d2=0; d2<_spaceDim; d2++)
-      {
-        nonlinearVariables.insert(D(d1+1,d2+1)->ID());
-      }
-    }
   }
   
   double alpha = 1.0;
@@ -1005,25 +884,6 @@ double IdealMHDFormulation::solveAndAccumulate()
   double Cv = this->Cv();
   FunctionPtr TUpdated  = (1.0/Cv) / rhoUpdated  * (EUpdated  - 0.5 * mDotmUpdated  / rhoUpdated);
   FunctionPtr TPrevious = (1.0/Cv) / rhoPrevious * (EPrevious - 0.5 * mDotmPrevious / rhoPrevious);
-  
-  // pointwise change in Entropy should also be positive
-  // s2 - s1 = c_p ln (T2/T1) - R ln (p2/p1)
-  
-  FunctionPtr ds;
-  {
-    // pressure = rho * R * T
-    double R  = this->R();
-    double Cp = this->Cp();
-    FunctionPtr pPrevious = R * rhoPrevious * TPrevious;
-    FunctionPtr pUpdated  = R * rhoUpdated  * TUpdated;
-    
-    auto ln = [&] (FunctionPtr arg) -> FunctionPtr
-    {
-      return Teuchos::rcp(new Ln<double>(arg));
-    };
-    
-    ds = Cp * ln(TUpdated / TPrevious) - R * ln(pUpdated / pPrevious);
-  }
   
   // we may need to do something else to ensure positive changes in entropy;
   // if we just add ds to the list of positive functions, we stall on the first Newton step...
@@ -1062,7 +922,7 @@ double IdealMHDFormulation::solveAndAccumulate()
   
   return alpha;
 }
-*/
+
 // ! Returns the solution (at current time)
 SolutionPtr IdealMHDFormulation::solution()
 {
@@ -1084,65 +944,35 @@ BFPtr IdealMHDFormulation::steadyBF()
 {
   return _steadyBF;
 }
-/*
-VarPtr IdealMHDFormulation::T_hat()
-{
-  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "T_hat is not defined in Euler formulation");
-  if (! _spaceTime)
-    return _vf->traceVar(S_T_hat);
-  else
-    return _vf->traceVarSpaceOnly(S_T_hat);
-}
-
-VarPtr IdealMHDFormulation::tau()
-{
-  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "tau test function is not defined in Euler formulation");
-  Space tauSpace = (_spaceDim == 1) ? HGRAD : HDIV;
-  return _vf->testVar(S_tau, tauSpace);
-}
- */
 
 VarPtr IdealMHDFormulation::tc()
 {
-  return _vf->fluxVar(S_tc);
+  return _vf->trialVar(S_tc);
 }
 
 VarPtr IdealMHDFormulation::te()
 {
-  return _vf->fluxVar(S_te);
+  return _vf->trialVar(S_te);
 }
 
 VarPtr IdealMHDFormulation::tm(int i)
 {
   CHECK_VALID_COMPONENT(i);
-  return _vf->fluxVar(S_tm[i-1]);
-}
-
-/*
-// traces:
-VarPtr IdealMHDFormulation::u_hat(int i)
-{
-  CHECK_VALID_COMPONENT(i);
-  TEUCHOS_TEST_FOR_EXCEPTION(_pureEulerMode, std::invalid_argument, "u_hat is not defined in Euler formulation");
-  if (! _spaceTime)
-    return _vf->traceVar(S_u_hat[i-1]);
-  else
-    return _vf->traceVarSpaceOnly(S_u_hat[i-1]);
+  return _vf->trialVar(S_tm[i-1]);
 }
 
 VarPtr IdealMHDFormulation::vc()
 {
-  return _vf->testVar(S_vc, HGRAD);
+  return _vf->testVar(S_vc);
 }
 
 VarPtr IdealMHDFormulation::vm(int i)
 {
   CHECK_VALID_COMPONENT(i);
-  return _vf->testVar(S_vm[i-1], HGRAD);
+  return _vf->testVar(S_vm[i-1]);
 }
 
 VarPtr IdealMHDFormulation::ve()
 {
-  return _vf->testVar(S_ve, HGRAD);
+  return _vf->testVar(S_ve);
 }
-*/
