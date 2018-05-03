@@ -25,7 +25,6 @@ namespace Camellia
     std::vector<Teuchos::RCP<ParameterFunction> > _fm; // forcing for momentum equation(s)
     std::vector<Teuchos::RCP<ParameterFunction> > _fB; // forcing for magnetism equation(s)
     double _gamma;
-    double _Pr;
     double _Cv;
     int _spatialPolyOrder;
     int _temporalPolyOrder;
@@ -103,6 +102,8 @@ namespace Camellia
     FunctionPtr getMomentumFluxComponent(FunctionPtr momentumFlux, int i);
     
     FunctionPtr exactSolutionFlux(VarPtr testVar, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
+    
+    std::map<int, FunctionPtr> _backgroundFlowMap, _solnPreviousTimeMap, _solnIncrementMap;
   public:
     IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters);
     
@@ -238,7 +239,7 @@ namespace Camellia
     VarPtr tc();
     VarPtr tm(int i);
     VarPtr te();
-    VarPtr tB();
+    VarPtr tB(int i);
     
     // test variables:
     VarPtr vc();
@@ -254,6 +255,10 @@ namespace Camellia
     // ! For an exact solution (u, rho, E, B), produces a map with volume solution variables that depend on them (fields).
     // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     std::map<int, FunctionPtr> exactSolutionFieldMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    
+    // ! For an exact solution (m, rho, E, B), produces a map with volume solution variables that depend on them (fields).
+    // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
+    std::map<int, FunctionPtr> exactSolutionFieldMapFromConservationVariables(FunctionPtr m, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
     
     // ! For an exact solution (u, rho, E, B), returns the corresponding tc flux
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
@@ -289,6 +294,12 @@ namespace Camellia
     
     // ! returns a std::map indicating any trial variables that have adjusted polynomial orders relative to the standard poly order for the element.  Keys are variable IDs, values the difference between the indicated variable and the standard polynomial order.
     const std::map<int,int> &getTrialVariablePolyOrderAdjustments();
+    
+    // ! Returns a map containing the current time step's solution data for each trial variable
+    const std::map<int, FunctionPtr> &solutionFieldMap();
+    
+    // ! Returns a map containing the previous time step's solution data for each trial variable
+    const std::map<int, FunctionPtr> &previousSolutionFieldMap();
     
     // ! zeros out the solution increment
     void clearSolutionIncrement();
