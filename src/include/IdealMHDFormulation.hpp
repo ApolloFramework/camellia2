@@ -52,6 +52,12 @@ namespace Camellia
     FunctionPtr _magneticFlux; // rank-2 tensor in 2D and 3D (_spaceDim rows, 3 columns).  In 1D, a 3-row vector.
     FunctionPtr _energyFlux;
     
+    // abstract pressure and temperature, as well as velocity and momentum
+    FunctionPtr _abstractPressure, _abstractTemperature;
+    
+    // abstract functions corresponding to our field variables (velocity and momentum are vector-valued)
+    FunctionPtr _abstractDensity, _abstractEnergy, _abstractMagnetism, _abstractMomentum, _abstractVelocity;
+    
     SolutionPtr _backgroundFlow, _solnIncrement, _solnPrevTime;
     
     RefinementStrategyPtr _refinementStrategy, _hRefinementStrategy, _pRefinementStrategy;
@@ -71,11 +77,13 @@ namespace Camellia
     static const std::string S_tm1, S_tm2, S_tm3;
     static const std::string S_te;
     static const std::string S_tB1, S_tB2, S_tB3;
+    static const std::string S_tGauss;
     
     static const std::string S_vc;
     static const std::string S_vm1, S_vm2, S_vm3;
     static const std::string S_ve;
     static const std::string S_vB1, S_vB2, S_vB3;
+    static const std::string S_vGauss;
     
     static const std::string S_m[3];
     static const std::string S_B[3];
@@ -119,8 +127,6 @@ namespace Camellia
     void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B); // vector u, B
     void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr value);
     
-//    void addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr tm_i_exact, int i);
-//    void addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact, int i);
     void addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
     
     void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr value);
@@ -159,9 +165,6 @@ namespace Camellia
   
     // ! Returns gamma
     double gamma();
-    
-    // ! Returns Pr
-    double Pr();
     
     // ! Returns Cv
     double Cv();
@@ -220,6 +223,9 @@ namespace Camellia
     // ! Returns the L2 norm of the time residual
     double timeResidual();
     
+    // ! Project the initial state provided onto both current solution and (unless doing space-time) solution for previous time step
+    void setInitialState(const std::map<int,FunctionPtr> &initialGuess);
+    
     // ! Solves
     void solve();
     
@@ -240,12 +246,14 @@ namespace Camellia
     VarPtr tm(int i);
     VarPtr te();
     VarPtr tB(int i);
+    VarPtr tGauss(); // trace for Gauss's Law (only defined for spaceDim > 1)
     
     // test variables:
     VarPtr vc();
-    VarPtr vm(int i);
+    VarPtr vm(int i); // 1, 2, or 3.  (All are defined regardless of mesh dimension...)
     VarPtr ve();
-    VarPtr vB(int i);
+    VarPtr vB(int i); // 1, 2, or 3, corresponding to Bx, By, Bz.  Note that in 1D, we don't solve for Bx, and input of "1" will cause an exception to be thrown.
+    VarPtr vGauss(); // test function for Gauss' Law.  Only defined for meshes of dimension > 1.  (In 1D, Gauss' Law is trivially satisfied.)
     
     // ! For an exact solution (u, rho, E, B), produces a map with solution variables that depend on them (fields, traces, fluxes).
     // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
@@ -296,10 +304,13 @@ namespace Camellia
     const std::map<int,int> &getTrialVariablePolyOrderAdjustments();
     
     // ! Returns a map containing the current time step's solution data for each trial variable
-    const std::map<int, FunctionPtr> &solutionFieldMap();
+    const std::map<int, FunctionPtr> &solutionFieldMap() const;
+    
+    // ! Returns a map containing the current time step's solution data for each trial variable
+    const std::map<int, FunctionPtr> &solutionIncrementFieldMap() const;
     
     // ! Returns a map containing the previous time step's solution data for each trial variable
-    const std::map<int, FunctionPtr> &previousSolutionFieldMap();
+    const std::map<int, FunctionPtr> &solutionPreviousTimeStepFieldMap() const;
     
     // ! zeros out the solution increment
     void clearSolutionIncrement();
@@ -309,14 +320,39 @@ namespace Camellia
     // ! Set the forcing functions for problem.  f_momentum and f_magnetic should have components equal to the number of spatial dimensions
     void setForcing(FunctionPtr f_continuity, std::vector<FunctionPtr> f_momentum, FunctionPtr f_energy, std::vector<FunctionPtr> f_magnetic);
     
+    // ! returns a Function representing the density abstractly, in terms of solution variables
+    // ! call evaluateAt(solutionMap) for some solution to get the density for that solution
+    FunctionPtr abstractDensity() const;
+
+    // ! returns a Function representing the energy abstractly, in terms of solution variables
+    // ! call evaluateAt(solutionMap) for some solution to get the energy for that solution
+    FunctionPtr abstractEnergy() const;
+    
+    // ! returns a Function representing the magnetism abstractly, in terms of solution variables
+    // ! call evaluateAt(solutionMap) for some solution to get the magnetism for that solution
+    // ! Note: this is vector-valued, of length 3, even when mesh is lower-dimensional
+    FunctionPtr abstractMagnetism() const;
+    
+    // ! returns a Function representing the momentum abstractly, in terms of solution variables
+    // ! call evaluateAt(solutionMap) for some solution to get the momentum for that solution
+    // ! Note: this is vector-valued, of length 3, even when mesh is lower-dimensional
+    FunctionPtr abstractMomentum() const;
+    
+    // ! returns a Function representing the pressure abstractly, in terms of solution variables
+    // ! call evaluateAt(solutionMap) for some solution to get the pressure for that solution
+    FunctionPtr abstractPressure() const;
+    
+    // ! returns a Function representing the temperature abstractly, in terms of solution variables
+    // ! call evaluateAt(solutionMap) for some solution to get the temperature for that solution
+    FunctionPtr abstractTemperature() const;
+    
+    // ! returns a Function representing the velocity abstractly, in terms of solution variables
+    // ! call evaluateAt(solutionMap) for some solution to get the velocity for that solution
+    // ! Note: this is vector-valued, of length 3, even when mesh is lower-dimensional
+    FunctionPtr abstractVelocity() const;
+    
     // static utility functions:
-    static Teuchos::RCP<IdealMHDFormulation> steadyFormulation(int spaceDim, MeshTopologyPtr meshTopo, int polyOrder, int delta_k);
-    
     static Teuchos::RCP<IdealMHDFormulation> timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
-    
-    static Teuchos::RCP<IdealMHDFormulation> steadyEulerFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
-    
-    static Teuchos::RCP<IdealMHDFormulation> timeSteppingEulerFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
   }; // class IdealMHDFormulation
 } // namespace Camellia
 

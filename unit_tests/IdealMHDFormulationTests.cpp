@@ -64,10 +64,10 @@ namespace
     
     auto vf = form->solution()->bf()->varFactory();
     int numTestVars = vf->testVars().size();
-    TEST_EQUALITY(numTestVars, 8); // 2D: vc, ve, plus 3 vm's, 3 vBs
+    TEST_EQUALITY(numTestVars, 9); // 2D: vc, ve, plus 3 vm's, 3 vBs, plus vGauss
     
-    int numTrialVars = vf->trialVars().size(); // 2D: rho, E, 3 m's, 3 B's, plus 1 flux per equation: 16 variables
-    TEST_EQUALITY(numTrialVars, 16);
+    int numTrialVars = vf->trialVars().size(); // 2D: rho, E, 3 m's, 3 B's, plus 1 flux per equation: 17 variables
+    TEST_EQUALITY(numTrialVars, 17);
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Formulation_3D)
@@ -82,9 +82,9 @@ namespace
     
     auto vf = form->solution()->bf()->varFactory();
     int numTestVars = vf->testVars().size();
-    TEST_EQUALITY(numTestVars, 8); // 3D: vc, ve, plus 3 vm's, 3 vBs
+    TEST_EQUALITY(numTestVars, 9); // 2D: vc, ve, plus 3 vm's, 3 vBs, plus vGauss
     
-    int numTrialVars = vf->trialVars().size(); // 3D: rho, E, 3 m's, 3 B's, plus 1 flux per equation: 16 variables
-    TEST_EQUALITY(numTrialVars, 16);
+    int numTrialVars = vf->trialVars().size(); // 2D: rho, E, 3 m's, 3 B's, plus 1 flux per equation: 17 variables
+    TEST_EQUALITY(numTrialVars, 17);
   }
 } // namespace

@@ -42,6 +42,7 @@ const string IdealMHDFormulation::S_te = "te";
 const string IdealMHDFormulation::S_tB1 = "tB1";
 const string IdealMHDFormulation::S_tB2 = "tB2";
 const string IdealMHDFormulation::S_tB3 = "tB3";
+const string IdealMHDFormulation::S_tGauss = "tGauss";
 
 const string IdealMHDFormulation::S_vc = "vc";
 const string IdealMHDFormulation::S_vm1  = "vm1";
@@ -51,6 +52,7 @@ const string IdealMHDFormulation::S_ve   = "ve";
 const string IdealMHDFormulation::S_vB1  = "vB1";
 const string IdealMHDFormulation::S_vB2  = "vB2";
 const string IdealMHDFormulation::S_vB3  = "vB3";
+const string IdealMHDFormulation::S_vGauss = "vGauss";
 
 const string IdealMHDFormulation::S_m[3]    = {S_m1, S_m2, S_m3};
 const string IdealMHDFormulation::S_B[3]    = {S_B1, S_B2, S_B3};
@@ -68,52 +70,7 @@ void IdealMHDFormulation::CHECK_VALID_COMPONENT(int i) // throws exception on ba
   }
 }
 
-Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::steadyFormulation(int spaceDim, MeshTopologyPtr meshTopo, int polyOrder, int delta_k)
-{
-  Teuchos::ParameterList parameters;
-  
-  parameters.set("spaceDim", spaceDim);
-  parameters.set("useTimeStepping", false);
-  parameters.set("useSpaceTime", false);
-  parameters.set("spatialPolyOrder", polyOrder);
-  parameters.set("delta_k", delta_k);
-  
-  return Teuchos::rcp(new IdealMHDFormulation(meshTopo, parameters));
-}
-
 Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k)
-{
-  Teuchos::ParameterList parameters;
-  
-  parameters.set("spaceDim", spaceDim);
-  parameters.set("useTimeStepping", true);
-  parameters.set("useSpaceTime", false);
-  
-  parameters.set("t0",0.0);
-  
-  parameters.set("spatialPolyOrder", spatialPolyOrder);
-  parameters.set("delta_k", delta_k);
-  
-  return Teuchos::rcp(new IdealMHDFormulation(meshTopo, parameters));
-}
-
-Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::steadyEulerFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k)
-{
-  Teuchos::ParameterList parameters;
-  
-  parameters.set("spaceDim", spaceDim);
-  parameters.set("useTimeStepping", false);
-  parameters.set("useSpaceTime", false);
-  
-  parameters.set("t0",0.0);
-  
-  parameters.set("spatialPolyOrder", spatialPolyOrder);
-  parameters.set("delta_k", delta_k);
-  
-  return Teuchos::rcp(new IdealMHDFormulation(meshTopo, parameters));
-}
-
-Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::timeSteppingEulerFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k)
 {
   Teuchos::ParameterList parameters;
   
@@ -153,7 +110,7 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     name_fm << "fB" << d+1;
     _fB[d]->setName(name_fB.str());
   }
-  _gamma = parameters.get<double>("gamma",1.4);
+  _gamma = parameters.get<double>("gamma",2.0); // 2.0 is what is used for Brio-Wu
   _Cv = parameters.get<double>("Cv",1.0);
   bool useConformingTraces = parameters.get<bool>("useConformingTraces",false);
   int spatialPolyOrder = parameters.get<int>("spatialPolyOrder");
@@ -193,13 +150,14 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   vector<VarPtr> tm(trueSpaceDim);
   VarPtr te;
   vector<VarPtr> tB(trueSpaceDim); // first component null in 1D
-  
+  VarPtr tGauss; // only defined for spaceDim > 1
   
   // test variables
   VarPtr vc;
   vector<VarPtr> vm(trueSpaceDim);
   VarPtr ve;
   vector<VarPtr> vB(trueSpaceDim);
+  VarPtr vGauss; // only defined for spaceDim > 1
   
   _vf = VarFactory::varFactory();
   
@@ -265,6 +223,13 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     tB[d] = _vf->fluxVar(S_tB[d]);
   }
   
+  // Gauss' Law, test and trial:  (Only need this for _spaceDim > 1)
+  if (_spaceDim > 1)
+  {
+    vGauss = _vf->testVar(S_vGauss, HGRAD);
+    tGauss = _vf->fluxVar(S_tGauss);
+  }
+  
   // now that we have all our variables defined, process any adjustments
   map<int,VarPtr> trialVars = _vf->trialVars();
   for (auto entry : trialVars)
@@ -280,7 +245,7 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   
   // Let's try writing the flux terms in terms of Functions
   // We write these in terms of u, m, P*, B, E
-  FunctionPtr massFlux, momentumFlux, magneticFlux, energyFlux;
+  FunctionPtr massFlux, momentumFlux, magneticFlux, energyFlux, gaussFlux;
   {
     int trueSpaceDim = 3; // as opposed to our mesh space dim, _spaceDim.
     vector<FunctionPtr> m_comps;
@@ -305,6 +270,7 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     momentumFlux = outerProduct(trueSpaceDim, u, m) + p_star * I - outerProduct(trueSpaceDim, B, B);
     energyFlux   = (E + p_star) * u - B * dot(trueSpaceDim,B,u);
     magneticFlux = outerProduct(trueSpaceDim, u, B) - outerProduct(trueSpaceDim, B, u);
+    gaussFlux    = B; // only used for spaceDim > 1
     
     if (_spaceDim == 1)
     {
@@ -324,6 +290,17 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
       energyFlux   = Function::vectorize(energyFlux->spatialComponent  (x_comp),  energyFlux->spatialComponent  (y_comp));
       magneticFlux = Function::vectorize(magneticFlux->spatialComponent(x_comp),  magneticFlux->spatialComponent(y_comp));
     }
+    
+    auto mDotm = dot(trueSpaceDim, m, m);
+    auto Cv = this->Cv();
+    auto gamma = this->gamma();
+    _abstractTemperature = (1.0/Cv) / rho  * (E  - 0.5 * mDotm  / rho);
+    _abstractPressure = (gamma - 1) * (E - 0.5 * mDotm / rho);
+    _abstractVelocity = m / rho;
+    _abstractMomentum = m;
+    _abstractEnergy = E;
+    _abstractDensity = rho;
+    _abstractMagnetism = B;
     
 //    cout << "massFlux: " << massFlux->displayString() << endl;
 //    cout << "energyFlux: " << energyFlux->displayString() << endl;
@@ -379,6 +356,12 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     }
   }
   _fluxEquations[ve->ID()] = {ve,energyFlux,te,EVar,_fe};
+  if (_spaceDim > 1)
+  {
+    // enforce Gauss' Law
+    VarPtr timeTerm = Teuchos::null;
+    _fluxEquations[vGauss->ID()] = {vGauss,gaussFlux,tGauss,timeTerm,Function::zero()};
+  }
   
   std::string backgroundFlowIdentifierExponent = "";
   std::string previousTimeIdentifierExponent = "";
@@ -390,7 +373,7 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   // to avoid needing a bunch of casts below, do a cast once here:
   FunctionPtr dt = (FunctionPtr)_dt;
   
-  bool weightFluxesByParity = true; // inconsequential for present purposes; will want to revisit if we store these maps as member variables...
+  bool weightFluxesByParity = true; // TODO: decide whether true or false is more appropriate (so far, we haven't used the DPG fluxes that are stored here...)
   for (auto varEntry : trialVars)
   {
     VarPtr var = varEntry.second;
@@ -407,22 +390,23 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     auto flux     = eqn.flux;
     auto traceVar = eqn.traceVar;
     auto f_rhs    = eqn.f_rhs;
-    auto timeTerm_prev      = _backgroundFlowMap[timeTerm->ID()];
-    auto timeTerm_prev_time = _solnPreviousTimeMap  [timeTerm->ID()];
-    if (_spaceTime)
+    if (timeTerm != Teuchos::null) // time term is null for Gauss' Law
     {
-      _bf ->addTerm(-timeTerm,      testVar->dt());
-      _rhs->addTerm(timeTerm_prev * testVar->dt());
+      auto timeTerm_prev      = _backgroundFlowMap.find(timeTerm->ID())->second;
+      auto timeTerm_prev_time = _solnPreviousTimeMap.find(timeTerm->ID())->second;
+      if (_spaceTime)
+      {
+        _bf ->addTerm(-timeTerm,      testVar->dt());
+        _rhs->addTerm(timeTerm_prev * testVar->dt());
+      }
+      else if (_timeStepping)
+      {
+        _bf ->addTerm(  timeTerm / dt, testVar);
+        _rhs->addTerm(- (timeTerm_prev - timeTerm_prev_time) / dt  * testVar);
+      }
     }
-    else if (_timeStepping)
-    {
-      _bf ->addTerm(  timeTerm / dt, testVar);
-      _rhs->addTerm(- (timeTerm_prev - timeTerm_prev_time) / dt  * testVar);
-    }
-//    cout << "Test Var: " << testVar->displayString() << endl;
-//    cout << "Flux:     " << flux->displayString() << endl;
-    auto fluxJacobian = flux->jacobian(_backgroundFlowMap);
     auto fluxPrevious = flux->evaluateAt(_backgroundFlowMap);
+    auto fluxJacobian = flux->jacobian(_backgroundFlowMap);
     Camellia::EOperator gradOp = (_spaceDim > 1) ? OP_GRAD : OP_DX;
     
     _bf->      addTerm(-fluxJacobian, testVar->applyOp(gradOp)); // negative from integration by parts
@@ -481,6 +465,41 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   _solver = Solver::getDirectSolver();
   
   _nonlinearIterationCount = 0;
+}
+
+FunctionPtr IdealMHDFormulation::abstractDensity() const
+{
+  return _abstractDensity;
+}
+
+FunctionPtr IdealMHDFormulation::abstractEnergy() const
+{
+  return _abstractEnergy;
+}
+
+FunctionPtr IdealMHDFormulation::abstractMagnetism() const
+{
+  return _abstractMagnetism;
+}
+
+FunctionPtr IdealMHDFormulation::abstractMomentum() const
+{
+  return _abstractMomentum;
+}
+
+FunctionPtr IdealMHDFormulation::abstractPressure() const
+{
+  return _abstractPressure;
+}
+
+FunctionPtr IdealMHDFormulation::abstractTemperature() const
+{
+  return _abstractTemperature;
+}
+
+FunctionPtr IdealMHDFormulation::abstractVelocity() const
+{
+  return _abstractVelocity;
 }
 
 void IdealMHDFormulation::addMassFluxCondition(SpatialFilterPtr region, FunctionPtr tc_exact)
@@ -702,57 +721,6 @@ FunctionPtr IdealMHDFormulation::exactSolutionFlux(VarPtr testVar, FunctionPtr u
 std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeFluxParity)
 {
   TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "exactSolutionMap not yet implemented!");
-//  using namespace std;
-//  vector<FunctionPtr> q(_spaceDim);
-//  vector<vector<FunctionPtr>> D(_spaceDim,vector<FunctionPtr>(_spaceDim));
-//  vector<FunctionPtr> u(_spaceDim);
-//  FunctionPtr qWeight = (-Cp()/Pr())*_muFunc;
-//  FunctionPtr E = rho * Cv() * T; // we add u*u/2 to this below
-//  if (_spaceDim == 1)
-//  {
-//    D[0][0] = _muFunc * velocity->dx();
-//    q[0] = qWeight * T->dx();
-//    u[0] = velocity;
-//    E = E + 0.5 * rho * u[0]*u[0];
-//  }
-//  else
-//  {
-//    for (int d1=0; d1<_spaceDim; d1++)
-//    {
-//      q[d1] = qWeight * T->di(d1+1);
-//      u[d1] = velocity->spatialComponent(d1+1);
-//      for (int d2=0; d2<_spaceDim; d2++)
-//      {
-//        D[d1][d2] = _muFunc * u[d1]->di(d2+1);
-//      }
-//      E = E + 0.5 * rho * u[d1] * u[d1];
-//    }
-//  }
-//  vector<FunctionPtr> tm = exactSolution_tm(velocity, rho, T, includeFluxParity);
-//  FunctionPtr         te = exactSolution_te(velocity, rho, T, includeFluxParity);
-//  FunctionPtr         tc = exactSolution_tc(velocity, rho, T, includeFluxParity);
-//
-//  map<int, FunctionPtr> solnMap;
-//  solnMap[this->E()->ID()]     = E;
-//  solnMap[this->T_hat()->ID()] = T;
-//  solnMap[this->rho()->ID()]   = rho;
-//  solnMap[this->tc()->ID()]    = tc;
-//  solnMap[this->te()->ID()]    = te;
-//  for (int d1=0; d1<_spaceDim; d1++)
-//  {
-//    solnMap[this->m(d1+1)->ID()]     = u[d1] * rho;
-//    solnMap[this->u_hat(d1+1)->ID()] = u[d1];
-//
-//    solnMap[this->q(d1+1)->ID()]     = q[d1];
-//
-//    solnMap[this->tm(d1+1)->ID()]    = tm[d1];
-//
-//    for (int d2=0; d2<_spaceDim; d2++)
-//    {
-//      solnMap[this->D(d1+1,d2+1)->ID()] = D[d1][d2];
-//    }
-//  }
-//  return solnMap;
 }
 
 double IdealMHDFormulation::gamma()
@@ -826,6 +794,16 @@ void IdealMHDFormulation::setForcing(FunctionPtr f_continuity, std::vector<Funct
   }
 }
 
+void IdealMHDFormulation::setInitialState(const std::map<int, FunctionPtr> &initialState)
+{
+  const int solutionOrdinal = 0;
+  _backgroundFlow->projectOntoMesh(initialState, solutionOrdinal);
+  if (!_spaceTime)
+  {
+    _solnPrevTime->projectOntoMesh(initialState, solutionOrdinal);
+  }
+}
+
 // ! set current time step used for transient solve
 void IdealMHDFormulation::setTimeStep(double dt)
 {
@@ -854,41 +832,18 @@ double IdealMHDFormulation::solveAndAccumulate()
   double alpha = 1.0;
   ParameterFunctionPtr alphaParameter = ParameterFunction::parameterFunction(alpha);
   
-  auto rhoVar = VarFunction<double>::abstractFunction(this->rho());
-  auto EVar   = VarFunction<double>::abstractFunction(this->E());
-  
-  FunctionPtr rhoPrevious  = _solnPreviousTimeMap.find(this->rho()->ID())->second;
-  FunctionPtr rhoIncrement = _solnIncrementMap.find   (this->rho()->ID())->second;
-  FunctionPtr rhoUpdated   = rhoPrevious + FunctionPtr(alphaParameter) * rhoIncrement;
-  
-  FunctionPtr EPrevious    = _solnPreviousTimeMap.find(this->E()->ID())->second;
-  FunctionPtr EIncrement   = _solnIncrementMap.find   (this->E()->ID())->second;
-  FunctionPtr EUpdated     = EPrevious + FunctionPtr(alphaParameter) * EIncrement;
-  
-  vector<FunctionPtr> mUpdated(trueSpaceDim);
-  vector<FunctionPtr> mComps;
-  for (int d=0; d<trueSpaceDim; d++)
-  {
-    mComps.push_back(VarFunction<double>::abstractFunction(this->m(d+1)));
-    auto mCompPrevious  = _solnPreviousTimeMap.find(this->m(d+1)->ID())->second;
-    auto mCompIncrement = _solnIncrementMap.find   (this->m(d+1)->ID())->second;
-    mUpdated[d] = mCompPrevious + FunctionPtr(alphaParameter) * mCompIncrement;
-  }
-  auto mVar   = TFunction<double>::vectorize(mComps);
-  
   map<int,FunctionPtr> updatedFieldMap;
-  updatedFieldMap[this->rho()->ID()] = rhoUpdated;
-  updatedFieldMap[this->m(1)->ID()]  = mUpdated[0];
-  updatedFieldMap[this->m(2)->ID()]  = mUpdated[1];
-  updatedFieldMap[this->m(3)->ID()]  = mUpdated[2];
-  updatedFieldMap[this->E()->ID()]   = EUpdated;
-  
-  double Cv = this->Cv();
-  auto abstractmDotm = dot(trueSpaceDim, mVar, mVar);
-  auto abstractT = (1.0/Cv) / rhoVar  * (EVar  - 0.5 * abstractmDotm  / rhoVar);
-  
-  auto TPrevious = abstractT->evaluateAt(_solnPreviousTimeMap);
-  auto TUpdated  = abstractT->evaluateAt(updatedFieldMap);
+  for (auto entry : _solnPreviousTimeMap)
+  {
+    auto uID = entry.first;
+    auto uPrev = entry.second;
+    FunctionPtr uIncr = _solnIncrementMap.find(uID)->second;
+    FunctionPtr uUpdated = uPrev + FunctionPtr(alphaParameter) * uIncr;
+    updatedFieldMap[uID] = uUpdated;
+  }
+
+  auto rhoUpdated = updatedFieldMap.find(this->rho()->ID())->second;
+  auto TUpdated   = _abstractTemperature->evaluateAt(updatedFieldMap);
   
   // we may need to do something else to ensure positive changes in entropy;
   // if we just add ds to the list of positive functions, we stall on the first Newton step...
@@ -934,15 +889,32 @@ SolutionPtr IdealMHDFormulation::solution()
   return _backgroundFlow;
 }
 
+// ! Returns a map containing the current time step's solution data for each trial variable
+const std::map<int, FunctionPtr> & IdealMHDFormulation::solutionFieldMap() const
+{
+  return _backgroundFlowMap;
+}
+
 SolutionPtr IdealMHDFormulation::solutionIncrement()
 {
   return _solnIncrement;
 }
 
+const std::map<int, FunctionPtr> & IdealMHDFormulation::solutionIncrementFieldMap() const
+{
+  return _solnIncrementMap;
+}
+
+
 // ! Returns the solution (at previous time)
 SolutionPtr IdealMHDFormulation::solutionPreviousTimeStep()
 {
   return _solnPrevTime;
+}
+
+const std::map<int, FunctionPtr> & IdealMHDFormulation::solutionPreviousTimeStepFieldMap() const
+{
+  return _solnPreviousTimeMap;
 }
 
 BFPtr IdealMHDFormulation::steadyBF()
