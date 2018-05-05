@@ -2562,12 +2562,13 @@ bool MeshTopology::isValidCellIndex(IndexType cellIndex) const
 //  return _cells.find(cellIndex) != _cells.end();
 }
 
-pair<IndexType,IndexType> MeshTopology::owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex) const
+pair<IndexType,IndexType> MeshTopology::owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex,
+                                                                             const std::function<IndexType(IndexType,IndexType)> &tieBreaker) const
 {
   // sorta like the old leastActiveCellIndexContainingEntityConstrainedByConstrainingEntity, but now prefers larger cells
   // -- the first level of the entity refinement hierarchy that has an active cell containing an entity in that level is the one from
   // which we choose the owning cell (and we do take the least such cellIndex)
-  unsigned leastActiveCellIndex = (unsigned)-1; // unsigned cast of -1 makes maximal unsigned #
+  IndexType leastActiveCellIndex = -1; // -1 means invalid; we never pass this to tieBreaker
   set<IndexType> constrainedEntities;
   constrainedEntities.insert(constrainingEntityIndex);
 
@@ -2602,7 +2603,7 @@ pair<IndexType,IndexType> MeshTopology::owningCellIndexForConstrainingEntity(uns
         IndexType firstCellIndex = cellsForSide.first.first;
         if (_activeCells.find(firstCellIndex) != _activeCells.end())
         {
-          if (firstCellIndex < leastActiveCellIndex)
+          if ((leastActiveCellIndex == -1) || (firstCellIndex == tieBreaker(firstCellIndex,leastActiveCellIndex)))
           {
             leastActiveCellConstrainedEntityIndex = constrainedEntityIndex;
             leastActiveCellIndex = firstCellIndex;
@@ -2611,7 +2612,7 @@ pair<IndexType,IndexType> MeshTopology::owningCellIndexForConstrainingEntity(uns
         IndexType secondCellIndex = cellsForSide.second.first;
         if (_activeCells.find(secondCellIndex) != _activeCells.end())
         {
-          if (secondCellIndex < leastActiveCellIndex)
+          if ((leastActiveCellIndex == -1) || (secondCellIndex == tieBreaker(secondCellIndex,leastActiveCellIndex)))
           {
             leastActiveCellConstrainedEntityIndex = constrainedEntityIndex;
             leastActiveCellIndex = secondCellIndex;

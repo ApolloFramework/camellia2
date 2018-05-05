@@ -4060,7 +4060,7 @@ void TSolution<Scalar>::projectOldCellOntoNewCells(GlobalIndexType cellID, Eleme
     }
   }
 
-  int parent_p_order = _mesh->getElementType(cellID)->trialOrderPtr->maxBasisDegree();
+  int parent_p_order = _mesh->getElementType(cellID)->trialOrderPtr->maxBasisDegree(); // shouldn't this be oldElemType?
 
   for (int childOrdinal=0; childOrdinal < childIDs.size(); childOrdinal++)
   {

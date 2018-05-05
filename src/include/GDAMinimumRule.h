@@ -132,7 +132,7 @@ class GDAMinimumRule : public GlobalDofAssignment
   BasisMap getBasisMapDiscontinuousVolumeRestrictedToSide(GlobalIndexType cellID, SubcellDofIndices& dofOwnershipInfo, VarPtr var, int sideOrdinal);
   static BasisMap getRestrictedBasisMap(BasisMap &basisMap, const set<int> &basisDofOrdinalRestriction); // restricts to part of the basis
 
-  typedef pair< IndexType, unsigned > CellPair;
+  typedef pair< IndexType, unsigned > CellPair;  // (cellIndex, sideOrdinal) -- sideOrdinal contains the specified entity
   CellPair cellContainingEntityWithLeastH1Order(int d, IndexType entityIndex);
   
   void distributeGlobalDofOwnership(const map<GlobalIndexType, SubcellDofIndices> &myOwnedGlobalDofs,

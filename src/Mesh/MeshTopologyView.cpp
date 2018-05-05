@@ -1053,12 +1053,13 @@ Teuchos::RCP<MeshTransformationFunction> MeshTopologyView::transformationFunctio
 }
 
 // owningCellIndexForConstrainingEntity() copied from MeshTopology; once that's a subclass of MeshTopologyView, could possibly eliminate it in MeshTopology
-std::pair<IndexType,IndexType> MeshTopologyView::owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex) const
+std::pair<IndexType,IndexType> MeshTopologyView::owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex,
+                                                                                      const std::function<IndexType(IndexType,IndexType)> &tieBreaker) const
 {
   // sorta like the old leastActiveCellIndexContainingEntityConstrainedByConstrainingEntity, but now prefers larger cells
   // -- the first level of the entity refinement hierarchy that has an active cell containing an entity in that level is the one from
   // which we choose the owning cell (and we do take the least such cellIndex)
-  unsigned leastActiveCellIndex = (unsigned)-1; // unsigned cast of -1 makes maximal unsigned #
+  IndexType leastActiveCellIndex = -1;  // -1 means invalid; we never pass this to tieBreaker
   set<IndexType> constrainedEntities;
   constrainedEntities.insert(constrainingEntityIndex);
   
@@ -1067,10 +1068,8 @@ std::pair<IndexType,IndexType> MeshTopologyView::owningCellIndexForConstrainingE
   {
     set<IndexType> nextTierConstrainedEntities;
     
-    for (set<IndexType>::iterator constrainedEntityIt = constrainedEntities.begin(); constrainedEntityIt != constrainedEntities.end(); constrainedEntityIt++)
+    for (IndexType constrainedEntityIndex : constrainedEntities)
     {
-      IndexType constrainedEntityIndex = *constrainedEntityIt;
-      
       // get this entity's immediate children, in case we don't find an active cell on this tier
       vector<IndexType> immediateChildren = _meshTopo->getChildEntities(d,constrainedEntityIndex);
       nextTierConstrainedEntities.insert(immediateChildren.begin(), immediateChildren.end());
@@ -1088,7 +1087,7 @@ std::pair<IndexType,IndexType> MeshTopologyView::owningCellIndexForConstrainingE
         
         for (IndexType cellIndex : activeCellsForSide)
         {
-          if (cellIndex < leastActiveCellIndex)
+          if ((leastActiveCellIndex == -1) || (cellIndex == tieBreaker(cellIndex,leastActiveCellIndex)))
           {
             leastActiveCellConstrainedEntityIndex = constrainedEntityIndex;
             leastActiveCellIndex = cellIndex;

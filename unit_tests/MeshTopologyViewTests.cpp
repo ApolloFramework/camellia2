@@ -261,6 +261,14 @@ namespace
     {
       myCellIndices = cellIndices;
     }
+    // tieBreaker used in owning cell index determination below.  Here, we just compare
+    // cell indices; in GDAMinimumRule we will also be considering poly order
+    std::function<IndexType(IndexType,IndexType)> tieBreaker;
+    tieBreaker = [&] (IndexType cellID1, IndexType cellID2) -> IndexType
+    {
+      IndexType preferred = (cellID1 < cellID2) ? cellID1 : cellID2; // rule to date
+      return preferred;
+    };
     for (IndexType cellIndex : *myCellIndices)
     {
       CellPtr cell = topo->getCell(cellIndex);
@@ -281,8 +289,8 @@ namespace
           pair<IndexType,unsigned> topoConstrainingEntity = topo->getConstrainingEntity(d, entityIndex);
           pair<IndexType,unsigned> viewConstrainingEntity = view->getConstrainingEntity(d, entityIndex);
           
-          pair<IndexType,IndexType> topoOwner = topo->owningCellIndexForConstrainingEntity(topoConstrainingEntity.second, topoConstrainingEntity.first);
-          pair<IndexType,IndexType> viewOwner = view->owningCellIndexForConstrainingEntity(viewConstrainingEntity.second, viewConstrainingEntity.first);
+          pair<IndexType,IndexType> topoOwner = topo->owningCellIndexForConstrainingEntity(topoConstrainingEntity.second, topoConstrainingEntity.first, tieBreaker);
+          pair<IndexType,IndexType> viewOwner = view->owningCellIndexForConstrainingEntity(viewConstrainingEntity.second, viewConstrainingEntity.first, tieBreaker);
           
           TEST_EQUALITY(topoOwner, viewOwner);
         }

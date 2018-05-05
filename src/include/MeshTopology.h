@@ -257,7 +257,9 @@ public:
   // ! maxConstraint made public for the sake of MeshTopologyView; not intended for general use
   IndexType maxConstraint(unsigned d, IndexType entityIndex1, IndexType entityIndex2) const;
   
-  pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex) const;
+  // ! tieBreaker: returns the preferred cell index, given two that might be chosen as owner.
+  virtual std::pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex,
+                                                                              const std::function<IndexType(IndexType,IndexType)> &tieBreaker) const;
 
   // 2D only:
   vector< ParametricCurvePtr > parametricEdgesForCell(IndexType cellID, bool neglectCurves) const;

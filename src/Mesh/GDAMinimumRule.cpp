@@ -2377,6 +2377,16 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubcellDofIndices& 
 
 CellConstraints GDAMinimumRule::getCellConstraints(GlobalIndexType cellID)
 {
+  std::function<IndexType(IndexType,IndexType)> tieBreaker;
+  tieBreaker = [&] (IndexType cellID1, IndexType cellID2) -> IndexType
+  {
+    // rule: if cells differ in p, take the lower order (the constraining one)
+    //       if they agree in p, take the one with lower index
+    IndexType preferred = (cellID1 < cellID2) ? cellID1 : cellID2;
+    // TODO: replace this rule with something that considers poly order
+    return preferred;
+  };
+  
   if (_constraintsCache.find(cellID) == _constraintsCache.end())
   {
 //    cout << "Getting cell constraints for cellID " << cellID << endl;
@@ -2481,7 +2491,7 @@ CellConstraints GDAMinimumRule::getCellConstraints(GlobalIndexType cellID)
               // here, the "constraining entity" will be the entity itself
               // (requires 1-irregular mesh)
               
-              pair<GlobalIndexType,GlobalIndexType> owningCellInfoSpatialSlice = _meshTopology->owningCellIndexForConstrainingEntity(d, entityIndex);
+              pair<GlobalIndexType,GlobalIndexType> owningCellInfoSpatialSlice = _meshTopology->owningCellIndexForConstrainingEntity(d, entityIndex, tieBreaker);
               spatialSliceConstraints->owningCellIDForSubcell[d][subcord].cellID = owningCellInfoSpatialSlice.first;
               
               CellPtr owningCell = _meshTopology->getCell(owningCellInfoSpatialSlice.first);
@@ -2578,7 +2588,16 @@ CellConstraints GDAMinimumRule::getCellConstraints(GlobalIndexType cellID)
               constrainingDimension, constrainingSubcellInfo[d][scOrdinal].subcellOrdinal);
           constrainingEntityIndex = constrainingCell->entityIndex(constrainingDimension, constrainingSubcellOrdinalInCell);
         }
-        pair<GlobalIndexType,GlobalIndexType> owningCellInfo = _meshTopology->owningCellIndexForConstrainingEntity(constrainingDimension, constrainingEntityIndex);
+//        CellPair owningCellAndSide = cellContainingEntityWithLeastH1Order(constrainingDimension, constrainingEntityIndex);
+//        if (_meshTopology->isValidCellIndex(owningCellAndSide.first))
+//        {
+//
+//        }
+//        else
+//        {
+//          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellID is not valid!");
+//        }
+        pair<GlobalIndexType,GlobalIndexType> owningCellInfo = _meshTopology->owningCellIndexForConstrainingEntity(constrainingDimension, constrainingEntityIndex, tieBreaker);
         cellConstraints.owningCellIDForSubcell[d][scOrdinal].cellID = owningCellInfo.first;
         if (_meshTopology->isValidCellIndex(owningCellInfo.first))
         {
