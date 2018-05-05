@@ -827,6 +827,50 @@ TEUCHOS_UNIT_TEST( Mesh, ParitySpaceTime1D )
     }
   }
 }
+  
+  TEUCHOS_UNIT_TEST( Mesh, HPRefine2D )
+  {
+    // simple test against a problem case for hp-refinements, in an initially 2-element mesh:
+    //  - p-refine left element; this is now constrained by right element along shared edge
+    //  - h-refine right element; this would be constrained by left element along shared edge, if they had equal orders
+    // it should be the case that 1-irregularity enforcement (or something) takes care of this by p-refining the h-refined
+    // elements along the shared interface.
+    //
+    // this test just confirms that we can perform the appropriate projections from a prior
+    // solution onto the refined mesh (we don't check that they're correct or anything, just that
+    // we complete without throwing an exception)
+    MeshTopologyPtr spatialMeshTopo = MeshFactory::quadMeshTopology(1.0,1.0,2,2);
+    
+    int spaceDim = 2;
+    int H1Order = 2;
+    vector<int> elemCounts = {2,1};
+    vector<double> dims(spaceDim,1.0);
+    
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+    
+    int solutionOrdinal = 0;
+    map<int,FunctionPtr> functionMap;
+    
+    functionMap[form.u()->ID()] = Function::constant(1.0);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    mesh->registerSolution(solution);
+    solution()->projectOntoMesh(functionMap, solutionOrdinal);
+    
+    // before we p-refine, print constraint report:
+    //  GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule *>(mesh->globalDofAssignment().get());
+    
+    std::set<GlobalIndexType> cellsToPRefine = {0};
+    std::set<GlobalIndexType> cellsToHRefine = {1};
+    bool repartitionAndRebuild = false;
+    int pToAdd = 1;
+    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+    mesh->hRefine(cellsToHRefine, RefinementPattern::regularRefinementPatternQuad(), repartitionAndRebuild);
+    
+    mesh->repartitionAndRebuild();
+  }
 
 TEUCHOS_UNIT_TEST( Mesh, PRefine2D )
 {
