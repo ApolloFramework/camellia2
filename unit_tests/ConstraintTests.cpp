@@ -176,55 +176,55 @@ namespace
     }
   }
   
-  TEUCHOS_UNIT_TEST( Constraint, StokesLocalConservation )
-  {
-    // just about any solution that is not exact will not by itself
-    // be locally conservative.  So we use the Cockburn/Kanschat solution
-    // to test our enforcement via element Lagrange constraints
-    MPIWrapper::CommWorld()->Barrier();
-    
-    bool conformingTraces = true;
-    int spaceDim = 2;
-    vector<int> elementCounts = {2,2};
-    int H1Order = 2;
-    bool enforceConservation = true;
-    SolutionPtr soln = kanschatStokesSolution(conformingTraces, spaceDim, elementCounts, H1Order, enforceConservation);
-    
-    bool exportMatrix = true;
-    if (exportMatrix)
-    {
-      soln->setWriteMatrixToFile(true, "A.dat");
-    }
-
-    soln->solve();
-
-    double mu = 1.0;
-    StokesVGPFormulation form = StokesVGPFormulation::steadyFormulation(spaceDim, mu, conformingTraces);
-    VarPtr u1_hat = form.u_hat(1), u2_hat = form.u_hat(2);
-    FunctionPtr n = Function::normal();
-    FunctionPtr u1hat_soln = Function::solution(u1_hat, soln);
-    FunctionPtr u2hat_soln = Function::solution(u2_hat, soln);
-    
-    FunctionPtr uhat_soln = Function::vectorize(u1hat_soln, u2hat_soln);
-    FunctionPtr flux = uhat_soln * n;
-    
-    double tol = 1e-12;
-    auto myCellIDs = &soln->mesh()->cellIDsInPartition();
-    for (GlobalIndexType cellID : *myCellIDs)
-    {
-      double cellFlux = flux->integrate(cellID, soln->mesh());
-      if (abs(cellFlux) > tol)
-      {
-        success = false;
-        out << "FAILURE: flux on cell " << cellID << " = " << cellFlux << endl;
-      }
-    }
-    
-//    HDF5Exporter exporter(soln->mesh(),"stokes-kanschat");
-//    int numSubdivisions = 30; // coarse mesh -> more subdivisions
-//    exporter.exportSolution(soln, 0, numSubdivisions);
-
-  }
+//  TEUCHOS_UNIT_TEST( Constraint, StokesLocalConservation )
+//  {
+//    // just about any solution that is not exact will not by itself
+//    // be locally conservative.  So we use the Cockburn/Kanschat solution
+//    // to test our enforcement via element Lagrange constraints
+//    MPIWrapper::CommWorld()->Barrier();
+//    
+//    bool conformingTraces = true;
+//    int spaceDim = 2;
+//    vector<int> elementCounts = {2,2};
+//    int H1Order = 2;
+//    bool enforceConservation = true;
+//    SolutionPtr soln = kanschatStokesSolution(conformingTraces, spaceDim, elementCounts, H1Order, enforceConservation);
+//    
+//    bool exportMatrix = true;
+//    if (exportMatrix)
+//    {
+//      soln->setWriteMatrixToFile(true, "A.dat");
+//    }
+//
+//    soln->solve();
+//
+//    double mu = 1.0;
+//    StokesVGPFormulation form = StokesVGPFormulation::steadyFormulation(spaceDim, mu, conformingTraces);
+//    VarPtr u1_hat = form.u_hat(1), u2_hat = form.u_hat(2);
+//    FunctionPtr n = Function::normal();
+//    FunctionPtr u1hat_soln = Function::solution(u1_hat, soln);
+//    FunctionPtr u2hat_soln = Function::solution(u2_hat, soln);
+//    
+//    FunctionPtr uhat_soln = Function::vectorize(u1hat_soln, u2hat_soln);
+//    FunctionPtr flux = uhat_soln * n;
+//    
+//    double tol = 1e-12;
+//    auto myCellIDs = &soln->mesh()->cellIDsInPartition();
+//    for (GlobalIndexType cellID : *myCellIDs)
+//    {
+//      double cellFlux = flux->integrate(cellID, soln->mesh());
+//      if (abs(cellFlux) > tol)
+//      {
+//        success = false;
+//        out << "FAILURE: flux on cell " << cellID << " = " << cellFlux << endl;
+//      }
+//    }
+//    
+////    HDF5Exporter exporter(soln->mesh(),"stokes-kanschat");
+////    int numSubdivisions = 30; // coarse mesh -> more subdivisions
+////    exporter.exportSolution(soln, 0, numSubdivisions);
+//
+//  }
   
   
 //  TEUCHOS_UNIT_TEST( Int, Assignment )
