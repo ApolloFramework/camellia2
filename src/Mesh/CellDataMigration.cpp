@@ -77,11 +77,15 @@ void CellDataMigration::addMigratedGeometry(MeshTopology* meshTopo,
   }
 }
 
-int CellDataMigration::dataSize(Mesh *mesh, GlobalIndexType cellID)
+int CellDataMigration::dataSize(Mesh *mesh, GlobalIndexType cellID, bool willPackParentDofs)
 {
-  int solutionSize = solutionDataSize(mesh, cellID);
+  int solutionSize = solutionDataSize(mesh, cellID, willPackParentDofs);
   int geometrySize = geometryDataSize(mesh, cellID);
-  return solutionSize + geometrySize;
+  int size = solutionSize + geometrySize;
+//  cout << "geometrySize for cellID " << cellID << ": " << geometrySize << endl;
+//  cout << "solutionSize for cellID " << cellID << ": " << solutionSize << endl;
+//  cout << "dataSize for cellID " << cellID << ": " << size << endl;
+  return size;
 }
 
 int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
@@ -230,7 +234,7 @@ void CellDataMigration::packData(Mesh *mesh, GlobalIndexType cellID, bool packPa
   //  int myRank                    = mesh->Comm()->MyPID();
   //  cout << "CellDataMigration::packData() called for cell " << cellID << " on rank " << myRank << endl;
   char* dataLocation = dataBuffer;
-  if (size<dataSize(mesh, cellID))
+  if (size<dataSize(mesh, cellID, packParentDofs))
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "undersized dataBuffer");
   }
@@ -354,7 +358,10 @@ void CellDataMigration::packSolutionData(Mesh *mesh, GlobalIndexType cellID, boo
       }
       // # dofs per solution
       const FieldContainer<double>* solnCoeffs = &solutions[i]->allCoefficientsForCellID(cellIDForCoefficients, false, lhsOrdinal); // false: don't warn
+//      cout << "cellIDForCoefficients = " << cellIDForCoefficients;
+//      cout << "; lhOrdinal = " << lhsOrdinal;
       int localDofs = solnCoeffs->size();
+//      cout << "; localDofs = " << localDofs << endl;
       //    int localDofs = elemType->trialOrderPtr->totalDofs();
       memcpy(dataLocation, &localDofs, sizeof(localDofs));
       //    cout << localDofs << " ";
@@ -424,11 +431,21 @@ void CellDataMigration::processSolutionCoefficients(Mesh* mesh)
   }
 }
 
-int CellDataMigration::solutionDataSize(Mesh *mesh, GlobalIndexType cellID)
+int CellDataMigration::solutionDataSize(Mesh *mesh, GlobalIndexType cellID, bool willPackParentDofs)
 {
   int size = 0;
   
-  ElementTypePtr elemType = mesh->getElementType(cellID);
+  GlobalIndexType cellIDForCoefficients;
+  if (willPackParentDofs)
+  {
+    CellPtr cell = mesh->getTopology()->getCell(cellID);
+    cellIDForCoefficients = cell->getParent()->cellIndex();
+  }
+  else
+  {
+    cellIDForCoefficients = cellID;
+  }
+  ElementTypePtr elemType = mesh->getElementType(cellIDForCoefficients);
   
   int packedDofsBelongToParent = 0; // 0 for false, anything else for true
   size += sizeof(packedDofsBelongToParent);
@@ -437,13 +454,31 @@ int CellDataMigration::solutionDataSize(Mesh *mesh, GlobalIndexType cellID)
   // store # of solution objects
   int numSolutions = solutions.size();
   size += sizeof(numSolutions);
+//  for (int i=0; i<numSolutions; i++)
+//  {
+//    // # dofs per solution
+//    int localDofs = elemType->trialOrderPtr->totalDofs();
+//    size += sizeof(localDofs);
+//    // the dofs themselves
+//    size += localDofs * sizeof(double);
+//  }
   for (int i=0; i<numSolutions; i++)
   {
-    // # dofs per solution
-    int localDofs = elemType->trialOrderPtr->totalDofs();
-    size += sizeof(localDofs);
-    // the dofs themselves
-    size += localDofs * sizeof(double);
+    int numLHSes = solutions[i]->numSolutions();
+    for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
+    {
+      bool thisLHSHasCoefficients = solutions[i]->cellHasCoefficientsAssigned(cellIDForCoefficients, lhsOrdinal);
+      if ( !thisLHSHasCoefficients )
+      {
+        int localDofs = 0;
+        size += sizeof(localDofs);
+        continue; // no dofs to assign; proceed to next solution
+      }
+      int localDofs = elemType->trialOrderPtr->totalDofs();
+      size += sizeof(localDofs);
+      // the dofs themselves
+      size += localDofs * sizeof(double);
+    }
   }
   
   return size;

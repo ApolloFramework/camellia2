@@ -503,7 +503,24 @@ int ZoltanMeshPartitionPolicy::get_elem_data_size(void *data,
   Mesh* mesh = ((MigrationData*) data)->mesh;
   GlobalIndexType cellID = *global_id;
   *ierr = ZOLTAN_OK; // CellDataMigration throws exceptions if it's not OK
-  return CellDataMigration::dataSize(mesh, cellID);
+  
+  CellPtr cell = mesh->getTopology()->getCell(cellID);
+  bool isChild = cell->getParent().get() != NULL;
+  bool hasData = false;
+  if (mesh->globalDofAssignment()->getRegisteredSolutions().size() > 0)
+  {
+    for (auto &soln : mesh->globalDofAssignment()->getRegisteredSolutions())
+    {
+      int numLHSes = soln->numSolutions();
+      for (int lhsOrdinal=0; lhsOrdinal<numLHSes; lhsOrdinal++)
+      {
+        hasData = hasData || soln->cellHasCoefficientsAssigned(cellID, lhsOrdinal);
+      }
+    }
+  }
+  bool willPackParentData = isChild && !hasData;
+  
+  return CellDataMigration::dataSize(mesh, cellID, willPackParentData);
 }
 void ZoltanMeshPartitionPolicy::pack_elem_data(void *data,
     int num_gid_entries,
@@ -531,6 +548,7 @@ void ZoltanMeshPartitionPolicy::pack_elem_data(void *data,
       }
     }
   }
+//  cout << "About to call packData for cell " << cellID << endl;
   CellDataMigration::packData(mesh, cellID, isChild && !hasData, buf, size);
   *ierr = ZOLTAN_OK; // CellDataMigration throws exceptions if it's not OK
 }
