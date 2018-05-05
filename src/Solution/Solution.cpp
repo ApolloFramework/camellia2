@@ -2087,6 +2087,8 @@ void TSolution<Scalar>::imposeBCs()
     }
   }
   
+  _bcDofCount = MPIWrapper::sum(*this->mesh()->Comm(), GlobalIndexType(numBCs));
+  
   Epetra_MultiVector rhsDirichlet(partMap,1);
   _globalStiffMatrix->Apply(v,rhsDirichlet);
   

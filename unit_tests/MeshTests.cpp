@@ -872,6 +872,69 @@ TEUCHOS_UNIT_TEST( Mesh, ParitySpaceTime1D )
     mesh->repartitionAndRebuild();
   }
 
+  TEUCHOS_UNIT_TEST( Mesh, HRefineCurvilinear2D )
+  {
+    MPIWrapper::CommWorld()->Barrier();
+    // This is mostly a test that things don't go awry with curvilinear meshes under p-refinement on multiple MPI ranks.
+    // We just confirm that with some solution data in place, we can p-refine without exceptions being thrown...
+    int spaceDim = 2;
+    int delta_k = 2;
+    int H1Order = 2;
+    
+    double cylinderRadius = 1.0;
+    MeshGeometryPtr meshGeometry = MeshFactory::halfConfinedCylinderGeometry(cylinderRadius);
+    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = meshGeometry->edgeToCurveMap();
+    auto globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
+    MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(meshGeometry) );
+    meshTopo->setEdgeToCurveMap(globalEdgeToCurveMap, Teuchos::null);
+    
+    //    cout << "globalEdgeToCurveMap.size(): " << globalEdgeToCurveMap.size() << endl;
+    
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopo, form.bf(), H1Order, delta_k) ) ;
+    meshTopo->initializeTransformationFunction(mesh);
+    
+    int solutionOrdinal = 0;
+    map<int,FunctionPtr> functionMap;
+    
+    functionMap[form.u()->ID()] = Function::constant(1.0);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    mesh->registerSolution(solution);
+    solution()->projectOntoMesh(functionMap, solutionOrdinal);
+    
+    std::set<GlobalIndexType> cellsToHxRefine = {0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35};
+    //  print("cellsToHRefine", cellsToHRefine);
+    bool repartitionAndRebuild = false;
+    mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+    
+    mesh->enforceOneIrregularity(repartitionAndRebuild);
+    mesh->repartitionAndRebuild();
+    
+    MeshTopology* topology = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    
+    
+    cellsToHxRefine = {8, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105};
+//    cout << "cellsToHxRefine, cells with curved edges: ";
+//    for (auto parentCellID : cellsToHxRefine)
+//    {
+//      if (topology->isValidCellIndex(parentCellID))
+//      {
+//        if (topology->cellHasCurvedEdges(parentCellID))
+//        {
+//          cout << parentCellID << " ";
+//        }
+//      }
+//    }
+//    cout << endl;
+    
+    mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+    mesh->enforceOneIrregularity(repartitionAndRebuild);
+    mesh->repartitionAndRebuild();
+  }
+
+  
 TEUCHOS_UNIT_TEST( Mesh, PRefine2D )
 {
   // simple test against a recent failure in p-refinements
