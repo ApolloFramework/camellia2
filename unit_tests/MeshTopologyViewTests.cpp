@@ -251,52 +251,6 @@ namespace
       TEST_COMPARE_ARRAYS(topoCentroid, viewCentroid); // could relax to floating equality
     }
     
-    // check that topos agree on ownership
-    const set<IndexType>* myCellIndices;
-    if ((topo->Comm() != Teuchos::null) && (topo->Comm()->NumProc() > 1))
-    {
-      myCellIndices = &topo->getMyActiveCellIndices();
-    }
-    else
-    {
-      myCellIndices = cellIndices;
-    }
-    // tieBreaker used in owning cell index determination below.  Here, we just compare
-    // cell indices; in GDAMinimumRule we will also be considering poly order
-    std::function<IndexType(IndexType,IndexType)> tieBreaker;
-    tieBreaker = [&] (IndexType cellID1, IndexType cellID2) -> IndexType
-    {
-      IndexType preferred = (cellID1 < cellID2) ? cellID1 : cellID2; // rule to date
-      return preferred;
-    };
-    for (IndexType cellIndex : *myCellIndices)
-    {
-      CellPtr cell = topo->getCell(cellIndex);
-      CellPtr viewCell = view->getCell(cellIndex);
-      TEST_ASSERT(cell->topology()->getKey() == viewCell->topology()->getKey());
-      CellTopoPtr cellTopo = cell->topology();
-      int cellDim = cellTopo->getDimension();
-      for (int d=0; d<cellDim; d++)
-      {
-        int scCount = cellTopo->getSubcellCount(d);
-        for (int scord=0; scord<scCount; scord++)
-        {
-          IndexType entityIndex = cell->entityIndex(d, scord);
-          IndexType entityIndexView = viewCell->entityIndex(d, scord);
-          
-          TEST_EQUALITY(entityIndex, entityIndexView);
-          
-          pair<IndexType,unsigned> topoConstrainingEntity = topo->getConstrainingEntity(d, entityIndex);
-          pair<IndexType,unsigned> viewConstrainingEntity = view->getConstrainingEntity(d, entityIndex);
-          
-          pair<IndexType,IndexType> topoOwner = topo->owningCellIndexForConstrainingEntity(topoConstrainingEntity.second, topoConstrainingEntity.first, tieBreaker);
-          pair<IndexType,IndexType> viewOwner = view->owningCellIndexForConstrainingEntity(viewConstrainingEntity.second, viewConstrainingEntity.first, tieBreaker);
-          
-          TEST_EQUALITY(topoOwner, viewOwner);
-        }
-      }
-    }
-    
     // check that cells outside bounds return false for isValidCellIndex:
     for (IndexType cellIndex=topo->cellCount(); cellIndex < 2 * topo->cellCount(); cellIndex++)
     {

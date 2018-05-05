@@ -2377,16 +2377,6 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubcellDofIndices& 
 
 CellConstraints GDAMinimumRule::getCellConstraints(GlobalIndexType cellID)
 {
-  std::function<IndexType(IndexType,IndexType)> tieBreaker;
-  tieBreaker = [&] (IndexType cellID1, IndexType cellID2) -> IndexType
-  {
-    // rule: if cells differ in p, take the lower order (the constraining one)
-    //       if they agree in p, take the one with lower index
-    IndexType preferred = (cellID1 < cellID2) ? cellID1 : cellID2;
-    // TODO: replace this rule with something that considers poly order
-    return preferred;
-  };
-  
   if (_constraintsCache.find(cellID) == _constraintsCache.end())
   {
 //    cout << "Getting cell constraints for cellID " << cellID << endl;
@@ -2491,15 +2481,28 @@ CellConstraints GDAMinimumRule::getCellConstraints(GlobalIndexType cellID)
               // here, the "constraining entity" will be the entity itself
               // (requires 1-irregular mesh)
               
-              pair<GlobalIndexType,GlobalIndexType> owningCellInfoSpatialSlice = _meshTopology->owningCellIndexForConstrainingEntity(d, entityIndex, tieBreaker);
-              spatialSliceConstraints->owningCellIDForSubcell[d][subcord].cellID = owningCellInfoSpatialSlice.first;
+              CellPair owningCellAndSide = cellContainingEntityWithLeastH1Order(d, entityIndex);
+              auto owningCellID = owningCellAndSide.first;
+              if (_meshTopology->isValidCellIndex(owningCellID))
+              {
+                CellPtr owningCell = _meshTopology->getCell(owningCellID);
+                if (owningCell->isParent(_meshTopology))
+                {
+                  cout << "Internal GDAMinimumRule Error: selected owning cell is a parent (not active!) -- owners must be active cells.\n";
+                  cout << "cell " << owningCellID << " is a parent.\n";
+                  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "inactive owning cell!");
+                }
+                spatialSliceConstraints->owningCellIDForSubcell[d][subcord].cellID = owningCellID;
+                unsigned owningSubcellOrdinal = owningCell->findSubcellOrdinal(d, entityIndex);
+                spatialSliceConstraints->owningCellIDForSubcell[d][subcord].owningSubcellOrdinal = owningSubcellOrdinal;
+              }
+              else
+              {
+                cout << "GDAMinimumRule::getCellConstraints(): owning cellID " << owningCellID << " is not valid.\n";
+                TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "owning cellID is not valid!");
+              }
               
-              CellPtr owningCell = _meshTopology->getCell(owningCellInfoSpatialSlice.first);
-              unsigned owningSubcellOrdinal = owningCell->findSubcellOrdinal(d, owningCellInfoSpatialSlice.second);
-              spatialSliceConstraints->owningCellIDForSubcell[d][subcord].owningSubcellOrdinal = owningSubcellOrdinal;
-//              spatialSliceConstraints->owningCellIDForSubcell[d][subcord].owningSubcellEntityIndex = owningCellInfoSpatialSlice.second; // the constrained entity in owning cell (which is a same-dimensional descendant of the constraining entity)
-              spatialSliceConstraints->owningCellIDForSubcell[d][subcord].dimension = d;
-              
+              CellPtr owningCell = _meshTopology->getCell(owningCellID);
               CellTopoPtr owningCellTopo = owningCell->topology();
               
               bool found = false;
@@ -2513,7 +2516,7 @@ CellConstraints GDAMinimumRule::getCellConstraints(GlobalIndexType cellID)
                   {
                     found = true;
                     
-                    spatialSliceConstraints->subcellConstraints[d][subcord].cellID = owningCellInfoSpatialSlice.first;
+                    spatialSliceConstraints->subcellConstraints[d][subcord].cellID = owningCellID;
                     spatialSliceConstraints->subcellConstraints[d][subcord].subcellOrdinal = subcellOrdinalInSide;
                     spatialSliceConstraints->subcellConstraints[d][subcord].sideOrdinal = owningSideOrdinal;
                     spatialSliceConstraints->subcellConstraints[d][subcord].dimension = d;
@@ -2588,29 +2591,26 @@ CellConstraints GDAMinimumRule::getCellConstraints(GlobalIndexType cellID)
               constrainingDimension, constrainingSubcellInfo[d][scOrdinal].subcellOrdinal);
           constrainingEntityIndex = constrainingCell->entityIndex(constrainingDimension, constrainingSubcellOrdinalInCell);
         }
-//        CellPair owningCellAndSide = cellContainingEntityWithLeastH1Order(constrainingDimension, constrainingEntityIndex);
-//        if (_meshTopology->isValidCellIndex(owningCellAndSide.first))
-//        {
-//
-//        }
-//        else
-//        {
-//          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellID is not valid!");
-//        }
-        pair<GlobalIndexType,GlobalIndexType> owningCellInfo = _meshTopology->owningCellIndexForConstrainingEntity(constrainingDimension, constrainingEntityIndex, tieBreaker);
-        cellConstraints.owningCellIDForSubcell[d][scOrdinal].cellID = owningCellInfo.first;
-        if (_meshTopology->isValidCellIndex(owningCellInfo.first))
+        CellPair owningCellAndSide = cellContainingEntityWithLeastH1Order(constrainingDimension, constrainingEntityIndex);
+        auto owningCellID = owningCellAndSide.first;
+        if (_meshTopology->isValidCellIndex(owningCellID))
         {
-          CellPtr owningCell = _meshTopology->getCell(owningCellInfo.first);
-          unsigned owningSubcellOrdinal = owningCell->findSubcellOrdinal(constrainingDimension, owningCellInfo.second);
+          CellPtr owningCell = _meshTopology->getCell(owningCellID);
+          if (owningCell->isParent(_meshTopology))
+          {
+            cout << "Internal GDAMinimumRule Error: selected owning cell is a parent (not active!) -- owners must be active cells.\n";
+            cout << "cell " << owningCellID << " is a parent.\n";
+            TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "inactive owning cell!");
+          }
+          cellConstraints.owningCellIDForSubcell[d][scOrdinal].cellID = owningCellID;
+          unsigned owningSubcellOrdinal = owningCell->findSubcellOrdinal(constrainingDimension, constrainingEntityIndex);
           cellConstraints.owningCellIDForSubcell[d][scOrdinal].owningSubcellOrdinal = owningSubcellOrdinal;
         }
         else
         {
-          cout << "GDAMinimumRule::getCellConstraints(): cellID " << cellID << " is not valid.\n";
-          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellID is not valid");
+          cout << "GDAMinimumRule::getCellConstraints(): owning cellID " << owningCellID << " is not valid.\n";
+          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "owning cellID is not valid!");
         }
-//        cellConstraints.owningCellIDForSubcell[d][scOrdinal].owningSubcellEntityIndex = owningCellInfo.second; // the constrained entity in owning cell (which is a same-dimensional descendant of the constraining entity)
         cellConstraints.owningCellIDForSubcell[d][scOrdinal].dimension = constrainingDimension;
       }
     }
