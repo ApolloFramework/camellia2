@@ -909,6 +909,45 @@ TEUCHOS_UNIT_TEST( Mesh, PRefine2D )
   mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
 }
   
+  TEUCHOS_UNIT_TEST( Mesh, PRefineCurvilinear2D )
+  {
+    // This is mostly a test that things don't go awry with curvilinear meshes under p-refinement on multiple MPI ranks.
+    // We just confirm that with some solution data in place, we can p-refine without exceptions being thrown...
+    int spaceDim = 2;
+    int delta_k = 2;
+    int H1Order = 2;
+    
+    double cylinderRadius = 1.0;
+    MeshGeometryPtr meshGeometry = MeshFactory::halfConfinedCylinderGeometry(cylinderRadius);
+    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = meshGeometry->edgeToCurveMap();
+    auto globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
+    MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(meshGeometry) );
+    meshTopo->setEdgeToCurveMap(globalEdgeToCurveMap, Teuchos::null);
+    
+//    cout << "globalEdgeToCurveMap.size(): " << globalEdgeToCurveMap.size() << endl;
+    
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopo, form.bf(), H1Order, delta_k) ) ;
+    meshTopo->initializeTransformationFunction(mesh);
+    
+    int solutionOrdinal = 0;
+    map<int,FunctionPtr> functionMap;
+    
+    functionMap[form.u()->ID()] = Function::constant(1.0);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    mesh->registerSolution(solution);
+    solution()->projectOntoMesh(functionMap, solutionOrdinal);
+    
+    std::set<GlobalIndexType> cellsToPRefine = mesh->getActiveCellIDsGlobal();
+    cellsToPRefine.erase(1);
+    //  print("cellsToPRefine", cellsToPRefine);
+    bool repartitionAndRebuild = true;
+    int pToAdd = 1;
+    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+  }
+  
 TEUCHOS_UNIT_TEST( Mesh, NormalSpaceTime1D )
 {
   int spaceDim = 1;

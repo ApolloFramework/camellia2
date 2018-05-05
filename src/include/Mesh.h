@@ -44,7 +44,6 @@
 
 namespace Camellia
 {
-class MeshTransformationFunction;
 class MeshPartitionPolicy;
 
 class Mesh : public RefinementObserver, public DofInterpreter
