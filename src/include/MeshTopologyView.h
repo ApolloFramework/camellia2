@@ -140,8 +140,6 @@ namespace Camellia {
     
     virtual Teuchos::RCP<MeshTransformationFunction> transformationFunction() const;
     
-    virtual std::pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex) const;
-    
     virtual void setGlobalDofAssignment(GlobalDofAssignment* gda); // for cubature degree lookups
     
     virtual void verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID) const;

@@ -130,6 +130,7 @@ class CellTransformationFunction : public TFunction<double>
 protected:
   CellTransformationFunction(VectorBasisPtr basis, FieldContainer<double> &basisCoefficients, Camellia::EOperator op) : TFunction<double>(1)
   {
+//    cout << "CellTransformationFunction constructed for -1 cellIndex with basisCoefficients set...\n";
     _basis = basis;
     _basisCoefficients = basisCoefficients;
     _op = op;
@@ -138,6 +139,7 @@ protected:
 public:
   CellTransformationFunction(MeshPtr mesh, int cellID, const vector< ParametricCurvePtr > &edgeFunctions) : TFunction<double>(1)
   {
+//    cout << "CellTransformationFunction constructed for cellID " << cellID << " with edgeFunctions.\n";
     _cellIndex = -1;
     _op = OP_VALUE;
     ElementTypePtr elementType = mesh->getElementType(cellID);
@@ -453,9 +455,8 @@ bool MeshTransformationFunction::mapRefCellPointsUsingExactGeometry(FieldContain
 
 void MeshTransformationFunction::updateCells(const set<GlobalIndexType> &cellIDs)
 {
-  for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
+  for (GlobalIndexType cellID : cellIDs)
   {
-    GlobalIndexType cellID = *cellIDIt;
     Teuchos::RCP<CellTransformationFunction> cellTransform =  CellTransformationFunction::cellTransformation(_mesh, cellID, _mesh->parametricEdgesForCell(cellID));
     _cellTransforms[cellID] = cellTransform;
     _maxPolynomialDegree = std::max(_maxPolynomialDegree,cellTransform->basisDegree());
@@ -580,7 +581,21 @@ void MeshTransformationFunction::didHRefine(const set<GlobalIndexType> &cellIDs)
 
 void MeshTransformationFunction::didPRefine(const set<GlobalIndexType> &cellIDs)
 {
-  updateCells(cellIDs);
+  set<GlobalIndexType> cellIDsWithCurvedEdges;
+  MeshTopology* topology = dynamic_cast<MeshTopology*>(_mesh->getTopology().get());
+  
+  for (IndexType cellID : cellIDs)
+  {
+    if (_cellTransforms.find(cellID) == _cellTransforms.end()) continue;
+    else
+    {
+      if (topology->cellHasCurvedEdges(cellID))
+      {
+        cellIDsWithCurvedEdges.insert(cellID);
+      }
+    }
+  }
+  updateCells(cellIDsWithCurvedEdges);
 }
 
 MeshTransformationFunction::~MeshTransformationFunction() {}

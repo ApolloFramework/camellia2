@@ -107,6 +107,8 @@ private:
   
   std::string _solutionIdentifier = ""; // used to allow Solutions to be presented distinctly to the user (e.g., current and previous time step)
 
+  GlobalIndexType _bcDofCount; // global count of the number of BCs imposed during last call to imposeBCs().
+  
   double _globalSystemConditionEstimate;
 
   double _zmcRho;
@@ -194,6 +196,9 @@ public:
   
   const std::string & getIdentifier() const;
   void setIdentifier(const std::string &solutionIdentifier);
+  // ! returns the global count of the number of degrees of freedom on which boundary conditions were imposed in
+  // ! the last call to imposeBCs().  (imposeBCs() is called in solve().)
+  GlobalIndexType getBCDofCount() const;
 
   void setSolution(TSolutionPtr<Scalar> soln); // thisSoln = soln
 

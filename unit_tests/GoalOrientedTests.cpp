@@ -249,6 +249,12 @@ namespace
     
     auto soln_TwoRHS = simplePoissonSolutionWithSecondaryRHS(elementWidths, H1Order, useConformingTraces);
     
+    auto Comm = soln_TwoRHS->mesh()->Comm();
+    int rank = Comm->MyPID();
+    
+    // barrier for debugger attachment:
+    Comm->Barrier();
+    
     //    {
     //      // DEBUGGING: write out the matrices and RHSes to file
     //      soln_OneRHS->setWriteMatrixToMatrixMarketFile(true, "/tmp/A_one.dat");
@@ -276,6 +282,7 @@ namespace
     const int numRefinements = 2;
     for (int refinementNumber=0; refinementNumber<=numRefinements; refinementNumber++)
     {
+//      cout << "Rank " << rank << ", starting refinement " << refinementNumber << endl;
       int localLength = lhs_TwoRHS->MyLength();
       for (int i=0; i<localLength; i++)
       {
@@ -295,6 +302,16 @@ namespace
       // Solution *also* stores a cell-local representation of solution coefficients, and this should also match
       // for the first (0) solution ordinals.
       auto & myCellIDs = soln_TwoRHS->mesh()->cellIDsInPartition();
+//      {
+//        // DEBUGGING
+//        cout << "Rank " << rank << ", myCellIDs: ";
+//        for (auto cellID : myCellIDs)
+//        {
+//          cout << cellID << " ";
+//        }
+//        cout << endl;
+//      }
+      
       for (auto cellID : myCellIDs)
       {
         bool warnAboutOffRank = true; // should all be on-rank
@@ -377,10 +394,10 @@ namespace
 //          cout << endl;
 //        }
         
-        mesh->hRefine(myCellIDs);
+        mesh->hRefine(activeCellIDs);
         
-      }
-    }
+      } // if (refinementNumber != numRefinements)
+    } // for (int refinementNumber=0; refinementNumber<=numRefinements; refinementNumber++)
   }
   
   TEUCHOS_UNIT_TEST( GoalOriented, PoissonSolveMatches_1D )
@@ -438,19 +455,6 @@ namespace
   
   TEUCHOS_UNIT_TEST( GoalOriented, RefinedSolutionMatches_2D )
   {
-    // for reasons as yet undiagnosed, there are test failures on > 1 MPI ranks in this test...
-    {
-      auto comm = MPIWrapper::CommWorld();
-      int numProc = comm->NumProc();
-      if (numProc > 1)
-      {
-        // for reasons unknown, we hang if numProc > 1
-        cout << "skipping RefinedSolutionMatches_2D because numProc > 1\n";
-        success = false;
-        return;
-      }
-    }
-    
     const int spaceDim = 2;
     const int meshWidth = 1;
     auto elementWidths = vector<int>(spaceDim,meshWidth);

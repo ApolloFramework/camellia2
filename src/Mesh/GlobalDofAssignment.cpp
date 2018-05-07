@@ -454,8 +454,16 @@ void GlobalDofAssignment::repartitionAndMigrate()
     if (_allowMeshTopologyPruning)
     {
       int dimForNeighborRelation = minimumSubcellDimensionForContinuityEnforcement(); // collective operation
-      const set<GlobalIndexType>* myCells = &cellsInPartition(-1);
-      meshTopo->pruneToInclude(_partitionPolicy->Comm(), *myCells, dimForNeighborRelation);
+      set<GlobalIndexType> cellsToInclude = cellsInPartition(-1); // my cells
+      auto & knownCells = meshTopo->getLocallyKnownActiveCellIndices();
+      for (auto cellID : knownCells)
+      {
+        if (meshTopo->cellHasCurvedEdges(cellID))
+        {
+          cellsToInclude.insert(cellID);
+        }
+      }
+      meshTopo->pruneToInclude(_partitionPolicy->Comm(), cellsToInclude, dimForNeighborRelation);
     }
   }
   for (vector< TSolutionPtr<double> >::iterator solutionIt = _registeredSolutions.begin();

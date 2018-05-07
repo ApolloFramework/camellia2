@@ -257,8 +257,6 @@ public:
   // ! maxConstraint made public for the sake of MeshTopologyView; not intended for general use
   IndexType maxConstraint(unsigned d, IndexType entityIndex1, IndexType entityIndex2) const;
   
-  pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex) const;
-
   // 2D only:
   vector< ParametricCurvePtr > parametricEdgesForCell(IndexType cellID, bool neglectCurves) const;
   void setEdgeToCurveMap(const map< pair<IndexType, IndexType>, ParametricCurvePtr > &edgeToCurveMap, MeshPtr mesh);

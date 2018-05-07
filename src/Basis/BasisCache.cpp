@@ -18,7 +18,6 @@
 #include "CubatureFactory.h"
 #include "Function.h"
 #include "Mesh.h"
-#include "MeshTransformationFunction.h"
 #include "SerialDenseWrapper.h"
 #include "SpaceTimeBasisCache.h"
 
