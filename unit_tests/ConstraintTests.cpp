@@ -9,8 +9,6 @@
 //
 //
 
-// empty test file.  Copy (naming "MyClassTests.cpp", typically) and then add your tests below.
-
 #include "Teuchos_UnitTestHarness.hpp"
 
 #include "Camellia.h"
@@ -136,27 +134,35 @@ namespace
     int spaceDim = 1;
     int H1Order = 1, delta_k=1;
     bool useConformingTraces = true;
+    int numConstraints = 3; // we'll just add the same constraint multiple times, essentially as a check that the partition map, etc. do something reasonable here....
+    double tol = 1e-14;
     PoissonFormulation form(spaceDim, useConformingTraces);
     MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {3});
+    double h = 1.0 / meshTopo->cellCount();
     
     MeshPtr mesh = MeshFactory::minRuleMesh(meshTopo, form.bf(), vector<int>{H1Order}, delta_k);
     BCPtr bc = BC::bc();
     RHSPtr rhs = RHS::rhs();
     SolutionPtr soln = Solution::solution(mesh,bc,rhs,form.bf()->graphNorm());
     
-    // add a constraint that the trace "integral" on each element is 1.0
-    VarPtr u_hat = form.u_hat();
-    soln->lagrangeConstraints()->addConstraint(u_hat == Function::constant(1.0));
-    
-    int lagrangeOrdinal = 0;
+    // add a constraint that the trace integral on each element is 1.0
+    VarPtr uHat = form.u_hat();
+    LinearTermPtr uHatIntegrand = uHat * Function::normal_1D();
+    for (int lagrangeOrdinal=0; lagrangeOrdinal<numConstraints; lagrangeOrdinal++)
+    {
+      soln->lagrangeConstraints()->addConstraint(uHatIntegrand == Function::constant(1.0));
+    }
     
     Epetra_Map partMap = soln->getPartitionMap();
     for (GlobalIndexType myCellID : mesh->cellIDsInPartition())
     {
-      GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
-      int LID = partMap.LID(GID);
-      // if GID is local (as it should be), LID should be non-negative
-      TEST_COMPARE(LID, >=, 0);
+      for (int lagrangeOrdinal=0; lagrangeOrdinal<numConstraints; lagrangeOrdinal++)
+      {
+        GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
+        int LID = partMap.LID(GID);
+        // if GID is local (as it should be), LID should be non-negative
+        TEST_COMPARE(LID, >=, 0);
+      }
     }
     
     soln->initializeStiffnessAndLoad();
@@ -167,12 +173,62 @@ namespace
     Epetra_FECrsMatrix* feMatrix = dynamic_cast<Epetra_FECrsMatrix*>( stiffness.get() );
     feMatrix->GlobalAssemble();
     
+    int myMaxEntries = feMatrix->MaxNumEntries();
+    vector<double> myEntries(myMaxEntries); // storage
+    vector<int> myLIDs(myMaxEntries);
+    
     for (GlobalIndexType myCellID : mesh->cellIDsInPartition())
     {
-      GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
-      int LID = partMap.LID(GID);
-      
-      // TODO: check values in stiffness and load, corresponding to the Constraint.
+      for (int lagrangeOrdinal=0; lagrangeOrdinal<numConstraints; lagrangeOrdinal++)
+      {
+        GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
+        int LID = partMap.LID(GID);
+        
+        auto trialOrdering = mesh->getElementType(myCellID)->trialOrderPtr;
+        
+        map<int,double> expectedRowValues;
+        
+        for (int sideOrdinal=0; sideOrdinal<2; sideOrdinal++) // 1D
+        {
+          set<GlobalIndexType> dofsForSide = soln->getDofInterpreter()->getGlobalDofIndices(myCellID, uHat->ID(), sideOrdinal);
+          // sanity check: there should be exactly one dof
+          TEST_ASSERT(dofsForSide.size() == 1);
+          GlobalIndexType dofForSide = *dofsForSide.begin();
+          int LIDForDof = partMap.LID(dofForSide);
+          double normal = (sideOrdinal==0) ? -1.0 : 1.0; // normal is -1.0 for sideOrdinal 0; 1.0 for 1
+          double sideParity = soln->mesh()->parityForSide(myCellID, sideOrdinal);
+          double expectedValue = normal * sideParity;
+          expectedRowValues[LIDForDof] = expectedValue;
+        }
+        
+        int entryCount;
+        feMatrix->NumMyRowEntries(LID, entryCount);
+        
+        // the row for LID in the feMatrix should be 0s, except for the u_hat dofs.
+        // for these, it should be the integral of that dof over the element (boundary)
+        int entriesExtracted;
+        feMatrix->ExtractMyRowCopy(LID, entryCount, entriesExtracted, &myEntries[0], &myLIDs[0]);
+        
+//        cout << "entry for cell " << myCellID << ":\n";
+        for (int i=0; i<entriesExtracted; i++)
+        {
+//          cout << "LID " << myLIDs[i] << ": " << myEntries[i] << endl;
+          int LID = myLIDs[i];
+          double expectedValue = 0.0;
+          if (expectedRowValues.find(LID) != expectedRowValues.end())
+          {
+            expectedValue = expectedRowValues[LID];
+          }
+          TEST_FLOATING_EQUALITY(expectedValue, myEntries[i], tol);
+        }
+        
+        int solutionOrdinal = 0;
+        double rhsValue = (*(*load)(solutionOrdinal))[LID];
+//        cout << "Value: " << rhsValue << endl;
+        
+        double expectedRHSValue = h; // integral of 1 over element
+        TEST_FLOATING_EQUALITY(expectedRHSValue, rhsValue, tol);
+      }
     }
   }
   
@@ -225,8 +281,7 @@ namespace
 ////    exporter.exportSolution(soln, 0, numSubdivisions);
 //
 //  }
-  
-  
+//
 //  TEUCHOS_UNIT_TEST( Int, Assignment )
 //  {
 //    int i1 = 4;
