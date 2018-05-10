@@ -953,6 +953,12 @@ GlobalIndexType TSolution<Scalar>::elementLagrangeIndex(GlobalIndexType cellID, 
 //}
 
 template <typename Scalar>
+GlobalIndexType TSolution<Scalar>::getBCDofCount() const
+{
+  return _bcDofCount;
+}
+
+template <typename Scalar>
 int TSolution<Scalar>::solve()
 {
   return solve(TSolver<Scalar>::getDirectSolver());
