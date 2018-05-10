@@ -959,6 +959,12 @@ const std::string & TSolution<Scalar>::getIdentifier() const
 }
 
 template <typename Scalar>
+GlobalIndexType TSolution<Scalar>::getBCDofCount() const
+{
+  return _bcDofCount;
+}
+
+template <typename Scalar>
 int TSolution<Scalar>::solve()
 {
   return solve(TSolver<Scalar>::getDirectSolver());

@@ -688,6 +688,7 @@ int main(int argc, char *argv[])
            << "ref\t "
            << "elements\t "
            << "dofs\t "
+           << "dofs - BCdofs\t "
            << "energy\t "
            << "solvetime\t "
            << "elapsed\t "
@@ -793,6 +794,7 @@ int main(int argc, char *argv[])
         << " \nRefinement: " << refIndex
         << " \tElements: " << mesh->numActiveElements()
         << " \tDOFs: " << mesh->numGlobalDofs()
+        << " \tDOFs - BCDOFs: " << mesh->numGlobalDofs() - solutionIncrement->getBCDofCount()
         << " \tEnergy Error: " << energyError
         << " \nSolve Time: " << solveTime
         << " \tTotal Time: " << totalTimer->totalElapsedTime(true)
@@ -807,6 +809,7 @@ int main(int argc, char *argv[])
         << " " << refIndex
         << " " << mesh->numActiveElements()
         << " " << mesh->numGlobalDofs()
+        << " " << mesh->numGlobalDofs() - solutionIncrement->getBCDofCount()
         << " " << energyError
         << " " << solveTime
         << " " << totalTimer->totalElapsedTime(true)
@@ -885,16 +888,16 @@ int main(int argc, char *argv[])
         double hpThreshold = 0.1;
         for (GlobalIndexType cellID : localCellsToRefine)
         {
-          // if (jumpMap_T[cellID] > hpThreshold*globalMax_jumpT)
-          // {
-            // myCellsToHRefine.push_back(cellID);
-            myCellsToHxRefine.push_back(cellID);
+          if (jumpMap_T[cellID] > hpThreshold*globalMax_jumpT)
+          {
+            myCellsToHRefine.push_back(cellID);
+            // myCellsToHxRefine.push_back(cellID);
             // myCellsToHyRefine.push_back(cellID);
-          // }
-          // else
-          // {
-            // myCellsToPRefine.push_back(cellID);
-          // }
+          }
+          else
+          {
+            myCellsToPRefine.push_back(cellID);
+          }
         }
 
         // isotropic h-ref
