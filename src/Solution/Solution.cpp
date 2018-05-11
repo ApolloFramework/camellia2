@@ -4068,7 +4068,7 @@ void TSolution<Scalar>::projectOldCellOntoNewCells(GlobalIndexType cellID, Eleme
     }
   }
 
-  int parent_p_order = _mesh->getElementType(cellID)->trialOrderPtr->maxBasisDegree(); // shouldn't this be oldElemType?
+  int parent_p_order = oldElemType->trialOrderPtr->maxBasisDegree();
 
   for (int childOrdinal=0; childOrdinal < childIDs.size(); childOrdinal++)
   {
@@ -4079,8 +4079,11 @@ void TSolution<Scalar>::projectOldCellOntoNewCells(GlobalIndexType cellID, Eleme
     int childSideCount = childCell->getSideCount();
 
     int child_p_order = _mesh->getElementType(childID)->trialOrderPtr->maxBasisDegree();
-    int cubatureDegree = parent_p_order + child_p_order;
+    int cubatureDegree = std::max(parent_p_order + child_p_order, child_p_order * 2);
 
+//    cout << "child_p_order = " << child_p_order << endl;
+//    cout << "parent_p_order = " << parent_p_order << endl;
+    
     BasisCachePtr volumeBasisCache;
     vector<BasisCachePtr> sideBasisCache(childSideCount);
 
@@ -4124,6 +4127,7 @@ void TSolution<Scalar>::projectOldCellOntoNewCells(GlobalIndexType cellID, Eleme
     for (typename map<int,TFunctionPtr<Scalar>>::iterator fieldFxnIt=fieldMap.begin(); fieldFxnIt != fieldMap.end(); fieldFxnIt++)
     {
       int varID = fieldFxnIt->first;
+//      cout << "varID: " << varID << endl;
       TFunctionPtr<Scalar> fieldFxn = fieldFxnIt->second;
       BasisPtr childBasis = childType->trialOrderPtr->getBasis(varID);
       basisCoefficients.resize(1,childBasis->getCardinality());
