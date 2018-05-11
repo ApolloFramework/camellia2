@@ -97,18 +97,24 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
 
   _fc = ParameterFunction::parameterFunction(0.0);
   _fe = ParameterFunction::parameterFunction(0.0);
-  _fm = vector<Teuchos::RCP<ParameterFunction> >(trueSpaceDim, ParameterFunction::parameterFunction(0.0));
-  _fB = vector<Teuchos::RCP<ParameterFunction> >(trueSpaceDim, ParameterFunction::parameterFunction(0.0));
+  _fm = vector<Teuchos::RCP<ParameterFunction> >(trueSpaceDim);
+  _fB = vector<Teuchos::RCP<ParameterFunction> >(trueSpaceDim);
   _fc->setName("fc");
   _fe->setName("fe");
-  for (int d=0; d<spaceDim; d++)
+  for (int d=0; d<trueSpaceDim; d++)
   {
+    _fm[d] = ParameterFunction::parameterFunction(0.0);
+    _fB[d] = ParameterFunction::parameterFunction(0.0);
     ostringstream name_fm;
     name_fm << "fm" << d+1;
     _fm[d]->setName(name_fm.str());
-    ostringstream name_fB;
-    name_fm << "fB" << d+1;
-    _fB[d]->setName(name_fB.str());
+    if ((d > 0) || (spaceDim > 1))
+    {
+      ostringstream name_fB;
+      name_fB << "fB" << d+1;
+      _fB[d]->setName(name_fB.str());
+      cout << "set name of fB[" << d << "] to " << name_fB.str() << endl;
+    }
   }
   _gamma = parameters.get<double>("gamma",2.0); // 2.0 is what is used for Brio-Wu
   _Cv = parameters.get<double>("Cv",1.0);
@@ -302,10 +308,10 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     _abstractDensity = rho;
     _abstractMagnetism = B;
     
-//    cout << "massFlux: " << massFlux->displayString() << endl;
-//    cout << "energyFlux: " << energyFlux->displayString() << endl;
-//    cout << "momentumFlux: " << momentumFlux->displayString() << endl;
-//    cout << "magneticFlux: " << magneticFlux->displayString() << endl;
+    cout << "massFlux: " << massFlux->displayString() << endl;
+    cout << "energyFlux: " << energyFlux->displayString() << endl;
+    cout << "momentumFlux: " << momentumFlux->displayString() << endl;
+    cout << "magneticFlux: " << magneticFlux->displayString() << endl;
   }
   
   _bf = Teuchos::rcp( new BF(_vf) );
@@ -348,7 +354,18 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   for (int d=0; d<trueSpaceDim; d++)
   {
     auto momentumColumn = (_spaceDim > 1) ? column(_spaceDim,momentumFlux,d+1) : momentumFlux->spatialComponent(d+1);
-    _fluxEquations[vm[d]->ID()] = {vm[d],momentumColumn,tm[d],mVar[d],_fm[d]};
+    if (d != 0)
+    {
+      cout << "WARNING: doing a debugging thing for vm[" << d << "]\n"; // TODO: get rid of this if/else -- what's in the else is nominally correct
+      auto fakeMomentumColumn = VarFunction<double>::abstractFunction(1.0 * mVar[d]);
+      _fluxEquations[vm[d]->ID()] = {vm[d],fakeMomentumColumn,tm[d],mVar[d],_fm[d]};
+      cout << "for variable " << mVar[d]->name() << ", flux is " << fakeMomentumColumn->displayString() << endl;
+    }
+    else
+    {
+      _fluxEquations[vm[d]->ID()] = {vm[d],momentumColumn,tm[d],mVar[d],_fm[d]};
+      cout << "for variable " << mVar[d]->name() << ", flux is " << momentumColumn->displayString() << endl;
+    }
     if ((d > 0) || (_spaceDim != 1))
     {
       auto magneticColumn = (_spaceDim > 1) ? column(_spaceDim,magneticFlux,d+1) : magneticFlux->spatialComponent(d+1);
@@ -390,6 +407,14 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     auto flux     = eqn.flux;
     auto traceVar = eqn.traceVar;
     auto f_rhs    = eqn.f_rhs;
+    {
+      // DEBUGGING
+      cout << "testVar:  " << testVar->name() << endl;
+      cout << "timeTerm: " << timeTerm->name() << endl;
+      cout << "flux:     " << flux->displayString() << endl;
+      cout << "traceVar: " << traceVar->name() << endl;
+      cout << "f_rhs:    " << f_rhs->displayString() << endl;
+    }
     if (timeTerm != Teuchos::null) // time term is null for Gauss' Law
     {
       auto timeTerm_prev      = _backgroundFlowMap.find(timeTerm->ID())->second;
@@ -417,6 +442,9 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     _steadyBF->addTerm(traceVar, testVar);
     _rhs     ->addTerm(f_rhs * testVar);
   }
+  
+  // DEBUGGING
+  cout << "bf: " << _bf->displayString() << endl;
   
   vector<VarPtr> missingTestVars = _bf->missingTestVars();
   vector<VarPtr> missingTrialVars = _bf->missingTrialVars();
@@ -514,18 +542,18 @@ void IdealMHDFormulation::addEnergyFluxCondition(SpatialFilterPtr region, Functi
   _solnIncrement->bc()->addDirichlet(te, region, te_exact);
 }
 
-void IdealMHDFormulation::addMassFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
+void IdealMHDFormulation::addMassFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
 {
   VarPtr tc = this->tc();
   bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
-  auto tc_exact = this->exactSolution_tc(u, rho, E, B, includeParity);
+  auto tc_exact = this->exactSolution_tc(rho, u, E, B, includeParity);
   _solnIncrement->bc()->addDirichlet(tc, region, tc_exact);
 }
 
-void IdealMHDFormulation::addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
+void IdealMHDFormulation::addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
 {
   bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
-  auto tm_exact = exactSolution_tm(u, rho, E, B, includeParity);
+  auto tm_exact = exactSolution_tm(rho, u, E, B, includeParity);
   for (int d=0; d<_spaceDim; d++)
   {
     VarPtr tm_i = this->tm(d+1);
@@ -533,11 +561,11 @@ void IdealMHDFormulation::addMomentumFluxCondition(SpatialFilterPtr region, Func
   }
 }
 
-void IdealMHDFormulation::addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
+void IdealMHDFormulation::addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
 {
   VarPtr te = this->te();
   bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
-  auto te_exact = exactSolution_te(u, rho, E, B, includeParity);
+  auto te_exact = exactSolution_te(rho, u, E, B, includeParity);
   _solnIncrement->bc()->addDirichlet(te, region, te_exact);
 }
 
@@ -566,8 +594,8 @@ VarPtr IdealMHDFormulation::E()
   return _vf->fieldVar(S_E);
 }
 
-// ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the continuity equation
-FunctionPtr IdealMHDFormulation::exactSolution_fc(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
+// ! For an exact solution (rho, u, E, B), returns the corresponding forcing in the continuity equation
+FunctionPtr IdealMHDFormulation::exactSolution_fc(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
 {
   auto abstractFlux = _massFlux;
   FunctionPtr timeTerm = rho; // the thing that gets differentiated in time
@@ -579,7 +607,7 @@ FunctionPtr IdealMHDFormulation::exactSolution_fc(FunctionPtr u, FunctionPtr rho
   }
   
   bool includeFluxParity = false; // DPG fluxes won't be used here
-  map<int,FunctionPtr> exactMap = this->exactSolutionMap(u, rho, E, B, includeFluxParity);
+  map<int,FunctionPtr> exactMap = this->exactSolutionMap(rho, u, E, B, includeFluxParity);
   auto flux = abstractFlux->evaluateAt(exactMap);
 
   Camellia::EOperator divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
@@ -588,7 +616,7 @@ FunctionPtr IdealMHDFormulation::exactSolution_fc(FunctionPtr u, FunctionPtr rho
 }
 
 // ! For an exact solution (u, rho, T), returns the corresponding forcing in the energy equation
-FunctionPtr IdealMHDFormulation::exactSolution_fe(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
+FunctionPtr IdealMHDFormulation::exactSolution_fe(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
 {
   auto abstractFlux = _energyFlux;
   FunctionPtr timeTerm = E; // the thing that gets differentiated in time
@@ -600,7 +628,7 @@ FunctionPtr IdealMHDFormulation::exactSolution_fe(FunctionPtr u, FunctionPtr rho
   }
   
   bool includeFluxParity = false; // DPG fluxes won't be used here
-  map<int,FunctionPtr> exactMap = this->exactSolutionMap(u, rho, E, B, includeFluxParity);
+  map<int,FunctionPtr> exactMap = this->exactSolutionMap(rho, u, E, B, includeFluxParity);
   auto flux = abstractFlux->evaluateAt(exactMap);
   
   Camellia::EOperator divOp = (_spaceDim > 1) ? OP_DIV : OP_DX;
@@ -609,14 +637,14 @@ FunctionPtr IdealMHDFormulation::exactSolution_fe(FunctionPtr u, FunctionPtr rho
 }
 
 // ! For an exact solution (u, rho, T), returns the corresponding forcing in the momentum equation
-std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_fm(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
+std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_fm(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
 {
   auto abstractFlux = _momentumFlux;
   
   vector<FunctionPtr> f(3);
 
   bool includeFluxParity = false; // DPG fluxes won't be used here
-  map<int,FunctionPtr> exactMap = this->exactSolutionMap(u, rho, E, B, includeFluxParity);
+  map<int,FunctionPtr> exactMap = this->exactSolutionMap(rho, u, E, B, includeFluxParity);
   auto fluxes = abstractFlux->evaluateAt(exactMap);
   
   for (int i=0; i<3; i++)
@@ -637,37 +665,43 @@ std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_fm(FunctionPtr u, Fu
   return f;
 }
 
-FunctionPtr IdealMHDFormulation::exactSolution_tc(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity)
+FunctionPtr IdealMHDFormulation::exactSolution_tc(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity)
 {
   auto testVar = this->vc();
-  return exactSolutionFlux(testVar, u, rho, E, B, includeParity);
+  return exactSolutionFlux(testVar, rho, u, E, B, includeParity);
 }
 
-FunctionPtr IdealMHDFormulation::exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity)
+FunctionPtr IdealMHDFormulation::exactSolution_te(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity)
 {
   auto testVar = this->ve();
-  return exactSolutionFlux(testVar, u, rho, E, B, includeParity);
+  return exactSolutionFlux(testVar, rho, u, E, B, includeParity);
 }
 
-std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_tm(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity)
+std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_tm(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity)
 {
   const int trueSpaceDim = 3;
   std::vector<FunctionPtr> tm(trueSpaceDim);
   for (int d=0; d<trueSpaceDim; d++)
   {
     auto testVar = this->vm(d+1);
-    tm[d] = exactSolutionFlux(testVar, u, rho, E, B, includeParity);
+    tm[d] = exactSolutionFlux(testVar, rho, u, E, B, includeParity);
   }
   return tm;
 }
 
-std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionFieldMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
+std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionFieldMap(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
 {
-  return exactSolutionFieldMapFromConservationVariables(u*rho, rho, E, B);
+  TEUCHOS_TEST_FOR_EXCEPTION(u->rank() != 1, std::invalid_argument, "u must be a vector-valued function");
+  TEUCHOS_TEST_FOR_EXCEPTION(B->rank() != 1, std::invalid_argument, "B must be a vector-valued function");
+  
+  return exactSolutionFieldMapFromConservationVariables(rho, u*rho, E, B);
 }
 
-std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionFieldMapFromConservationVariables(FunctionPtr m, FunctionPtr rho, FunctionPtr E, FunctionPtr B)
+std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionFieldMapFromConservationVariables(FunctionPtr rho, FunctionPtr m, FunctionPtr E, FunctionPtr B)
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(m->rank() != 1, std::invalid_argument, "m must be a vector-valued function");
+  TEUCHOS_TEST_FOR_EXCEPTION(B->rank() != 1, std::invalid_argument, "B must be a vector-valued function");
+  
   map<int, FunctionPtr> exactMap;
   const int trueSpaceDim = 3;
   exactMap[this->rho()->ID()] = rho;
@@ -683,14 +717,26 @@ std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionFieldMapFromConserv
   return exactMap;
 }
 
-FunctionPtr IdealMHDFormulation::exactSolutionFlux(VarPtr testVar, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B,
+FunctionPtr IdealMHDFormulation::exactSolutionFlux(VarPtr testVar, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B,
                                                    bool includeParity)
 {
   ScalarFluxEquation equation = _fluxEquations.find(testVar->ID())->second;
   auto abstractFlux = equation.flux;
   auto timeTerm = equation.timeTerm;
   
-  map<int,FunctionPtr> exactMap = exactSolutionFieldMap(u, rho, E, B);
+  cout << "u: " << u->displayString() << endl;
+  map<int,FunctionPtr> exactMap = exactSolutionFieldMap(rho, u, E, B);
+  {
+    // DEBUGGING
+    cout << "exactMap:\n";
+    for (auto entry : exactMap)
+    {
+      cout << entry.first << " -> " << entry.second->displayString() << endl;
+    }
+    cout << "abstract flux: " << abstractFlux->displayString() << endl;
+  }
+  
+  
   auto flux = abstractFlux->evaluateAt(exactMap);
   
   auto n = TFunction<double>::normal();
@@ -718,7 +764,7 @@ FunctionPtr IdealMHDFormulation::exactSolutionFlux(VarPtr testVar, FunctionPtr u
   return exactFlux;
 }
 
-std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeFluxParity)
+std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionMap(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeFluxParity)
 {
   TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "exactSolutionMap not yet implemented!");
 }

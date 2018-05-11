@@ -109,7 +109,7 @@ namespace Camellia
     
     FunctionPtr getMomentumFluxComponent(FunctionPtr momentumFlux, int i);
     
-    FunctionPtr exactSolutionFlux(VarPtr testVar, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
+    FunctionPtr exactSolutionFlux(VarPtr testVar, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity);
     
     std::map<int, FunctionPtr> _backgroundFlowMap, _solnPreviousTimeMap, _solnIncrementMap;
   public:
@@ -124,16 +124,16 @@ namespace Camellia
     // ! the Ideal MHD formulation bilinear form, with any time terms dropped
     BFPtr steadyBF();
     
-    void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B); // vector u, B
+    void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B); // vector u, B
     void addMassFluxCondition(SpatialFilterPtr region, FunctionPtr value);
     
-    void addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    void addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
     
     void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr value);
-    void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    void addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
   
     void addMagneticFluxCondition(SpatialFilterPtr region, FunctionPtr value);
-    void addMagneticFluxCondition(SpatialFilterPtr region, FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    void addMagneticFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
     
     // ! returns true if this is a space-time formulation; false otherwise.
     bool isSpaceTime() const;
@@ -255,50 +255,50 @@ namespace Camellia
     VarPtr vB(int i); // 1, 2, or 3, corresponding to Bx, By, Bz.  Note that in 1D, we don't solve for Bx, and input of "1" will cause an exception to be thrown.
     VarPtr vGauss(); // test function for Gauss' Law.  Only defined for meshes of dimension > 1.  (In 1D, Gauss' Law is trivially satisfied.)
     
-    // ! For an exact solution (u, rho, E, B), produces a map with solution variables that depend on them (fields, traces, fluxes).
+    // ! For an exact solution (rho, u, E, B), produces a map with solution variables that depend on them (fields, traces, fluxes).
     // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeFluxParity is false, fluxes do not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    std::map<int, FunctionPtr> exactSolutionMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeFluxParity);
+    std::map<int, FunctionPtr> exactSolutionMap(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeFluxParity);
     
-    // ! For an exact solution (u, rho, E, B), produces a map with volume solution variables that depend on them (fields).
+    // ! For an exact solution (rho, u, E, B), produces a map with volume solution variables that depend on them (fields).
     // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
-    std::map<int, FunctionPtr> exactSolutionFieldMap(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    std::map<int, FunctionPtr> exactSolutionFieldMap(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
     
     // ! For an exact solution (m, rho, E, B), produces a map with volume solution variables that depend on them (fields).
     // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
-    std::map<int, FunctionPtr> exactSolutionFieldMapFromConservationVariables(FunctionPtr m, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    std::map<int, FunctionPtr> exactSolutionFieldMapFromConservationVariables(FunctionPtr rho, FunctionPtr m, FunctionPtr E, FunctionPtr B);
     
-    // ! For an exact solution (u, rho, E, B), returns the corresponding tc flux
+    // ! For an exact solution (rho, u, E, B), returns the corresponding tc flux
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    FunctionPtr exactSolution_tc(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
+    FunctionPtr exactSolution_tc(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity);
     
-    // ! For an exact solution (u, rho, E, B), returns the corresponding tm flux.  (Since this is in general vector-valued, returns components in a std::vector.)
+    // ! For an exact solution (rho, u, E, B), returns the corresponding tm flux.  (Since this is in general vector-valued, returns components in a std::vector.)
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    std::vector<FunctionPtr> exactSolution_tm(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
+    std::vector<FunctionPtr> exactSolution_tm(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity);
     
-    // ! For an exact solution (u, rho, E, B), returns the corresponding te flux
+    // ! For an exact solution (rho, u, E, B), returns the corresponding te flux
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    FunctionPtr exactSolution_te(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
+    FunctionPtr exactSolution_te(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity);
   
-    // ! For an exact solution (u, rho, E, B), returns the corresponding tB flux
+    // ! For an exact solution (rho, u, E, B), returns the corresponding tB flux
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    FunctionPtr exactSolution_tB(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, bool includeParity);
+    FunctionPtr exactSolution_tB(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity);
     
-    // ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the continuity equation
-    FunctionPtr exactSolution_fc(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    // ! For an exact solution (rho, u, E, B), returns the corresponding forcing in the continuity equation
+    FunctionPtr exactSolution_fc(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
     
-    // ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the momentum equation
-    std::vector<FunctionPtr> exactSolution_fm(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    // ! For an exact solution (rho, u, E, B), returns the corresponding forcing in the momentum equation
+    std::vector<FunctionPtr> exactSolution_fm(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
     
-    // ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the energy equation
-    FunctionPtr exactSolution_fe(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    // ! For an exact solution (rho, u, E, B), returns the corresponding forcing in the energy equation
+    FunctionPtr exactSolution_fe(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
   
-    // ! For an exact solution (u, rho, E, B), returns the corresponding forcing in the magnetism equation
-    std::vector<FunctionPtr> exactSolution_fB(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B);
+    // ! For an exact solution (rho, u, E, B), returns the corresponding forcing in the magnetism equation
+    std::vector<FunctionPtr> exactSolution_fB(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
     
     // ! returns a std::map indicating any trial variables that have adjusted polynomial orders relative to the standard poly order for the element.  Keys are variable IDs, values the difference between the indicated variable and the standard polynomial order.
     const std::map<int,int> &getTrialVariablePolyOrderAdjustments();

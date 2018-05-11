@@ -311,7 +311,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     auto Bz = step(Bz_a, Bz_a);
     auto BVector = Function::vectorize(Bx, By, Bz);
     
-    initialState = form->exactSolutionFieldMap(uVector, rho, T, BVector);
+    initialState = form->exactSolutionFieldMap(rho, uVector, T, BVector);
   }
   
   auto & prevSolnMap = form->solutionPreviousTimeStepFieldMap();
@@ -377,11 +377,18 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     std::cout << "T_a = " << T_a << std::endl;
     std::cout << "T_b = " << T_b << std::endl;
   }
+  auto uVector_a = Function::vectorize(Function::constant(u_a), Function::zero(), Function::zero());
+  auto uVector_b = Function::vectorize(Function::constant(u_b), Function::zero(), Function::zero());
+  
+  auto Bx = Function::constant(0.75);
+  auto BVector_a = Function::vectorize(Bx, Function::constant(By_a), Function::constant(Bz_a));
+  auto BVector_b = Function::vectorize(Bx, Function::constant(By_b), Function::constant(Bz_b));
+  
   //  (SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
   form->addMassFluxCondition             ( SpatialFilter::allSpace(), Function::zero());
   form->addEnergyFluxCondition           ( SpatialFilter::allSpace(), Function::zero());
-  form->addMomentumFluxCondition(      leftX, Function::constant(rho_a), Function::constant(u_a), Function::constant(T_a), B_a);
-  form->addMomentumFluxCondition(     rightX, Function::constant(rho_b), Function::constant(u_b), Function::constant(T_b), B_b);
+  form->addMomentumFluxCondition(      leftX, Function::constant(rho_a), uVector_a, Function::constant(T_a), BVector_a);
+  form->addMomentumFluxCondition(     rightX, Function::constant(rho_b), uVector_b, Function::constant(T_b), BVector_b);
   
   FunctionPtr rho = Function::solution(form->rho(), form->solution());
   FunctionPtr m   = mAbstract->evaluateAt(solnMap);
@@ -393,14 +400,14 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   auto printConservationReport = [&]() -> void
   {
     double totalMass = rho->integrate(mesh);
-    double totalMomentum = m->integrate(mesh);
+    double totalXMomentum = m->spatialComponent(1)->integrate(mesh);
     double totalEnergy = E->integrate(mesh);
     double dsIntegral = ds->integrate(mesh);
     
     if (rank == 0)
     {
       cout << "Total Mass:        " << totalMass << endl;
-      cout << "Total Momentum:    " << totalMomentum << endl;
+      cout << "Total x Momentum:    " << totalXMomentum << endl;
       cout << "Total Energy:      " << totalEnergy << endl;
       cout << "Change in Entropy: " << dsIntegral << endl;
     }
@@ -461,6 +468,24 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
 //      cout << "cell ordinal " << cellOrdinal << ", conservation failure: " << cellIntegrals[cellOrdinal] << endl;
 //    }
   };
+  
+  {
+    // DEBUGGING
+    BFPtr bf = form->bf();
+    auto debugBF = Teuchos::rcp( new BF(bf->varFactory()) );
+    FunctionPtr dt = form->getTimeStep();
+    VarPtr m2 = form->m(2);
+    VarPtr vm2 = form->vm(2);
+    debugBF->addTerm((1/dt) * m2, vm2);
+    BasisCachePtr cell0Cache = BasisCache::basisCacheForCell(mesh, 0);
+    ElementTypePtr elemType = mesh->getElementType(0);
+    Intrepid::FieldContainer<double> stiffness(1,elemType->testOrderPtr->totalDofs(),elemType->trialOrderPtr->totalDofs());
+    Intrepid::FieldContainer<double> cellSideParities(1,2);
+    bool rowMajor = false;
+    bool checkForZeroCols = false;
+    debugBF->stiffnessMatrix(stiffness, elemType, cellSideParities, cell0Cache, rowMajor, checkForZeroCols);
+    cout << "stiffness matrix: \n"<< stiffness << endl;
+  }
   
   printConservationReport();
   double t = 0;
@@ -526,7 +551,7 @@ int main(int argc, char *argv[])
   
   int meshWidth = 200;
   int polyOrder = 2;
-  int delta_k   = 1; // 1 is likely sufficient in 1D
+  int delta_k   = 3; // 1 is likely sufficient in 1D
   bool useCondensedSolve = false; // condensed solve UNSUPPORTED for now; before turning this on, make sure the various Solution objects are all set to use this in a compatible way...
   int spaceDim = 1;
   int cubatureEnrichment = 3 * polyOrder; // there are places in the strong, nonlinear equations where 4 variables multiplied together.  Therefore we need to add 3 variables' worth of quadrature to the simple test v. trial quadrature.
