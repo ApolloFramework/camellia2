@@ -148,10 +148,43 @@ void Projector<Scalar>::projectFunctionOntoBasis(FieldContainer<Scalar> &basisCo
     FieldContainer<Scalar> cellIPMatrix(localIPDim, &gramMatrix(cellIndex,0,0));
     FieldContainer<Scalar> cellRHS(rhsDim, &ipVector(cellIndex,0));
     FieldContainer<Scalar> x(gramMatrix.dimension(1),1); // 1: number of RHSes in our current solve
+    
+    // sanity check: scalar basis should be evaluated at at least as many quadrature points as there are basis functions
+    //               (otherwise, the projection will not be uniquely defined)
+    // For a vector basis, the rule is that each scalar component needs to have that many quadrature points.
+    
+    int numQuadraturePoints = basisCache->getPhysicalCubaturePoints().dimension(1); // C,P,D
+    int numScalarComponents = 1;
+    int rangeRank = basis->rangeRank();
+    int rangeDim  = basis->rangeDimension();
+    for (int rank=0; rank<rangeRank; rank++)
+    {
+      numScalarComponents *= rangeDim;
+    }
+    int minQuadraturePoints = numDofs / numScalarComponents;
+    
+    if (numQuadraturePoints < minQuadraturePoints)
+    {
+      cout << "numQuadraturePoints = " << numQuadraturePoints << endl;
+      cout << "minQuadraturePoints = " << minQuadraturePoints << endl;
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "num quadrature points should be at least as large as the number of dofs onto which we're projecting.");
+    }
+    
     int result = SerialDenseWrapper::solveSPDSystemMultipleRHS(x, cellIPMatrix, cellRHS);
     if (result != 0)
     {
       cout << "WARNING: in Projector, SerialDenseWrapper::solveSPDSystemMultipleRHS returned result code " << result << endl;
+      cout << "physical points for projection:\n" << basisCache->getPhysicalCubaturePoints();
+      
+      ostringstream matrixFileName;
+      auto cellID = cellIndex; // basisCache->cellIDs()[cellIndex];
+      matrixFileName << "/tmp/A" << cellID << ".dat";
+      SerialDenseWrapper::writeMatrixToMatlabFile(matrixFileName.str(), cellIPMatrix);
+      cout << "Wrote matrix to " << matrixFileName.str() << endl;
+      ostringstream rhsFileName;
+      rhsFileName << "/tmp/b" << cellID << ".dat";
+      SerialDenseWrapper::writeMatrixToMatlabFile(rhsFileName.str(), cellRHS);
+      cout << "Wrote rhs to " << rhsFileName.str() << endl;
     }
     
     basisCoefficients.resize(numCells,cardinality);
