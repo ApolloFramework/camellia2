@@ -610,6 +610,8 @@ namespace Camellia
         // tell trialOrderPtr about its VarFactory, for richer output
         elemType->trialOrderPtr->setVarFactory(_varFactory, true); // true: is trial ordering
         cout << "trial ordering:\n" << *(elemType->trialOrderPtr);
+        elemType->testOrderPtr->setVarFactory(_varFactory, false); // false: is test ordering
+        cout << "test ordering:\n" << *(elemType->testOrderPtr);
         //    cout << "test ordering:\n" << *(elemType->testOrderPtr);
         //    cout << "stiffness:\n" << stiffness;
       }
