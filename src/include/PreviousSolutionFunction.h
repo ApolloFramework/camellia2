@@ -36,10 +36,15 @@ public:
   PreviousSolutionFunction(TSolutionPtr<Scalar> soln, VarPtr var, bool multiplyFluxesByCellParity = true, int solutionOrdinal=0);
   bool boundaryValueOnly();
   void setOverrideMeshCheck(bool value, bool dontWarn=false);
-  void importCellData(std::vector<GlobalIndexType> cells);
   void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
   static map<int, TFunctionPtr<Scalar> > functionMap( vector< VarPtr > varPtrs, TSolutionPtr<Scalar> soln, int solutionOrdinal);
   string displayString();
+  
+  void importCellData(std::vector<GlobalIndexType> cellIDs);
+  
+  size_t getCellDataSize(GlobalIndexType cellID); // size in bytes
+  void packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength);
+  size_t unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength); // returns bytes consumed
 };
 }
 
