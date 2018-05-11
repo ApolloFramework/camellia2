@@ -14,6 +14,7 @@
 #include "Teuchos_UnitTestHarness.hpp"
 
 #include "Camellia.h"
+#include "CamelliaDebugUtility.h"
 
 using namespace Camellia;
 
@@ -167,12 +168,70 @@ namespace
     Epetra_FECrsMatrix* feMatrix = dynamic_cast<Epetra_FECrsMatrix*>( stiffness.get() );
     feMatrix->GlobalAssemble();
     
-    for (GlobalIndexType myCellID : mesh->cellIDsInPartition())
+    int myMaxEntries = feMatrix->MaxNumEntries();
+    vector<double> myEntries(myMaxEntries); // storage
+    vector<int> myLIDs(myMaxEntries);
+    
+    auto colMap = feMatrix->ColMap();
+    
+    auto & myCellIDs = mesh->cellIDsInPartition();
+    print(out, "myCellIDs", myCellIDs);
+    for (GlobalIndexType myCellID : myCellIDs)
     {
-      GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
-      int LID = partMap.LID(GID);
-      
-      // TODO: check values in stiffness and load, corresponding to the Constraint.
+      out << "cellID " << myCellID << endl;
+      for (int lagrangeOrdinal=0; lagrangeOrdinal<numConstraints; lagrangeOrdinal++)
+      {
+        GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
+        int LID = partMap.LID(GID);
+        out << "lagrangeOrdinal " << lagrangeOrdinal << " has GID " << GID << ", LID " << LID << endl;
+        
+        auto trialOrdering = mesh->getElementType(myCellID)->trialOrderPtr;
+        
+        map<int,double> expectedRowValues;
+        
+        for (int sideOrdinal=0; sideOrdinal<2; sideOrdinal++) // 1D
+        {
+          set<GlobalIndexType> dofsForSide = soln->getDofInterpreter()->getGlobalDofIndices(myCellID, uHat->ID(), sideOrdinal);
+          // sanity check: there should be exactly one dof
+          TEST_ASSERT(dofsForSide.size() == 1);
+          GlobalIndexType dofForSide = *dofsForSide.begin();
+          int LIDForDof = colMap.LID(dofForSide);
+          double normal = (sideOrdinal==0) ? -1.0 : 1.0; // normal is -1.0 for sideOrdinal 0; 1.0 for 1
+          double sideParity = soln->mesh()->parityForSide(myCellID, sideOrdinal);
+          double expectedValue = normal * sideParity;
+          expectedRowValues[LIDForDof] = expectedValue;
+          out << "set expected value for LID " << LIDForDof << " to " << expectedValue << endl;
+        }
+        
+        int entryCount;
+        feMatrix->NumMyRowEntries(LID, entryCount);
+        
+        // the row for LID in the feMatrix should be 0s, except for the u_hat dofs.
+        // for these, it should be the integral of that dof over the element (boundary)
+        int entriesExtracted;
+        feMatrix->ExtractMyRowCopy(LID, entryCount, entriesExtracted, &myEntries[0], &myLIDs[0]);
+        
+//        cout << "entry for cell " << myCellID << ":\n";
+        for (int i=0; i<entriesExtracted; i++)
+        {
+//          cout << "LID " << myLIDs[i] << ": " << myEntries[i] << endl;
+          int LID = myLIDs[i];
+          out << "LID = " << LID << endl;
+          double expectedValue = 0.0;
+          if (expectedRowValues.find(LID) != expectedRowValues.end())
+          {
+            expectedValue = expectedRowValues[LID];
+          }
+          TEST_FLOATING_EQUALITY(expectedValue, myEntries[i], tol);
+        }
+        
+        int solutionOrdinal = 0;
+        double rhsValue = (*(*load)(solutionOrdinal))[LID];
+//        cout << "Value: " << rhsValue << endl;
+        
+        double expectedRHSValue = h; // integral of 1 over element
+        TEST_FLOATING_EQUALITY(expectedRHSValue, rhsValue, tol);
+      }
     }
   }
   
