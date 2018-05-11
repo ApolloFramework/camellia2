@@ -581,10 +581,13 @@ namespace Camellia
       TBilinearTerm<Scalar> bt = *btIt;
       TLinearTermPtr<Scalar> trialTerm = btIt->first;
       TLinearTermPtr<Scalar> testTerm = btIt->second;
-//      {
-//        // DEBUGGING
-//        cout << "Integrating " << trialTerm->displayString() << " against " << testTerm->displayString() << endl;
-//      }
+      
+      FieldContainer<double> stiffnessCopyDEBUGGING;
+      {
+        // DEBUGGING
+        stiffnessCopyDEBUGGING = stiffness;
+        cout << "Integrating " << trialTerm->displayString() << " against " << testTerm->displayString() << endl;
+      }
       if (rowMajor)
       {
         testTerm->integrate(stiffness, elemType->testOrderPtr,
@@ -594,6 +597,25 @@ namespace Camellia
       {
         trialTerm->integrate(stiffness, elemType->trialOrderPtr,
                              testTerm,  elemType->testOrderPtr, basisCache);
+      }
+      {
+        // DEBUGGING
+        cout << "This integration added the following to the stiffness matrix:\n";
+        for (int cellOrdinal=0; cellOrdinal<stiffness.dimension(0); cellOrdinal++) // cell dimension
+        {
+          cout << "Cell ordinal " << cellOrdinal << endl;
+          for (int i=0; i<stiffness.dimension(1); i++)
+          {
+            for (int j=0; j<stiffness.dimension(2); j++)
+            {
+              double diff = stiffness(cellOrdinal,i,j) - stiffnessCopyDEBUGGING(cellOrdinal,i,j);
+              if (diff > 1e-15)
+              {
+                cout << i << "\t" << j << "\t" << diff << endl;
+              }
+            }
+          }
+        }
       }
     }
     if (checkForZeroCols)

@@ -469,23 +469,23 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
 //    }
   };
   
-  {
-    // DEBUGGING
-    BFPtr bf = form->bf();
-    auto debugBF = Teuchos::rcp( new BF(bf->varFactory()) );
-    FunctionPtr dt = form->getTimeStep();
-    VarPtr m2 = form->m(2);
-    VarPtr vm2 = form->vm(2);
-    debugBF->addTerm((1/dt) * m2, vm2);
-    BasisCachePtr cell0Cache = BasisCache::basisCacheForCell(mesh, 0);
-    ElementTypePtr elemType = mesh->getElementType(0);
-    Intrepid::FieldContainer<double> stiffness(1,elemType->testOrderPtr->totalDofs(),elemType->trialOrderPtr->totalDofs());
-    Intrepid::FieldContainer<double> cellSideParities(1,2);
-    bool rowMajor = false;
-    bool checkForZeroCols = false;
-    debugBF->stiffnessMatrix(stiffness, elemType, cellSideParities, cell0Cache, rowMajor, checkForZeroCols);
-    cout << "stiffness matrix: \n"<< stiffness << endl;
-  }
+//  {
+//    // DEBUGGING
+//    BFPtr bf = form->bf();
+//    auto debugBF = Teuchos::rcp( new BF(bf->varFactory()) );
+//    FunctionPtr dt = form->getTimeStep();
+//    VarPtr m2 = form->m(2);
+//    VarPtr vm2 = form->vm(2);
+//    debugBF->addTerm((1/dt) * m2, vm2);
+//    BasisCachePtr cell0Cache = BasisCache::basisCacheForCell(mesh, 0);
+//    ElementTypePtr elemType = mesh->getElementType(0);
+//    Intrepid::FieldContainer<double> stiffness(1,elemType->testOrderPtr->totalDofs(),elemType->trialOrderPtr->totalDofs());
+//    Intrepid::FieldContainer<double> cellSideParities(1,2);
+//    bool rowMajor = false;
+//    bool checkForZeroCols = false;
+//    debugBF->stiffnessMatrix(stiffness, elemType, cellSideParities, cell0Cache, rowMajor, checkForZeroCols);
+//    cout << "stiffness matrix: \n"<< stiffness << endl;
+//  }
   
   printConservationReport();
   double t = 0;

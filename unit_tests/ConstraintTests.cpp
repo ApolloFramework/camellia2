@@ -2,7 +2,7 @@
 // © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
 //
 //
-//  TestTemplate
+//  ConstraintTests
 //  Camellia
 //
 //  Created by Nate Roberts on 11/25/14.
