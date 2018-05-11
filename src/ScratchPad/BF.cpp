@@ -581,6 +581,10 @@ namespace Camellia
       TBilinearTerm<Scalar> bt = *btIt;
       TLinearTermPtr<Scalar> trialTerm = btIt->first;
       TLinearTermPtr<Scalar> testTerm = btIt->second;
+//      {
+//        // DEBUGGING
+//        cout << "Integrating " << trialTerm->displayString() << " against " << testTerm->displayString() << endl;
+//      }
       if (rowMajor)
       {
         testTerm->integrate(stiffness, elemType->testOrderPtr,

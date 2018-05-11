@@ -354,18 +354,18 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   for (int d=0; d<trueSpaceDim; d++)
   {
     auto momentumColumn = (_spaceDim > 1) ? column(_spaceDim,momentumFlux,d+1) : momentumFlux->spatialComponent(d+1);
-    if (d != 0)
-    {
-      cout << "WARNING: doing a debugging thing for vm[" << d << "]\n"; // TODO: get rid of this if/else -- what's in the else is nominally correct
-      auto fakeMomentumColumn = VarFunction<double>::abstractFunction(1.0 * mVar[d]);
-      _fluxEquations[vm[d]->ID()] = {vm[d],fakeMomentumColumn,tm[d],mVar[d],_fm[d]};
-      cout << "for variable " << mVar[d]->name() << ", flux is " << fakeMomentumColumn->displayString() << endl;
-    }
-    else
-    {
+//    if (d != 0)
+//    {
+//      cout << "WARNING: doing a debugging thing for vm[" << d << "]\n"; // TODO: get rid of this if/else -- what's in the else is nominally correct
+//      auto fakeMomentumColumn = VarFunction<double>::abstractFunction(1.0 * mVar[d]);
+//      _fluxEquations[vm[d]->ID()] = {vm[d],fakeMomentumColumn,tm[d],mVar[d],_fm[d]};
+//      cout << "for variable " << mVar[d]->name() << ", flux is " << fakeMomentumColumn->displayString() << endl;
+//    }
+//    else
+//    {
       _fluxEquations[vm[d]->ID()] = {vm[d],momentumColumn,tm[d],mVar[d],_fm[d]};
       cout << "for variable " << mVar[d]->name() << ", flux is " << momentumColumn->displayString() << endl;
-    }
+//    }
     if ((d > 0) || (_spaceDim != 1))
     {
       auto magneticColumn = (_spaceDim > 1) ? column(_spaceDim,magneticFlux,d+1) : magneticFlux->spatialComponent(d+1);

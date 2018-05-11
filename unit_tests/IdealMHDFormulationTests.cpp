@@ -9,10 +9,12 @@
 //
 //
 
+#include "Functions.hpp"
 #include "MeshFactory.h"
 #include "IdealMHDFormulation.hpp"
 #include "HDF5Exporter.h"
 #include "RHS.h"
+#include "RieszRep.h"
 #include "SimpleFunction.h"
 #include "Solution.h"
 
@@ -24,10 +26,23 @@ using namespace Intrepid;
 #include "Teuchos_UnitTestHarness.hpp"
 namespace
 {
-  static const double TEST_RE = 1e2;
-  static const double TEST_PR = 0.713;
+  void testTermsMatch(LinearTermPtr ltExpected, LinearTermPtr ltActual, MeshPtr mesh, IPPtr ip, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    LinearTermPtr diff = ltExpected - ltActual;
+    
+    BFPtr bf = mesh->bilinearForm();
+    
+    RieszRepPtr rieszRep = Teuchos::rcp( new RieszRep(mesh, ip, diff) );
+    
+    rieszRep->computeRieszRep();
+    
+    double err = rieszRep->getNorm();
+    
+    TEST_COMPARE(err, <, tol);
+  }
+  
   static const double TEST_CV = 1.000;
-  static const double TEST_GAMMA = 1.4;
+  static const double TEST_GAMMA = 2.0;
   static const double TEST_CP = TEST_GAMMA * TEST_CV;
   static const double TEST_R = TEST_CP - TEST_CV;
   
@@ -36,6 +51,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Formulation_1D)
   {
+    double tol = 1e-14;
     int spaceDim = 1;
     double x_a = 0.0, x_b = 1.0;
     int meshWidth = 2;
@@ -50,6 +66,44 @@ namespace
     
     int numTrialVars = vf->trialVars().size(); // 1D: rho, E, 3 m's, 2 B's, plus 1 flux per equation: 14 variables
     TEST_EQUALITY(numTrialVars, 14);
+    
+    auto bf = form->solution()->bf();
+    // try momentum = 0, E = 1, rho = 1, B = 0 -- project this onto previous solution, and current guess
+    // evaluate bf at this solution
+    // we expect to have just five test terms survive:
+    // three corresponding to the pressure in the momentum equation
+    // two corresponding to the time derivatives on the rho, E solution increments
+    VarPtr vm1 = form->vm(1);
+    VarPtr vm2 = form->vm(2);
+    VarPtr vm3 = form->vm(3);
+    VarPtr vc  = form->vc();
+    VarPtr ve  = form->ve();
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr E = Function::constant(1.0);
+    FunctionPtr m = Function::vectorize(Function::constant(0.0), Function::constant(0.0), Function::constant(0.0));
+    FunctionPtr p = (TEST_GAMMA - 1.0) * (E - 0.5 * dot(3,m,m) / rho);
+    auto dt = form->getTimeStep();
+    auto expectedLT = p * vm1 + p * vm2 + p * vm3 + rho / dt * vc + E / dt * ve;
+    
+    map<int, FunctionPtr> valueMap;
+    valueMap[form->rho()->ID()] = rho;
+    valueMap[form->E()->ID()] = E;
+    valueMap[form->m(1)->ID()] = m->spatialComponent(1);
+    valueMap[form->m(2)->ID()] = m->spatialComponent(2);
+    valueMap[form->m(3)->ID()] = m->spatialComponent(3);
+    
+    int solutionOrdinal = 0;
+    form->solutionPreviousTimeStep()->projectOntoMesh(valueMap, solutionOrdinal);
+    form->solution()->projectOntoMesh(valueMap, solutionOrdinal);
+    auto lt = bf->testFunctional(valueMap);
+    out << "lt: " << lt->displayString() << endl;
+    
+    auto mesh = form->solution()->mesh();
+    auto ip = form->solutionIncrement()->ip();
+    
+    ip->printInteractions();
+//    cout << "IP: " << ip->displayString() << endl;
+    testTermsMatch(expectedLT, lt, mesh, ip, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Formulation_2D)

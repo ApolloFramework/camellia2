@@ -81,7 +81,7 @@ namespace Camellia
   template<typename Scalar>
   TFunctionPtr<Scalar> matvec(int spaceDim, TFunctionPtr<Scalar> f1, TFunctionPtr<Scalar> f2)
   {
-    TEUCHOS_TEST_FOR_EXCEPTION((f1->rank() == 2) && (f2->rank() == 1), std::invalid_argument, "matvec requires f2 be rank 2, f1 be rank 1");
+    TEUCHOS_TEST_FOR_EXCEPTION((f1->rank() != 2) || (f2->rank() != 1), std::invalid_argument, "matvec requires f1 be rank 2, f2 be rank 1");
     std::vector<TFunctionPtr<Scalar>> components;
     for (int d=1; d<=spaceDim; d++)
     {
