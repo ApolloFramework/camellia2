@@ -64,6 +64,8 @@ public:
                       std::set<GlobalIndexType> cellIndices=std::set<GlobalIndexType>());
   void exportSolution(TSolutionPtr<double> solution, double timeVal=0, unsigned int defaultNum1DPts=4,
                       map_int_int cellIDToNum1DPts=map_int_int(), set<GlobalIndexType> cellIndices=set<GlobalIndexType>());
+  void exportSolution(TSolutionPtr<double> solution, std::vector<TFunctionPtr<double>> otherFunctions, std::vector<std::string> otherFunctionNames,
+                      double timeVal=0, unsigned int defaultNum1DPts=4, map_int_int cellIDToNum1DPts=map_int_int(), set<GlobalIndexType> cellIndices=set<GlobalIndexType>());
   void exportTimeSlab(TFunctionPtr<double> function, std::string functionName="function", double tInit=0, double tFinal=1, unsigned int numSlices=2,
                       unsigned int sliceH1Order=2, unsigned int defaultNum1DPts=4);
   void exportTimeSlab(std::vector<TFunctionPtr<double>> functions, std::vector<std::string> functionNames, double tInit=0, double tFinal=1, unsigned int numSlices=2,

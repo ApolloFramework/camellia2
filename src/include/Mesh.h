@@ -44,7 +44,6 @@
 
 namespace Camellia
 {
-class MeshTransformationFunction;
 class MeshPartitionPolicy;
 
 class Mesh : public RefinementObserver, public DofInterpreter
@@ -235,6 +234,7 @@ public:
 
   void hRefine(const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern, bool repartitionAndRebuild);
   void hRefine(const vector<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern);
+  void hRefine(const vector<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern, bool repartitionAndRebuild);
 
   void hUnrefine(const set<GlobalIndexType> &cellIDs, bool repartitionAndRebuild = true);
   

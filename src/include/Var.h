@@ -54,6 +54,8 @@ public:
   Camellia::Space space() const;
   Camellia::VarType varType() const;
 
+  //! spaceDim argument is required for OP_CURL
+  VarPtr applyOp(Camellia::EOperator op, int spaceDim=-1) const;
   VarPtr grad() const;
   VarPtr div() const;
   VarPtr curl(int spaceDim) const; // 3D curl differs from 2D

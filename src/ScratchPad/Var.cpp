@@ -247,6 +247,42 @@ Var::Var(int ID, int rank, string name, Camellia::EOperator op, Space fs, VarTyp
   _definedOnTemporalInterfaces = definedOnTemporalInterfaces;
 }
 
+VarPtr Var::applyOp(Camellia::EOperator op, int spaceDim) const
+{
+  using namespace Teuchos;
+  switch (op)
+  {
+    case OP_VALUE:
+      return rcp( new Var(*this) );
+    case OP_GRAD:
+      return this->grad();
+    case OP_CURL:
+      return this->curl(spaceDim);
+    case OP_DIV:
+      return this->div();
+    case OP_X:
+      return this->x();
+    case OP_Y:
+      return this->y();
+    case OP_Z:
+      return this->z();
+    case OP_T:
+      return this->t();
+    case OP_DX:
+      return this->dx();
+    case OP_DY:
+      return this->dy();
+    case OP_DZ:
+      return this->dz();
+    case OP_DT:
+      return this->dt();
+    case OP_LAPLACIAN:
+      return this->laplacian();
+    default:
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unhandled op type");
+  }
+}
+
 int Var::ID() const
 {
   return _id;

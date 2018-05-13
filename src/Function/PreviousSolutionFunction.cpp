@@ -22,6 +22,10 @@ PreviousSolutionFunction<Scalar>::PreviousSolutionFunction(TSolutionPtr<Scalar> 
 : TFunction<Scalar>(solnExpression->rank()),
 _overrideMeshCheck(false), _soln(soln), _solnExpression(solnExpression), _solnOrdinal(solnOrdinal)
 {
+  if (solnExpression->rank() == -1)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid solnExpression");
+  }
   if ((solnExpression->termType() == FLUX) && multiplyFluxesByCellParity)
   {
     TFunctionPtr<double> parity = TFunction<double>::sideParity();
@@ -45,6 +49,43 @@ bool PreviousSolutionFunction<Scalar>::boundaryValueOnly()   // fluxes and trace
 {
   return (_solnExpression->termType() == FLUX) || (_solnExpression->termType() == TRACE);
 }
+
+template <typename Scalar>
+size_t PreviousSolutionFunction<Scalar>::getCellDataSize(GlobalIndexType cellID)
+{
+  bool warnAboutOffRankImports = true;
+  auto & cellDofs = _soln->allCoefficientsForCellID(cellID, warnAboutOffRankImports, _solnOrdinal);
+  return cellDofs.size() * sizeof(Scalar); // size in bytes
+}
+
+template <typename Scalar>
+void PreviousSolutionFunction<Scalar>::importCellData(std::vector<GlobalIndexType> cells)
+{
+  int rank = Teuchos::GlobalMPISession::getRank();
+  set<GlobalIndexType> offRankCells;
+  const set<GlobalIndexType>* rankLocalCells = &_soln->mesh()->globalDofAssignment()->cellsInPartition(rank);
+  for (int cellOrdinal=0; cellOrdinal < cells.size(); cellOrdinal++)
+  {
+    if (rankLocalCells->find(cells[cellOrdinal]) == rankLocalCells->end())
+    {
+      offRankCells.insert(cells[cellOrdinal]);
+    }
+  }
+  _soln->importSolutionForOffRankCells(offRankCells);
+}
+
+template <typename Scalar>
+void PreviousSolutionFunction<Scalar>::packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength)
+{
+  size_t requiredLength = getCellDataSize(cellID);
+  TEUCHOS_TEST_FOR_EXCEPTION(requiredLength > bufferLength, std::invalid_argument, "Buffer length too small");
+  bool warnAboutOffRankImports = true;
+  auto & cellDofs = _soln->allCoefficientsForCellID(cellID, warnAboutOffRankImports, _solnOrdinal);
+  size_t objSize = sizeof(Scalar);
+  const Scalar* copyFromLocation = &cellDofs[0];
+  memcpy(cellData, copyFromLocation, objSize * cellDofs.size());
+}
+
 template <typename Scalar>
 void PreviousSolutionFunction<Scalar>::setOverrideMeshCheck(bool value, bool dontWarn)
 {
@@ -61,21 +102,22 @@ void PreviousSolutionFunction<Scalar>::setOverrideMeshCheck(bool value, bool don
   }
   _overrideMeshCheck = value;
 }
+
 template <typename Scalar>
-void PreviousSolutionFunction<Scalar>::importCellData(std::vector<GlobalIndexType> cells)
+size_t PreviousSolutionFunction<Scalar>::unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength)
 {
-  int rank = Teuchos::GlobalMPISession::getRank();
-  set<GlobalIndexType> offRankCells;
-  const set<GlobalIndexType>* rankLocalCells = &_soln->mesh()->globalDofAssignment()->cellsInPartition(rank);
-  for (int cellOrdinal=0; cellOrdinal < cells.size(); cellOrdinal++)
-  {
-    if (rankLocalCells->find(cells[cellOrdinal]) == rankLocalCells->end())
-    {
-      offRankCells.insert(cells[cellOrdinal]);
-    }
-  }
-  _soln->importSolutionForOffRankCells(offRankCells);
+  //  Epetra_CommPtr Comm = _soln->mesh()->Comm();
+  //  int rank = Comm->MyPID();
+  int numDofs = _soln->mesh()->getElementType(cellID)->trialOrderPtr->totalDofs();
+  size_t numBytes = numDofs * sizeof(Scalar);
+  TEUCHOS_TEST_FOR_EXCEPTION(numBytes > bufferLength, std::invalid_argument, "buffer is too short");
+  Intrepid::FieldContainer<Scalar> cellDofs(numDofs);
+  Scalar* copyToLocation = &cellDofs[0];
+  memcpy(copyToLocation, cellData, numBytes);
+  _soln->setSolnCoeffsForCellID(cellDofs,cellID,_solnOrdinal);
+  return numBytes;
 }
+
 template <typename Scalar>
 void PreviousSolutionFunction<Scalar>::values(FieldContainer<Scalar> &values, BasisCachePtr basisCache)
 {
@@ -148,6 +190,7 @@ void PreviousSolutionFunction<Scalar>::values(FieldContainer<Scalar> &values, Ba
     }
   }
 }
+
 template <typename Scalar>
 map<int, TFunctionPtr<Scalar> > PreviousSolutionFunction<Scalar>::functionMap( vector< VarPtr > varPtrs, TSolutionPtr<Scalar> soln, int solnOrdinal)
 {
@@ -160,6 +203,7 @@ map<int, TFunctionPtr<Scalar> > PreviousSolutionFunction<Scalar>::functionMap( v
   }
   return functionMap;
 }
+
 template <typename Scalar>
 string PreviousSolutionFunction<Scalar>::displayString()
 {

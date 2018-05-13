@@ -11,9 +11,13 @@
 #include "Teuchos_UnitTestHarness.hpp"
 
 #include "BasisCache.h"
+#include "BasisFactory.h"
+#include "CamelliaDebugUtility.h"
+#include "GDAMinimumRule.h"
 #include "GlobalDofAssignment.h"
 #include "MeshFactory.h"
 #include "MPIWrapper.h"
+#include "OldroydBFormulationUWReduced.h"
 #include "PoissonFormulation.h"
 #include "StokesVGPFormulation.h"
 
@@ -534,6 +538,263 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     TEST_EQUALITY(numActiveElements, numActiveElementsExpected);
   }
   
+  TEUCHOS_UNIT_TEST( Mesh, AnisotropicQuadNeighbors )
+  {
+    /*
+     Basic Steps:
+     1. Construct two-element quad mesh
+     2. Refine element 0 in x.
+     3. Now we have elements 2,3,1.
+     4. Check that 2 neighbors 3 and 3 neighbors 1.
+     */
+    
+    int H1Order = 2;
+    vector<int> elemCounts = {2,1};
+    vector<double> dims(2,1.0);
+    
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    // lambda for checking that the given active (leaf) cellID is owned on this rank
+    auto ownedAndActive = [&] (MeshTopologyViewPtr meshTopo, IndexType cellID) -> bool
+    {
+      auto & ownedAndActive = meshTopo->getMyActiveCellIndices();
+      return ownedAndActive.find(cellID) != ownedAndActive.end();
+    };
+    
+    // lambda for checking neighbors
+    auto testNeighbors = [&] (MeshPtr mesh, CellPtr cell, set<IndexType> expectedNeighbors) -> void
+    {
+      auto meshTopo = mesh->getTopology();
+      // skip testing if this cell is not an owned active cell
+      if (! ownedAndActive(meshTopo, cell->cellIndex()))
+      {
+        return;
+      }
+      vector<CellPtr> cellNeighbors = cell->getNeighbors(meshTopo);
+      
+      set<IndexType> cellNeighborIDs;
+      for (auto neighbor : cellNeighbors)
+      {
+        cellNeighborIDs.insert(neighbor->cellIndex());
+      }
+      
+      if (cellNeighborIDs != expectedNeighbors)
+      {
+        out << "NeighborIDs for cell " << cell->cellIndex() << " do not match expected.\n";
+        print(out, "neighborIDs", cellNeighborIDs);
+        print(out, "expectedNeighborIDs", expectedNeighbors);
+        success = false;
+      }
+    };
+    
+    // first test: single refinement described above
+    {
+      auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+      
+      bool repartitionAndRebuild = true;
+      vector<GlobalIndexType> cellsToHxRefine = {0};
+      mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+      
+      TEST_EQUALITY(mesh->numActiveElements(), 3);
+    
+      auto meshTopo = mesh->getTopology();
+      if (meshTopo->isValidCellIndex(0))
+      {
+        CellPtr cell0 = meshTopo->getCell(0);
+        TEST_ASSERT(cell0->isParent(meshTopo));
+      
+        auto children = cell0->children();
+        for (auto child : children)
+        {
+          if (child->cellIndex() == 2)
+          {
+            testNeighbors(mesh,child,{3});
+          }
+          else if (child->cellIndex() == 3)
+          {
+            testNeighbors(mesh,child,{1,2});
+          }
+        }
+      }
+    
+      if (meshTopo->isValidCellIndex(1))
+      {
+        CellPtr cell1 = meshTopo->getCell(1);
+        testNeighbors(mesh,cell1,{3});
+      }
+    }
+    // next test: refine in both x and y
+    {
+      // we test both possible orders of refinement
+      vector<bool> xFirstChoices = {true,false};
+      
+      for (bool xFirst : xFirstChoices)
+      {
+        auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+        bool repartitionAndRebuild = true;
+        vector<GlobalIndexType> cellsToHxRefine = {0};
+        vector<GlobalIndexType> cellsToHyRefine = {1};
+        
+        vector<GlobalIndexType> cell0ChildIDs, cell1ChildIDs;
+        if (xFirst)
+        {
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {2,3};
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {4,5};
+        }
+        else
+        {
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {2,3};
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {4,5};
+        }
+        
+        TEST_EQUALITY(mesh->numActiveElements(), 4);
+        
+        auto meshTopo = mesh->getTopology();
+        if (meshTopo->isValidCellIndex(0))
+        {
+          CellPtr cell0 = meshTopo->getCell(0);
+          TEST_ASSERT(cell0->isParent(meshTopo));
+          
+          auto children = cell0->children();
+          for (auto child : children)
+          {
+            if (child->cellIndex() == cell0ChildIDs[0])
+            {
+              testNeighbors(mesh,child,{cell0ChildIDs[1]});
+            }
+            else if (child->cellIndex() == cell0ChildIDs[1])
+            {
+              testNeighbors(mesh,child,{1,cell0ChildIDs[0]});
+            }
+          }
+        }
+        
+        if (meshTopo->isValidCellIndex(1))
+        {
+          CellPtr cell1 = meshTopo->getCell(1);
+          TEST_ASSERT(cell1->isParent(meshTopo));
+          
+          auto children = cell1->children();
+          for (auto child : children)
+          {
+            if (child->cellIndex() == cell1ChildIDs[0])
+            {
+              testNeighbors(mesh,child,{cell0ChildIDs[1],cell1ChildIDs[1]});
+            }
+            else if (child->cellIndex() == cell1ChildIDs[1])
+            {
+              testNeighbors(mesh,child,{cell0ChildIDs[1],cell1ChildIDs[0]});
+            }
+          }
+        }
+      }
+    }
+    
+    // now, refine in x and y as above, but refine one of the x children in y such that we get compatibility with the y refinement
+    // (should find the y-children as neighbors)
+    {
+      // we test both possible orders of refinement
+      vector<bool> xFirstChoices = {true,false};
+      
+      for (bool xFirst : xFirstChoices)
+      {
+        auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+        bool repartitionAndRebuild = true;
+        vector<GlobalIndexType> cellsToHxRefine = {0};
+        vector<GlobalIndexType> cellsToHyRefine = {1};
+        
+        vector<GlobalIndexType> cell0ChildIDs, cell1ChildIDs;
+        if (xFirst)
+        {
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {2,3};
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {4,5};
+        }
+        else
+        {
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {2,3};
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {4,5};
+        }
+        cellsToHyRefine = {cell0ChildIDs[1]}; // refine the child 0 cell that abuts cell 1
+        mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+        vector<GlobalIndexType> newlyCompatibleCells = {6,7};
+        
+        TEST_EQUALITY(mesh->numActiveElements(), 5);
+        
+        auto meshTopo = mesh->getTopology();
+        if (meshTopo->isValidCellIndex(6))
+        {
+          CellPtr cell6 = meshTopo->getCell(6);
+          // expected neighbors: the first of cell 0's children, and the first of cell 1's children, and the new cell 7
+          testNeighbors(mesh,cell6,{cell0ChildIDs[0],cell1ChildIDs[0],7});
+        }
+        if (meshTopo->isValidCellIndex(7))
+        {
+          CellPtr cell7 = meshTopo->getCell(7);
+          // expected neighbors: the first of cell 0's children, and the second of cell 1's children, and the new cell 6
+          testNeighbors(mesh,cell7,{cell0ChildIDs[0],cell1ChildIDs[1],6});
+        }
+      }
+    }
+    
+    // now, refine in x and y as above, but refine the rightmost of the x children in x
+    {
+      // we test both possible orders of refinement
+      vector<bool> xFirstChoices = {true,false};
+      
+      for (bool xFirst : xFirstChoices)
+      {
+        auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+        bool repartitionAndRebuild = true;
+        vector<GlobalIndexType> cellsToHxRefine = {0};
+        vector<GlobalIndexType> cellsToHyRefine = {1};
+        
+        vector<GlobalIndexType> cell0ChildIDs, cell1ChildIDs;
+        if (xFirst)
+        {
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {2,3};
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {4,5};
+        }
+        else
+        {
+          mesh->hRefine(cellsToHyRefine, RefinementPattern::yAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell1ChildIDs = {2,3};
+          mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+          cell0ChildIDs = {4,5};
+        }
+        cellsToHxRefine = {cell0ChildIDs[1]}; // refine the child 0 cell that abuts cell 1
+        mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+        TEST_EQUALITY(mesh->numActiveElements(), 5);
+        
+        auto meshTopo = mesh->getTopology();
+        if (meshTopo->isValidCellIndex(6))
+        {
+          CellPtr cell6 = meshTopo->getCell(6);
+          // expected neighbors: the first of cell 0's children and the new cell 7
+          testNeighbors(mesh,cell6,{cell0ChildIDs[0],7});
+        }
+        if (meshTopo->isValidCellIndex(7))
+        {
+          CellPtr cell7 = meshTopo->getCell(7);
+          // expected neighbors: cell 1 (the parent), and the new cell 6
+          testNeighbors(mesh,cell7,{1,6});
+        }
+      }
+    }
+    
+  }
+  
 TEUCHOS_UNIT_TEST( Mesh, ParitySpaceTime1D )
 {
   int spaceDim = 1;
@@ -566,7 +827,246 @@ TEUCHOS_UNIT_TEST( Mesh, ParitySpaceTime1D )
     }
   }
 }
+  
+  TEUCHOS_UNIT_TEST( Mesh, HPRefine2D )
+  {
+    // simple test against a problem case for hp-refinements, in an initially 2-element mesh:
+    //  - p-refine left element; this is now constrained by right element along shared edge
+    //  - h-refine right element; this would be constrained by left element along shared edge, if they had equal orders
+    // it should be the case that 1-irregularity enforcement (or something) takes care of this by p-refining the h-refined
+    // elements along the shared interface.
+    //
+    // this test just confirms that we can perform the appropriate projections from a prior
+    // solution onto the refined mesh (we don't check that they're correct or anything, just that
+    // we complete without throwing an exception)
+    MeshTopologyPtr spatialMeshTopo = MeshFactory::quadMeshTopology(1.0,1.0,2,2);
+    
+    int spaceDim = 2;
+    int H1Order = 3;
+    vector<int> elemCounts = {2,1};
+    vector<double> dims(spaceDim,1.0);
+    
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+    
+    int solutionOrdinal = 0;
+    map<int,FunctionPtr> functionMap;
+    
+    functionMap[form.u()->ID()] = Function::constant(1.0);
+    functionMap[form.u_hat()->ID()] = Function::constant(1.0);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    mesh->registerSolution(solution);
+    solution()->projectOntoMesh(functionMap, solutionOrdinal);
+    
+    // before we p-refine, print constraint report:
+    //  GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule *>(mesh->globalDofAssignment().get());
+    
+    std::set<GlobalIndexType> cellsToPRefine = {0};
+    std::set<GlobalIndexType> cellsToHRefine = {1};
+    bool repartitionAndRebuild = false;
+    int pToAdd = 1;
+    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+    mesh->hRefine(cellsToHRefine, RefinementPattern::regularRefinementPatternQuad(), repartitionAndRebuild);
+    
+    mesh->repartitionAndRebuild();
+    
+    // p-refine once more
+    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+    mesh->repartitionAndRebuild();
+  }
 
+  TEUCHOS_UNIT_TEST( Mesh, HAnisotropicRefineCurvilinear2D )
+  {
+    MPIWrapper::CommWorld()->Barrier();
+    // This is mostly a test that things don't go awry with curvilinear meshes under p-refinement on multiple MPI ranks.
+    // We just confirm that with some solution data in place, we can p-refine without exceptions being thrown...
+    int spaceDim = 2;
+    int delta_k = 2;
+    int H1Order = 2;
+    
+    double cylinderRadius = 1.0;
+    MeshGeometryPtr meshGeometry = MeshFactory::halfConfinedCylinderGeometry(cylinderRadius);
+    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = meshGeometry->edgeToCurveMap();
+    auto globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
+    MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(meshGeometry) );
+    meshTopo->setEdgeToCurveMap(globalEdgeToCurveMap, Teuchos::null);
+    
+    //    cout << "globalEdgeToCurveMap.size(): " << globalEdgeToCurveMap.size() << endl;
+    
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopo, form.bf(), H1Order, delta_k) ) ;
+    meshTopo->initializeTransformationFunction(mesh);
+    
+    int solutionOrdinal = 0;
+    map<int,FunctionPtr> functionMap;
+    
+    functionMap[form.u()->ID()] = Function::constant(1.0);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    mesh->registerSolution(solution);
+    solution()->projectOntoMesh(functionMap, solutionOrdinal);
+    
+    std::set<GlobalIndexType> cellsToHxRefine = {0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35};
+    //  print("cellsToHRefine", cellsToHRefine);
+    bool repartitionAndRebuild = false;
+    mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+    
+    mesh->enforceOneIrregularity(repartitionAndRebuild);
+    mesh->repartitionAndRebuild();
+    
+    cellsToHxRefine = {8, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105};
+//    MeshTopology* topology = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+//    cout << "cellsToHxRefine, cells with curved edges: ";
+//    for (auto parentCellID : cellsToHxRefine)
+//    {
+//      if (topology->isValidCellIndex(parentCellID))
+//      {
+//        if (topology->cellHasCurvedEdges(parentCellID))
+//        {
+//          cout << parentCellID << " ";
+//        }
+//      }
+//    }
+//    cout << endl;
+    
+    mesh->hRefine(cellsToHxRefine, RefinementPattern::xAnisotropicRefinementPatternQuad(), repartitionAndRebuild);
+    mesh->enforceOneIrregularity(repartitionAndRebuild);
+    mesh->repartitionAndRebuild();
+  }
+  
+  TEUCHOS_UNIT_TEST( Mesh, HPRefineCurvilinear2D )
+  {
+    MPIWrapper::CommWorld()->Barrier();
+    // This is mostly a test that things don't go awry with curvilinear meshes under hp-refinement on multiple MPI ranks.
+    // We just confirm that with some solution data in place, we can p-refine without exceptions being thrown...
+    int spaceDim = 2;
+    int delta_k = 2;
+    int H1Order = 2;
+    
+    double cylinderRadius = 1.0;
+    MeshGeometryPtr meshGeometry = MeshFactory::halfConfinedCylinderGeometry(cylinderRadius);
+    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = meshGeometry->edgeToCurveMap();
+    auto globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
+    MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(meshGeometry) );
+    meshTopo->setEdgeToCurveMap(globalEdgeToCurveMap, Teuchos::null);
+    
+    //    cout << "globalEdgeToCurveMap.size(): " << globalEdgeToCurveMap.size() << endl;
+    
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopo, form.bf(), H1Order, delta_k) ) ;
+    meshTopo->initializeTransformationFunction(mesh);
+    
+    int solutionOrdinal = 0;
+    map<int,FunctionPtr> functionMap;
+    
+    functionMap[form.u()->ID()] = Function::constant(1.0);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    mesh->registerSolution(solution);
+    solution()->projectOntoMesh(functionMap, solutionOrdinal);
+    
+    int pToAdd = 1;
+    std::set<GlobalIndexType> cellsToHRefine = {1, 2, 3, 7, 8, 9, 12, 13, 14, 15, 26, 27, 28, 29};
+    std::set<GlobalIndexType> cellsToPRefine = {0, 4, 5, 6, 10, 11, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35};
+    //  print("cellsToHRefine", cellsToHRefine);
+    bool repartitionAndRebuild = false;
+    mesh->hRefine(cellsToHRefine, repartitionAndRebuild);
+    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+    
+    mesh->enforceOneIrregularity(repartitionAndRebuild);
+    mesh->repartitionAndRebuild();
+    
+    cellsToHRefine = {36, 39, 40, 43, 44, 49, 50, 53, 54, 57};
+    cellsToPRefine = {0, 4, 5, 6, 10, 11, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35, 37, 38, 41, 42, 45, 46, 47, 48, 58, 63};
+    
+    mesh->hRefine(cellsToHRefine, repartitionAndRebuild);
+    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+    
+    mesh->enforceOneIrregularity(repartitionAndRebuild);
+    mesh->repartitionAndRebuild();
+  }
+
+  
+TEUCHOS_UNIT_TEST( Mesh, PRefine2D )
+{
+  // simple test against a recent failure in p-refinements
+  // basically, just confirms that we can perform the appropriate projections from a prior
+  // solution onto the refined mesh (we don't check that they're correct or anything, just that
+  // we complete without throwing an exception)
+  MeshTopologyPtr spatialMeshTopo = MeshFactory::quadMeshTopology(1.0,1.0,2,2);
+  
+  int spaceDim = 2;
+  int H1Order = 2;
+  vector<int> elemCounts = {2,1};
+  vector<double> dims(spaceDim,1.0);
+  
+  bool conformingTraces = true;
+  PoissonFormulation form(spaceDim,conformingTraces);
+  
+  auto mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+  
+  int solutionOrdinal = 0;
+  map<int,FunctionPtr> functionMap;
+  
+  functionMap[form.u()->ID()] = Function::constant(1.0);
+  SolutionPtr solution = Solution::solution(form.bf(), mesh);
+  mesh->registerSolution(solution);
+  solution()->projectOntoMesh(functionMap, solutionOrdinal);
+  
+  // before we p-refine, print constraint report:
+//  GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule *>(mesh->globalDofAssignment().get());
+
+  std::set<GlobalIndexType> cellsToPRefine = mesh->getActiveCellIDsGlobal();
+  cellsToPRefine.erase(1);
+//  print("cellsToPRefine", cellsToPRefine);
+  bool repartitionAndRebuild = true;
+  int pToAdd = 1;
+  mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+}
+  
+  TEUCHOS_UNIT_TEST( Mesh, PRefineCurvilinear2D )
+  {
+    // This is mostly a test that things don't go awry with curvilinear meshes under p-refinement on multiple MPI ranks.
+    // We just confirm that with some solution data in place, we can p-refine without exceptions being thrown...
+    int spaceDim = 2;
+    int delta_k = 2;
+    int H1Order = 2;
+    
+    double cylinderRadius = 1.0;
+    MeshGeometryPtr meshGeometry = MeshFactory::halfConfinedCylinderGeometry(cylinderRadius);
+    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = meshGeometry->edgeToCurveMap();
+    auto globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
+    MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(meshGeometry) );
+    meshTopo->setEdgeToCurveMap(globalEdgeToCurveMap, Teuchos::null);
+    
+//    cout << "globalEdgeToCurveMap.size(): " << globalEdgeToCurveMap.size() << endl;
+    
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopo, form.bf(), H1Order, delta_k) ) ;
+    meshTopo->initializeTransformationFunction(mesh);
+    
+    int solutionOrdinal = 0;
+    map<int,FunctionPtr> functionMap;
+    
+    functionMap[form.u()->ID()] = Function::constant(1.0);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    mesh->registerSolution(solution);
+    solution()->projectOntoMesh(functionMap, solutionOrdinal);
+    
+    std::set<GlobalIndexType> cellsToPRefine = mesh->getActiveCellIDsGlobal();
+    cellsToPRefine.erase(1);
+    //  print("cellsToPRefine", cellsToPRefine);
+    bool repartitionAndRebuild = true;
+    int pToAdd = 1;
+    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+  }
+  
 TEUCHOS_UNIT_TEST( Mesh, NormalSpaceTime1D )
 {
   int spaceDim = 1;

@@ -42,7 +42,7 @@ public:
   enum JumpCombinationType
   {
     DIFFERENCE,
-    AVERAGE
+    SUM
   };
   TFunction();
   TFunction(int rank);
@@ -78,6 +78,7 @@ public:
   virtual TFunctionPtr<Scalar> dy();
   virtual TFunctionPtr<Scalar> dz();
   virtual TFunctionPtr<Scalar> dt();
+  virtual TFunctionPtr<Scalar> di(int i); // 1 for dx(), 2 for dy(), 3 for dz()
 
   virtual TFunctionPtr<Scalar> div();
   virtual TFunctionPtr<Scalar> curl();
@@ -119,6 +120,7 @@ public:
 
   double l1norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0, bool spatialSidesOnly = false);
   double l2norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0, bool spatialSidesOnly = false);
+  double linfinitynorm(MeshPtr mesh, int cubatureDegreeEnrichment = 0);
   
   // ! computes the squared L^2 norm of the jumps of this Function along the mesh skeleton (external boundary values are treated as zero, so the jump
   // ! along the boundary is the value of the Function itself)
@@ -216,11 +218,11 @@ public:
   static TFunctionPtr<double> sideParity();
 
   // ! Will throw an exception if var is a flux variable (should call the one with the boolean weightFluxesBySideParity argument in this case)
-  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln);
+  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, const std::string &solutionIdentifierExponent="");
   // ! When weightFluxesBySideParity = true, the solution function will be non-uniquely-valued
-  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity);
+  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, const std::string &solutionIdentifierExponent="");
   // ! Use this for solutions with multiple RHSes (including influence computations)
-  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal);
+  static TFunctionPtr<Scalar> solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal, const std::string &solutionIdentifierExponent="");
   static TFunctionPtr<double> zero(int rank=0);
   static TFunctionPtr<Scalar> restrictToCellBoundary(TFunctionPtr<Scalar> f);
 

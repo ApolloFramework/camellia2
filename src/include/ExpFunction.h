@@ -37,6 +37,23 @@ namespace Camellia
     std::string displayString();
   };
   
+  template<class Scalar>
+  class Ln : public TFunction<Scalar>
+  {
+  private:
+    TFunctionPtr<Scalar> _argument;
+  public:
+    Ln(TFunctionPtr<Scalar> argument);
+    void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
+    TFunctionPtr<Scalar> dx();
+    TFunctionPtr<Scalar> dy();
+    TFunctionPtr<Scalar> dz();
+    
+    std::vector< TFunctionPtr<Scalar> > memberFunctions();
+    
+    std::string displayString();
+  };
+  
 class Exp_x : public SimpleFunction<double>
 {
 public:

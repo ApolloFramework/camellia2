@@ -11,6 +11,7 @@
 
 #include "BasisCache.h"
 #include "CamelliaCellTools.h"
+#include "CamelliaDebugUtility.h"
 #include "CellCharacteristicFunction.h"
 #include "ConstantScalarFunction.h"
 #include "ConstantVectorFunction.h"
@@ -664,6 +665,16 @@ TFunctionPtr<Scalar> TFunction<Scalar>::dt()
   return TFunction<Scalar>::null();
 }
 template <typename Scalar>
+TFunctionPtr<Scalar> TFunction<Scalar>::di(int i) // 1-based: 1 for dx, 2 for dy(), 3 for dz()
+{
+  switch (i) {
+    case 1: return dx();
+    case 2: return dy();
+    case 3: return dz();
+    default: TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported component number");
+  }
+}
+template <typename Scalar>
 TFunctionPtr<Scalar> TFunction<Scalar>::curl()
 {
   TFunctionPtr<Scalar> dxFxn = dx();
@@ -876,15 +887,37 @@ bool TFunction<Scalar>::isPositive(BasisCachePtr basisCache)
   Intrepid::FieldContainer<double> fxnValues(numCells,numPoints);
   this->values(fxnValues, basisCache);
 
+//  print("Cells on which we're checking positivity", basisCache->cellIDs());
+//  std::cout << "Function values on those cells: \n";
+//  std::cout << fxnValues;
+  
   for (int i = 0; i<fxnValues.size(); i++)
   {
     if (fxnValues[i] <= 0.0)
     {
-      isPositive=false;
-      break;
+      return false;
     }
   }
-  return isPositive;
+  
+  // since we're using quadrature points (which do not touch the sides of the cell),
+  // good to check the sides as well.  Better still would be to explicitly include
+  // quadrature points for each subcell topology in the points that we check, all
+  // the way down to vertices.
+  if (!basisCache->isSideCache())
+  {
+    int numSides = basisCache->cellTopology()->getSideCount();
+    for (int sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
+    {
+      auto sideCache = basisCache->getSideBasisCache(sideOrdinal);
+      if (! this->isPositive(sideCache) )
+      {
+        return false;
+      }
+    }
+  }
+  
+  // if we get here, no point has bee negative or zero.
+  return true;
 }
 
 // this should only be defined for doubles, but leaving it be for the moment
@@ -894,15 +927,13 @@ bool TFunction<Scalar>::isPositive(Teuchos::RCP<Mesh> mesh, int cubEnrich, bool 
 {
   bool isPositive = true;
   bool isPositiveOnPartition = true;
-  int myPartition = Teuchos::GlobalMPISession::getRank();
-  vector<ElementPtr> elems = mesh->elementsInPartition(myPartition);
-  for (vector<ElementPtr>::iterator elemIt = elems.begin(); elemIt!=elems.end(); elemIt++)
+  auto cellIDs = mesh->cellIDsInPartition();
+  for (auto cellID : cellIDs)
   {
-    int cellID = (*elemIt)->cellID();
     BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID, testVsTest, cubEnrich);
 
     // if we want to check positivity on uniformly spaced points
-    if ((*elemIt)->numSides()==4)  // tensor product structure only works with quads
+    if (basisCache->cellTopology()->getSideCount()==4)  // tensor product structure only works with quads
     {
       Intrepid::FieldContainer<double> origPts = basisCache->getRefCellPoints();
       int numPts1D = ceil(sqrt(origPts.dimension(0)));
@@ -1414,8 +1445,8 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::squaredL2NormOfJumps(MeshPt
     {
       case DIFFERENCE:
         return v1-v2;
-      case AVERAGE:
-        return v1+v2; // is this right?  Shouldn't it be (v1+v2)/2.0?
+      case SUM:
+        return v1+v2;
     }
   };
   
@@ -1705,7 +1736,7 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::squaredL2NormOfJumps(MeshPt
         neighborSideCache->setPhysicalCellNodes(neighborCellNodes, {neighborCellID}, false);
         {
           // Sanity check that the physical points agree:
-          double tol = 1e-10;
+          double tol = 1e-8;
           Intrepid::FieldContainer<double> myPhysicalPoints = cellBasisCacheSide->getPhysicalCubaturePoints();
           Intrepid::FieldContainer<double> neighborPhysicalPoints = neighborSideCache->getPhysicalCubaturePoints();
           
@@ -1952,7 +1983,8 @@ double TFunction<Scalar>::l1norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnri
 {
   TFunctionPtr<Scalar> thisPtr = Teuchos::rcp( this, false );
   bool testVsTest = false, requireSideCaches = false;
-  return abs(thisPtr->integrate(mesh, cubatureDegreeEnrichment, testVsTest, requireSideCaches, spatialSidesOnly));
+  TFunctionPtr<double> magnitudeFxn = TFunction<Scalar>::sqrtFunction(thisPtr * thisPtr);
+  return abs(magnitudeFxn->integrate(mesh, cubatureDegreeEnrichment, testVsTest, requireSideCaches, spatialSidesOnly));
 }
   
 template <typename Scalar>
@@ -1961,6 +1993,37 @@ double TFunction<Scalar>::l2norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnri
   TFunctionPtr<Scalar> thisPtr = Teuchos::rcp( this, false );
   bool testVsTest = false, requireSideCaches = false;
   return sqrt( abs((thisPtr * thisPtr)->integrate(mesh, cubatureDegreeEnrichment, testVsTest, requireSideCaches, spatialSidesOnly)) );
+}
+
+// BK: Method to compute the global maximum of a function
+template <typename Scalar>
+double TFunction<Scalar>::linfinitynorm(MeshPtr mesh, int cubatureDegreeEnrichment)
+{
+  // Kind of crude, but works!
+  TEUCHOS_TEST_FOR_EXCEPTION(_rank != 0, std::invalid_argument, "can only compute the L^infty norm of scalar functions, at least for now.");
+  double localMax = 0.0;
+  bool testVsTest = false;
+  set<GlobalIndexType> cellIDs = mesh->cellIDsInPartition();
+  for (GlobalIndexType cellID : cellIDs)
+  {
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID, testVsTest, cubatureDegreeEnrichment);
+    int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
+    int numPoints = basisCache->getPhysicalCubaturePoints().dimension(1);
+    Intrepid::FieldContainer<Scalar> fxnValues(numCells,numPoints);
+    this->values(fxnValues,basisCache);
+
+    Intrepid::FieldContainer<double> *weightedMeasures = &basisCache->getWeightedMeasures();
+    for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+    {
+      for (int ptIndex=0; ptIndex<numPoints; ptIndex++)
+      {
+        localMax = std::max(localMax,abs(fxnValues(cellIndex,ptIndex)));
+      }
+    }
+  }
+  double globalMax = 0.0;
+  mesh->Comm()->MaxAll(&localMax, &globalMax, 1);
+  return globalMax;
 }
 
 template <typename Scalar>
@@ -2391,25 +2454,25 @@ TFunctionPtr<Scalar> TFunction<Scalar>::restrictToCellBoundary(TFunctionPtr<Scal
 }
   
 template <typename Scalar>
-TFunctionPtr<Scalar> TFunction<Scalar>::solution(VarPtr var, TSolutionPtr<Scalar> soln)
+TFunctionPtr<Scalar> TFunction<Scalar>::solution(VarPtr var, TSolutionPtr<Scalar> soln, const std::string &solutionIdentifierExponent)
 {
   TEUCHOS_TEST_FOR_EXCEPTION(var->varType() == FLUX, std::invalid_argument, "For flux variables, must provide a weightFluxesBySideParity argument");
   bool weightFluxesBySideParity = false; // inconsequential for non-fluxes
   int solutionOrdinal = 0;
-  return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity, solutionOrdinal) );
+  return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity, solutionOrdinal, solutionIdentifierExponent) );
 }
 
 template <typename Scalar>
-TFunctionPtr<Scalar> TFunction<Scalar>::solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity)
+TFunctionPtr<Scalar> TFunction<Scalar>::solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, const std::string &solutionIdentifierExponent)
 {
   int solutionOrdinal = 0;
-  return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity, solutionOrdinal) );
+  return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity, solutionOrdinal, solutionIdentifierExponent) );
 }
 
   template <typename Scalar>
-  TFunctionPtr<Scalar> TFunction<Scalar>::solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal)
+  TFunctionPtr<Scalar> TFunction<Scalar>::solution(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal, const std::string &solutionIdentifierExponent)
   {
-    return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity, solutionOrdinal) );
+    return Teuchos::rcp( new SimpleSolutionFunction<Scalar>(var, soln, weightFluxesBySideParity, solutionOrdinal, solutionIdentifierExponent) );
   }
   
   template <typename Scalar>

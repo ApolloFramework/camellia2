@@ -58,7 +58,7 @@ class CellDataMigration
   static std::vector<std::pair<std::pair<GlobalIndexType,bool>,Intrepid::FieldContainer<double>>> solutionCoefficients; // ((cellID, coeffsBelongToParent), coefficients)
 public:
   // methods for Zoltan's benefit
-  static int dataSize(Mesh* mesh, GlobalIndexType cellID);
+  static int dataSize(Mesh* mesh, GlobalIndexType cellID, bool willPackParentDofs);
   static void packData(Mesh* mesh, GlobalIndexType cellID, bool packParentDofs, char *dataBuffer, int size);
   static void unpackData(Mesh* mesh, GlobalIndexType cellID, const char *dataBuffer, int size);
   
@@ -68,7 +68,7 @@ public:
   static void unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size,
                                  vector<RootedLabeledRefinementBranch> &rootedLabeledBranches);
   
-  static int solutionDataSize(Mesh* mesh, GlobalIndexType cellID);
+  static int solutionDataSize(Mesh* mesh, GlobalIndexType cellID, bool willPackParentDofs);
   static void packSolutionData(Mesh* mesh, GlobalIndexType cellID, bool packParentDofs, char* &dataLocation, int size);
   static void unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size);
   

@@ -5,6 +5,7 @@
 #include "GnuPlotUtil.h"
 
 #include "BasisCache.h"
+#include "CamelliaDebugUtility.h"
 #include "GlobalDofAssignment.h"
 #include "MeshFactory.h"
 #include "MPIWrapper.h"
@@ -61,12 +62,12 @@ FieldContainer<double> GnuPlotUtil::cellCentroids(MeshPtr mesh)
   // this only works on quads right now
 
   int spaceDim = mesh->getDimension(); // not that this will really work in 3D...
-  int numActiveElements = mesh->numActiveElements();
-
-  FieldContainer<double> cellCentroids(numActiveElements,spaceDim); // used for labelling cells
 
   set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
   vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
+
+  auto numActiveElements = cellIDs.size();
+  FieldContainer<double> cellCentroids(numActiveElements,spaceDim); // used for labelling cells
 
   for (int cellOrdinal=0; cellOrdinal<numActiveElements; cellOrdinal++)
   {
@@ -208,10 +209,11 @@ void GnuPlotUtil::writeComputationalMeshSkeleton(const string &filePath, MeshPtr
     fout.close();
 
     ofstream scriptOut((filePath + ".p").c_str());
+    scriptOut << "set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
+    scriptOut << "set out '" << filePath << ".eps'\n";
     scriptOut << "set size ratio -1\n";
     scriptOut << "set xrange [" << minX- 0.1*xDiff << ":" << maxX+0.1*xDiff << "] \n";
     scriptOut << "set yrange [" << minY- 0.1*yDiff << ":" << maxY+0.1*yDiff << "] \n";
-    scriptOut << "plot \"" << filePath << "\" using 1:2 title 'mesh' with lines lc rgb \"" << rgbColor << "\"\n";
     if (labelCells)
     {
       bool tinyFont = true;
@@ -227,14 +229,10 @@ void GnuPlotUtil::writeComputationalMeshSkeleton(const string &filePath, MeshPtr
       }
     }
     
-    scriptOut << "set terminal postscript eps color lw 1 \"Helvetica\" 20\n";
-    scriptOut << "set out '" << filePath << ".eps'\n";
+    scriptOut << "plot \"" << filePath << "\" using 1:2 title 'mesh' with lines lc rgb \"" << rgbColor << "\"\n";
     //    scriptOut << "replot\n";
     //    scriptOut << "set terminal png\n";
     //    scriptOut << "set out '" << filePath << ".png'\n";
-    scriptOut << "replot\n";
-    scriptOut << "set term pop\n";
-    scriptOut << "replot\n";
     scriptOut.close();
   }
 }

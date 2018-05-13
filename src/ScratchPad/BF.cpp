@@ -84,27 +84,58 @@ namespace Camellia
   }
   
   template <typename Scalar>
+  void VALIDATE_TRIAL_TEST_PAIR(TLinearTermPtr<Scalar> trialTerm, TLinearTermPtr<Scalar> testTerm)
+  {
+    if (trialTerm == Teuchos::null)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "trialTerm may not be null!");
+    }
+    else if (testTerm == Teuchos::null)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "testTerm may not be null!");
+    }
+    else if (trialTerm->rank() == -1)
+    {
+      // debugging:
+      cout << "trialTerm: " << trialTerm->displayString() << endl;
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "trialTerm may not be empty!");
+    }
+    else if (testTerm->rank() == -1)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "testTerm may not be empty!");
+    }
+  }
+  
+  template <typename Scalar>
   void TBF<Scalar>::addTerm( TLinearTermPtr<Scalar> trialTerm, TLinearTermPtr<Scalar> testTerm )
   {
+    VALIDATE_TRIAL_TEST_PAIR(trialTerm, testTerm);
     _terms.push_back( make_pair( trialTerm, testTerm ) );
   }
   
   template <typename Scalar>
   void TBF<Scalar>::addTerm( VarPtr trialVar, TLinearTermPtr<Scalar> testTerm )
   {
-    addTerm( Teuchos::rcp( new LinearTerm(trialVar) ), testTerm );
+    auto trialTerm = Teuchos::rcp( new LinearTerm(trialVar) );
+    VALIDATE_TRIAL_TEST_PAIR(trialTerm, testTerm);
+    addTerm( trialTerm, testTerm );
   }
   
   template <typename Scalar>
   void TBF<Scalar>::addTerm( VarPtr trialVar, VarPtr testVar )
   {
-    addTerm( Teuchos::rcp( new LinearTerm(trialVar) ), Teuchos::rcp( new LinearTerm(testVar) ) );
+    auto trialTerm = Teuchos::rcp( new LinearTerm(trialVar) );
+    auto testTerm  = Teuchos::rcp( new LinearTerm(testVar) );
+    VALIDATE_TRIAL_TEST_PAIR(trialTerm, testTerm);
+    addTerm( trialTerm, testTerm );
   }
   
   template <typename Scalar>
   void TBF<Scalar>::addTerm( TLinearTermPtr<Scalar> trialTerm, VarPtr testVar)
   {
-    addTerm( trialTerm, Teuchos::rcp( new LinearTerm(testVar) ) );
+    auto testTerm  = Teuchos::rcp( new LinearTerm(testVar) );
+    VALIDATE_TRIAL_TEST_PAIR(trialTerm, testTerm);
+    addTerm( trialTerm, testTerm );
   }
   
   template <typename Scalar>
@@ -576,6 +607,8 @@ namespace Camellia
       }
       if (! BilinearFormUtility<Scalar>::checkForZeroRowsAndColumns("TBF stiffness", stiffness, checkRows, checkCols) )
       {
+        // tell trialOrderPtr about its VarFactory, for richer output
+        elemType->trialOrderPtr->setVarFactory(_varFactory, true); // true: is trial ordering
         cout << "trial ordering:\n" << *(elemType->trialOrderPtr);
         //    cout << "test ordering:\n" << *(elemType->testOrderPtr);
         //    cout << "stiffness:\n" << stiffness;
@@ -1047,6 +1080,12 @@ namespace Camellia
   }
   
   template <typename Scalar>
+  const vector< TBilinearTerm<Scalar> > & TBF<Scalar>::getTerms() const
+  {
+    return _terms;
+  }
+  
+  template <typename Scalar>
   TIPPtr<Scalar> TBF<Scalar>::l2Norm()
   {
     // L2 norm on test space:
@@ -1456,22 +1495,43 @@ namespace Camellia
     // is to compute the transpose.
     
     FieldContainer<Scalar> rectangularStiffnessMatrix(numCells,numTestDofs,numTrialDofs);
-    //  FieldContainer<double> stiffnessMatrixT(numCells,numTrialDofs,numTestDofs);
+    Teuchos::RCP<FieldContainer<Scalar>> optimalTestRHS;
     
     int solvedAll = 0;
     
-    timer.ResetStartTime();
-    TEUCHOS_TEST_FOR_EXCEPTION(_optimalTestSolver == FACTORED_CHOLESKY, std::invalid_argument, "optimalTestWeightsAndStiffness() should not be called for FACTORED_CHOLESKY");
-    // RHS:
-    if (_optimalTestSolver != FACTORED_CHOLESKY)
+    // do we have the same BF for optimal test determination as we integrate against?
+    // (this is the typical case, and lets us avoid integrating twice, as well as saving some memory)
+    bool sameBF = (_bfForOptimalTestSolve == Teuchos::null);
+    
+    TBFPtr<Scalar> bfForOptimalTestSolve;
+    if ( !sameBF )
     {
-      this->stiffnessMatrix(rectangularStiffnessMatrix, elemType, cellSideParities, stiffnessBasisCache);
+      bfForOptimalTestSolve = _bfForOptimalTestSolve;
+      // in this case, we need separate allocation for rectangular stiffness and the "load" for the optimal test solve
+      optimalTestRHS = Teuchos::rcp(new FieldContainer<Scalar>(numCells,numTestDofs,numTrialDofs));
     }
     else
     {
+      bfForOptimalTestSolve = Teuchos::rcp(this, false); // false: does not own memory
+      optimalTestRHS = Teuchos::rcp(&rectangularStiffnessMatrix, false); // same memory will do
+    }
+    
+    timer.ResetStartTime();
+    // RHS:
+    if (_optimalTestSolver != FACTORED_CHOLESKY)
+    {
+      bfForOptimalTestSolve->stiffnessMatrix(*optimalTestRHS, elemType, cellSideParities, stiffnessBasisCache);
+      if (!sameBF)
+      {
+        this->stiffnessMatrix(rectangularStiffnessMatrix, elemType, cellSideParities, stiffnessBasisCache);
+      }
+    }
+    else
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(_optimalTestSolver == FACTORED_CHOLESKY, std::invalid_argument, "optimalTestWeightsAndStiffness() should not be called for FACTORED_CHOLESKY");
       // row-major order
-      rectangularStiffnessMatrix.resize(numCells,numTrialDofs,numTestDofs);
-      this->stiffnessMatrix(rectangularStiffnessMatrix, elemType, cellSideParities, stiffnessBasisCache, true, true);
+//      rectangularStiffnessMatrix.resize(numCells,numTrialDofs,numTestDofs);
+//      this->stiffnessMatrix(rectangularStiffnessMatrix, elemType, cellSideParities, stiffnessBasisCache, true, true);
     }
     timeB = timer.ElapsedTime();
     
@@ -1502,6 +1562,7 @@ namespace Camellia
       timer.ResetStartTime();
       int result = 0;
       FieldContainer<Scalar> cellIPMatrix(localIPDim, &ipMatrix(cellIndex,0,0));
+      FieldContainer<Scalar> cellOptTestRHS(localRectangularStiffnessDim, &(*optimalTestRHS)(cellIndex,0,0));
       FieldContainer<Scalar> cellRectangularStiffness(localRectangularStiffnessDim, &rectangularStiffnessMatrix(cellIndex,0,0));
       FieldContainer<Scalar> cellStiffness(localStiffnessDim, &stiffnessMatrix(cellIndex,0,0));
       FieldContainer<Scalar> cellOptimalWeightsT(cellOptimalWeightsTDim, &optimalTestWeights(cellIndex,0,0));
@@ -1510,12 +1571,12 @@ namespace Camellia
         case CHOLESKY:
         {
           bool allowIPOverwrite = false; // assert that we won't be using cellIPMatrix again
-          result = SerialDenseWrapper::solveSPDSystemMultipleRHS(cellOptimalWeightsT, cellIPMatrix, cellRectangularStiffness, allowIPOverwrite);
+          result = SerialDenseWrapper::solveSPDSystemMultipleRHS(cellOptimalWeightsT, cellIPMatrix, cellOptTestRHS, allowIPOverwrite);
           if (result != 0)
           {
             // may be that we're not SPD numerically
             cout << "During optimal test weight solution, SPD solve returned error " << result << ".  Solving with LU factorization instead of SPD solve.\n";
-            result = SerialDenseWrapper::solveSystemMultipleRHS(cellOptimalWeightsT, cellIPMatrix, cellRectangularStiffness);
+            result = SerialDenseWrapper::solveSystemMultipleRHS(cellOptimalWeightsT, cellIPMatrix, cellOptTestRHS);
           }
         }
           break;
@@ -1523,11 +1584,11 @@ namespace Camellia
         {
           bool useIPTranspose = true; // true value may allow less memory to be used during solveSystemUsingQR() (maybe only if we can get overwriting to work, below)
           bool allowIPOverwrite = true; // assert that we won't be using cellIPMatrix again
-          result = SerialDenseWrapper::solveSystemUsingQR(cellOptimalWeightsT, cellIPMatrix, cellRectangularStiffness, useIPTranspose, allowIPOverwrite);
+          result = SerialDenseWrapper::solveSystemUsingQR(cellOptimalWeightsT, cellIPMatrix, cellOptTestRHS, useIPTranspose, allowIPOverwrite);
         }
           break;
         case LU:
-          SerialDenseWrapper::solveSystemMultipleRHS(cellOptimalWeightsT, cellIPMatrix, cellRectangularStiffness);
+          SerialDenseWrapper::solveSystemMultipleRHS(cellOptimalWeightsT, cellIPMatrix, cellOptTestRHS);
           break;
         default:
           TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported case");
@@ -1558,6 +1619,17 @@ namespace Camellia
       cout << " seconds; compute K=B^T T in " << timeK << " seconds." << endl;
     }
     return solvedAll;
+  }
+  
+  template <typename Scalar>
+  void TBF<Scalar>::setBFForOptimalTestSolve(TBFPtr<Scalar> bf)
+  {
+    _bfForOptimalTestSolve = bf;
+    if ((bf != Teuchos::null) && (_optimalTestSolver == FACTORED_CHOLESKY))
+    {
+      // can't use FACTORED_CHOLESKY if we have a different BF for optimal test solve
+      _optimalTestSolver = QR;
+    }
   }
   
   template <typename Scalar>
@@ -1625,8 +1697,44 @@ namespace Camellia
       static_cast< PreviousSolutionFunction<Scalar>* >(trialValue.get())->setOverrideMeshCheck(overrideMeshCheck);
       if ( (! excludeBoundaryTerms) || (! trialValue->boundaryValueOnly()) )
       {
+//        cout << "Adding " << (trialValue * testTerm)->displayString() << " to functional.\n";
         functional = functional + trialValue * testTerm;
       }
+    }
+    return functional;
+  }
+  
+  template <typename Scalar>
+  TLinearTermPtr<Scalar> TBF<Scalar>::testFunctional(const std::map<int,FunctionPtr> &solnMap)
+  {
+    TLinearTermPtr<Scalar> functional = Teuchos::rcp(new LinearTerm());
+    for (auto bilinearTerm : _terms)
+    {
+      TLinearTermPtr<Scalar> trialTerm = bilinearTerm.first;
+      TLinearTermPtr<Scalar> testTerm = bilinearTerm.second;
+      TFunctionPtr<Scalar> trialValue = trialTerm->evaluate(solnMap);
+      functional = functional + trialValue * testTerm;
+    }
+    return functional;
+  }
+  
+  template <typename Scalar>
+  TLinearTermPtr<Scalar> TBF<Scalar>::trialFunctional(const std::map<int,FunctionPtr> &testMap)
+  {
+    TLinearTermPtr<Scalar> functional = Teuchos::rcp(new LinearTerm());
+    bool weightFluxesByParity = true; // trying something...
+    FunctionPtr parity = Function::sideParity();
+    for (auto bilinearTerm : _terms)
+    {
+      TLinearTermPtr<Scalar> trialTerm = bilinearTerm.first;
+      if ((trialTerm->termType() == FLUX) && weightFluxesByParity)
+      {
+        trialTerm = parity * trialTerm;
+      }
+      TLinearTermPtr<Scalar> testTerm = bilinearTerm.second;
+      TFunctionPtr<Scalar> testValue = testTerm->evaluate(testMap);
+      bool overrideTypeCheck = true; // we can have fluxes, traces, and fields all in this trial term
+      functional->addTerm(testValue * trialTerm, overrideTypeCheck);
     }
     return functional;
   }

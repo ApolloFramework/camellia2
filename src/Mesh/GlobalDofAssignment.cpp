@@ -21,6 +21,7 @@
 #include "CamelliaDebugUtility.h"
 #include "CondensedDofInterpreter.h"
 #include "ElementType.h"
+#include "GnuPlotUtil.h" // for writing out mesh skeleton when an error is encountered...
 #include "Solution.h"
 
 using namespace Intrepid;
@@ -176,23 +177,33 @@ void GlobalDofAssignment::assignParities( GlobalIndexType cellID )
       }
       else
       {
-        // If not, then it's still possible that we have a descendant that is peers with neighbor,
+        // If not, then it's still possible that we have a descendant that is peers with neighbor (or neighbor's descendant),
         // in the case of anisotropic refinements.
         
-        // Find the most refined descendant that shares the side:
         unsigned sideDim = _meshTopology->getDimension() - 1;
         IndexType sideEntityIndex = cell->entityIndex(sideDim, sideOrdinal);
         vector<IndexType> cellIndicesForSide = _meshTopology->getCellsForSide(sideEntityIndex); // max 2 entries
+        
+        GlobalIndexType neighborDescendantID = -1, cellDescendantID = -1;
         for (IndexType cellIndexForSide : cellIndicesForSide)
         {
-          if (cellIndexForSide == neighborCellID) continue; // skip the neighbor
-          if (cellIndexForSide == neighborNeighborInfo.first)
+          CellPtr cellForSide = _meshTopology->getCell(cellIndexForSide);
+          if (cellForSide->isDescendant(neighborCellID))
           {
-            // a descendant that is a peer: we "inherit" parity of the descendant
-            // then the lower cellID gets the positive parity
-            cellParities[sideOrdinal] = (cellIndexForSide < neighborCellID) ? 1 : -1;
-            cellParitySet = true;
+            neighborDescendantID = cellIndexForSide;
           }
+          else if (cellForSide->isDescendant(cellID))
+          {
+            cellDescendantID = cellIndexForSide;
+          }
+        }
+        
+        if ((neighborDescendantID != -1) && (cellDescendantID != -1))
+        {
+          // a descendant that is a peer: we "inherit" parity of the descendant
+          // then the lower cellID gets the positive parity
+          cellParities[sideOrdinal] = (cellDescendantID < neighborDescendantID) ? 1 : -1;
+          cellParitySet = true;
         }
       }
       if (!cellParitySet)
@@ -201,6 +212,14 @@ void GlobalDofAssignment::assignParities( GlobalIndexType cellID )
         if (parent.get() == NULL)
         {
           cout << "ERROR: in assignParities(), encountered cell with non-peer neighbor but without parent.\n";
+          cout << "cell ID: " << cellID << endl;
+          cout << "neighbor cell ID: " << neighborCellID << endl;
+          cout << "sideOrdinal: " << sideOrdinal << endl;
+          if (_mesh->Comm()->NumProc() == 1)
+          {
+            GnuPlotUtil::writeComputationalMeshSkeleton("/tmp/bad_mesh", _mesh, true);
+            cout << "Wrote labeled mesh to /tmp/bad_mesh.\n";
+          }
           TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "in assignParities(), encountered cell with non-peer neighbor but without parent");
         }
         // inherit parent's parity along the shared side:
@@ -435,8 +454,16 @@ void GlobalDofAssignment::repartitionAndMigrate()
     if (_allowMeshTopologyPruning)
     {
       int dimForNeighborRelation = minimumSubcellDimensionForContinuityEnforcement(); // collective operation
-      const set<GlobalIndexType>* myCells = &cellsInPartition(-1);
-      meshTopo->pruneToInclude(_partitionPolicy->Comm(), *myCells, dimForNeighborRelation);
+      set<GlobalIndexType> cellsToInclude = cellsInPartition(-1); // my cells
+      auto & knownCells = meshTopo->getLocallyKnownActiveCellIndices();
+      for (auto cellID : knownCells)
+      {
+        if (meshTopo->cellHasCurvedEdges(cellID))
+        {
+          cellsToInclude.insert(cellID);
+        }
+      }
+      meshTopo->pruneToInclude(_partitionPolicy->Comm(), cellsToInclude, dimForNeighborRelation);
     }
   }
   for (vector< TSolutionPtr<double> >::iterator solutionIt = _registeredSolutions.begin();

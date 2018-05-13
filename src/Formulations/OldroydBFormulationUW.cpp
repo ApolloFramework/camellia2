@@ -941,8 +941,14 @@ void OldroydBFormulationUW::addPointPressureCondition(vector<double> vertex)
 
 void OldroydBFormulationUW::addWallCondition(SpatialFilterPtr wall)
 {
-  vector<double> zero(_spaceDim, 0.0);
-  addInflowCondition(wall, TFunction<double>::constant(zero));
+  // vector<double> zero(_spaceDim, 0.0);
+  // addInflowCondition(wall, TFunction<double>::constant(zero));
+  TFunctionPtr<double> zero = TFunction<double>::zero();
+  _solnIncrement->bc()->addDirichlet(this->u_hat(1), wall, zero);
+  _solnIncrement->bc()->addDirichlet(this->u_hat(2), wall, zero);
+  _solnIncrement->bc()->addDirichlet(this->Tun_hat(1,1), wall, zero);
+  _solnIncrement->bc()->addDirichlet(this->Tun_hat(1,2), wall, zero);
+  _solnIncrement->bc()->addDirichlet(this->Tun_hat(2,2), wall, zero); 
 }
 
 void OldroydBFormulationUW::addSymmetryCondition(SpatialFilterPtr symmetryRegion)

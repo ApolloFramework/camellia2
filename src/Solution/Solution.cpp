@@ -935,14 +935,14 @@ GlobalIndexType TSolution<Scalar>::elementLagrangeIndex(GlobalIndexType cellID, 
   GlobalIndexType globalIndex = cellOffset + numGlobalDofs;
   int numElementConstraints = _lagrangeConstraints->numElementConstraints();
   
-  auto myCellIDs = &_mesh->cellIDsInPartition();
+  auto & myCellIDs = _mesh->cellIDsInPartition();
   int localCellOrdinal = 0;
-  for (GlobalIndexType myCellID : *myCellIDs)
+  for (GlobalIndexType myCellID : myCellIDs)
   {
     if (cellID == myCellID) break;
     ++localCellOrdinal;
   }
-  return globalIndex + localCellOrdinal * numElementConstraints;
+  return globalIndex + localCellOrdinal * numElementConstraints + lagrangeOrdinal;
 }
 
 //// ! provides the GID and LID corresponding to a global lagrange constraint
@@ -951,6 +951,12 @@ GlobalIndexType TSolution<Scalar>::elementLagrangeIndex(GlobalIndexType cellID, 
 //{
 //  
 //}
+
+template <typename Scalar>
+GlobalIndexType TSolution<Scalar>::getBCDofCount() const
+{
+  return _bcDofCount;
+}
 
 template <typename Scalar>
 int TSolution<Scalar>::solve()
@@ -1028,6 +1034,8 @@ void TSolution<Scalar>::initializeStiffnessAndLoad()
   int maxRowSize = 0; // will cause more mallocs during insertion into the CrsMatrix, but will minimize the amount of memory allocated now.
   
   _globalStiffMatrix = Teuchos::rcp(new Epetra_FECrsMatrix(::Copy, partMap, maxRowSize));
+  
+//  cout << "_globalStiffMatrix has " << _globalStiffMatrix->NumGlobalRows() << " global rows, and " << _globalStiffMatrix->NumGlobalCols() << " global cols.\n";
   
   // for now, we assume that we will have a "standard" _rhs (whether that means DPG or
   // some Bubnov-Galerkin RHS depends on whether we have an _ip defined); and that we
@@ -1221,7 +1229,7 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
   //  cout << "Done computing local matrices" << endl;
   Epetra_Vector timeLocalStiffnessVector(timeMap);
   timeLocalStiffnessVector[0] = timeLocalStiffness;
-
+  
   int localRowIndex = myGlobalIndicesSet.size(); // starts where the dofs left off
 
   // order is: element-lagrange, then (on rank 0) global lagrange and ZMC
@@ -1303,13 +1311,14 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
         // insert column:
         globalStiffness->InsertGlobalValues(nnz+1,&globalDofIndices(0),1,&globalRowIndex,
                                             &nonzeroValues(0));
+//        cout << "cell ID " << cellID << ", adding Lagrange RHS value at global index " << globalRowIndex << " = " << rhs(cellIndex) << endl;
         _rhsVector->ReplaceGlobalValues(1,&globalRowIndex,&rhs(cellIndex));
 
         localRowIndex++;
       }
     }
   }
-
+  
   // TODO: change ZMC imposition to be a distributed computation, instead of doing it all on rank 0
   //       (It's both the code below and the integrateBasisFunctions() methods that will need revision.)
   vector<int> zeroMeanConstraints = getZeroMeanConstraints();
@@ -1330,7 +1339,6 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
     // a different matrix shape for the case where we rely on the coarse grid solve to impose the ZMC via Lagrange constraints
     // or when we have a rank-one update in an iterative solve to handle that.
     // (We put 1's in the diagonals of the new rows, but otherwise leave them unpopulated.)
-
     imposeZMCsUsingLagrange();
   }
   else
@@ -1407,9 +1415,9 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
   // determine and impose BCs
 
   timer.ResetStartTime();
-
+  
   imposeBCs();
-
+  
   double timeBCImposition = timer.ElapsedTime();
   Epetra_Vector timeBCImpositionVector(timeMap);
   timeBCImpositionVector[0] = timeBCImposition;
@@ -2082,8 +2090,10 @@ void TSolution<Scalar>::imposeBCs()
     {
       // impose homogeneous constraints for the solution corresponding to goal RHS
       v.ReplaceGlobalValue(bcGlobalIndices[i], goalSolutionOrdinal, 0.0);
-    }\
+    }
   }
+  
+  _bcDofCount = MPIWrapper::sum(*this->mesh()->Comm(), GlobalIndexType(numBCs));
   
   Epetra_MultiVector rhsDirichlet(partMap,1);
   _globalStiffMatrix->Apply(v,rhsDirichlet);
@@ -3316,7 +3326,7 @@ void TSolution<Scalar>::setSolnCoeffsForCellID(const Intrepid::FieldContainer<Sc
     // allocate new storage
     _solutionForCellID[solutionOrdinal][cellID] = Intrepid::FieldContainer<Scalar>(trialOrder->totalDofs());
   }
-  if (_solutionForCellID[cellID].size() != trialOrder->totalDofs())
+  if (_solutionForCellID[solutionOrdinal][cellID].size() != trialOrder->totalDofs())
   {
     // resize
     _solutionForCellID[solutionOrdinal][cellID].resize(trialOrder->totalDofs());
@@ -3640,9 +3650,9 @@ Epetra_Map TSolution<Scalar>::getPartitionMap(PartitionIndexType rank, set<Globa
 
   // copy from set object into the allocated array
   GlobalIndexType offset = 0;
-  for (set<GlobalIndexType>::iterator indexIt = myGlobalIndicesSet.begin(); indexIt != myGlobalIndicesSet.end(); indexIt++ )
+  for (GlobalIndexType myGlobalIndex : myGlobalIndicesSet)
   {
-    myGlobalIndices[offset++] = *indexIt;
+    myGlobalIndices[offset++] = myGlobalIndex;
   }
   GlobalIndexType cellOffset = _mesh->activeCellOffset() * _lagrangeConstraints->numElementConstraints();
   GlobalIndexType globalIndex = cellOffset + numGlobalDofs;
@@ -3679,7 +3689,12 @@ Epetra_Map TSolution<Scalar>::getPartitionMap(PartitionIndexType rank, set<Globa
   //Epetra_Map partMap(-1, localDofsSize, myGlobalIndices, indexBase, Comm);
 //  cout << "process " << rank << " about to construct partMap; totalRows = " << totalRows;
 //  cout << "; localDofsSize = " << localDofsSize << ".\n";
+//  cout << "num regular GlobalDofIndices:          " << numGlobalDofs << endl;
+//  cout << "num element Lagrange GlobalDofIndices: " << globalNumElementLagrange << endl;
+//  cout << "num global Lagrange GlobalDofIndices:  " << numGlobalLagrange << endl;
+//  cout << "num zero mean constraints:             " << zeroMeanConstraintsSize << endl;
   Epetra_Map partMap(totalRows, localDofsSize, myGlobalIndices, indexBase, *Comm);
+//  cout << "On rank " << rank << ", constructed partMap with " << partMap.NumGlobalElements() << " global elements.\n";
 
   if (localDofsSize!=0)
   {
@@ -4053,7 +4068,7 @@ void TSolution<Scalar>::projectOldCellOntoNewCells(GlobalIndexType cellID, Eleme
     }
   }
 
-  int parent_p_order = _mesh->getElementType(cellID)->trialOrderPtr->maxBasisDegree();
+  int parent_p_order = oldElemType->trialOrderPtr->maxBasisDegree();
 
   for (int childOrdinal=0; childOrdinal < childIDs.size(); childOrdinal++)
   {
@@ -4064,8 +4079,11 @@ void TSolution<Scalar>::projectOldCellOntoNewCells(GlobalIndexType cellID, Eleme
     int childSideCount = childCell->getSideCount();
 
     int child_p_order = _mesh->getElementType(childID)->trialOrderPtr->maxBasisDegree();
-    int cubatureDegree = parent_p_order + child_p_order;
+    int cubatureDegree = std::max(parent_p_order + child_p_order, child_p_order * 2);
 
+//    cout << "child_p_order = " << child_p_order << endl;
+//    cout << "parent_p_order = " << parent_p_order << endl;
+    
     BasisCachePtr volumeBasisCache;
     vector<BasisCachePtr> sideBasisCache(childSideCount);
 
@@ -4109,6 +4127,7 @@ void TSolution<Scalar>::projectOldCellOntoNewCells(GlobalIndexType cellID, Eleme
     for (typename map<int,TFunctionPtr<Scalar>>::iterator fieldFxnIt=fieldMap.begin(); fieldFxnIt != fieldMap.end(); fieldFxnIt++)
     {
       int varID = fieldFxnIt->first;
+//      cout << "varID: " << varID << endl;
       TFunctionPtr<Scalar> fieldFxn = fieldFxnIt->second;
       BasisPtr childBasis = childType->trialOrderPtr->getBasis(varID);
       basisCoefficients.resize(1,childBasis->getCardinality());
