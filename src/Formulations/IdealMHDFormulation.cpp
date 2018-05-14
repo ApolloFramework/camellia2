@@ -316,7 +316,6 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   
   _bf = Teuchos::rcp( new BF(_vf) );
   _steadyBF = Teuchos::rcp( new BF(_vf) );
-  BFPtr transientBF = Teuchos::rcp( new BF(_vf) ); // we'll end up writing _bf = _steadyBF + transientBF, basically
   _rhs = RHS::rhs();
   
   vector<int> H1Order;
@@ -354,18 +353,19 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   for (int d=0; d<trueSpaceDim; d++)
   {
     auto momentumColumn = (_spaceDim > 1) ? column(_spaceDim,momentumFlux,d+1) : momentumFlux->spatialComponent(d+1);
-//    if (d != 0)
-//    {
-//      cout << "WARNING: doing a debugging thing for vm[" << d << "]\n"; // TODO: get rid of this if/else -- what's in the else is nominally correct
-//      auto fakeMomentumColumn = VarFunction<double>::abstractFunction(1.0 * mVar[d]);
-//      _fluxEquations[vm[d]->ID()] = {vm[d],fakeMomentumColumn,tm[d],mVar[d],_fm[d]};
-//      cout << "for variable " << mVar[d]->name() << ", flux is " << fakeMomentumColumn->displayString() << endl;
-//    }
-//    else
-//    {
-      _fluxEquations[vm[d]->ID()] = {vm[d],momentumColumn,tm[d],mVar[d],_fm[d]};
-      cout << "for variable " << mVar[d]->name() << ", flux is " << momentumColumn->displayString() << endl;
-//    }
+    {
+      // A small tweak for 1D: cancel out the (B_x, B_x) component in the m_1 equation -- this is a constant.
+      // It's likely just fine without this tweak: the placement of fluxPrevious on the RHS should take care of it.
+      // Still, it's a slightly unusual thing to have a constant in the flux definition, and the fact that we are taking
+      // the divergence means that mathematically getting rid of the constant is equivalent.
+      if ((_spaceDim == 1) && (d==0))
+      {
+        momentumColumn = momentumColumn + B->x() * B->x();
+      }
+    }
+    _fluxEquations[vm[d]->ID()] = {vm[d],momentumColumn,tm[d],mVar[d],_fm[d]};
+    
+    cout << "for variable " << mVar[d]->name() << ", flux is " << momentumColumn->displayString() << endl;
     if ((d > 0) || (_spaceDim != 1))
     {
       auto magneticColumn = (_spaceDim > 1) ? column(_spaceDim,magneticFlux,d+1) : magneticFlux->spatialComponent(d+1);
@@ -410,7 +410,7 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     {
       // DEBUGGING
       cout << "testVar:  " << testVar->name() << endl;
-      cout << "timeTerm: " << timeTerm->name() << endl;
+      if (timeTerm != Teuchos::null) cout << "timeTerm: " << timeTerm->name() << endl;
       cout << "flux:     " << flux->displayString() << endl;
       cout << "traceVar: " << traceVar->name() << endl;
       cout << "f_rhs:    " << f_rhs->displayString() << endl;
@@ -542,6 +542,19 @@ void IdealMHDFormulation::addEnergyFluxCondition(SpatialFilterPtr region, Functi
   _solnIncrement->bc()->addDirichlet(te, region, te_exact);
 }
 
+void IdealMHDFormulation::addMagneticFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
+{
+  bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
+  auto tB_exact = exactSolution_tB(rho, u, E, B, includeParity);
+  int trueSpaceDim = 3;
+  int dStart = (_spaceDim > 1) ? 0 : 1; // B_x is not a solution variable in 1D
+  for (int d=dStart; d<trueSpaceDim; d++)
+  {
+    VarPtr tB_i = this->tB(d+1);
+    _solnIncrement->bc()->addDirichlet(tB_i, region, tB_exact[d]);
+  }
+}
+
 void IdealMHDFormulation::addMassFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
 {
   VarPtr tc = this->tc();
@@ -554,7 +567,8 @@ void IdealMHDFormulation::addMomentumFluxCondition(SpatialFilterPtr region, Func
 {
   bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
   auto tm_exact = exactSolution_tm(rho, u, E, B, includeParity);
-  for (int d=0; d<_spaceDim; d++)
+  int trueSpaceDim = 3;
+  for (int d=0; d<trueSpaceDim; d++)
   {
     VarPtr tm_i = this->tm(d+1);
     _solnIncrement->bc()->addDirichlet(tm_i, region, tm_exact[d]);
@@ -571,7 +585,7 @@ void IdealMHDFormulation::addEnergyFluxCondition(SpatialFilterPtr region, Functi
 
 VarPtr IdealMHDFormulation::B(int i)
 {
-  return _vf->trialVar(S_B[i]);
+  return _vf->trialVar(S_B[i-1]);
 }
 
 BFPtr IdealMHDFormulation::bf()
@@ -663,6 +677,19 @@ std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_fm(FunctionPtr rho, 
     f[i] = f[i] + Function::op(flux, divOp);
   }
   return f;
+}
+
+std::vector<FunctionPtr> IdealMHDFormulation::exactSolution_tB(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity)
+{
+  const int trueSpaceDim = 3;
+  std::vector<FunctionPtr> tB(trueSpaceDim);
+  int dStart = (_spaceDim == 1) ? 1 : 0; // for 1D, skip the "x" equation in B
+  for (int d=dStart; d<trueSpaceDim; d++)
+  {
+    auto testVar = this->vB(d+1);
+    tB[d] = exactSolutionFlux(testVar, rho, u, E, B, includeParity);
+  }
+  return tB;
 }
 
 FunctionPtr IdealMHDFormulation::exactSolution_tc(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity)
@@ -858,6 +885,8 @@ void IdealMHDFormulation::setTimeStep(double dt)
 
 double IdealMHDFormulation::solveAndAccumulate()
 {
+//  cout << "_solnIncrement->bf(): " << _solnIncrement->bf()->displayString() << endl;
+  
   _solveCode = _solnIncrement->solve(_solver);
   
   set<int> nonlinearVariables = {{rho()->ID(), E()->ID()}};
@@ -990,6 +1019,12 @@ VarPtr IdealMHDFormulation::tm(int i)
 {
   CHECK_VALID_COMPONENT(i);
   return _vf->trialVar(S_tm[i-1]);
+}
+
+VarPtr IdealMHDFormulation::vB(int i)
+{
+  CHECK_VALID_COMPONENT(i);
+  return _vf->testVar(S_vB[i-1]);
 }
 
 VarPtr IdealMHDFormulation::vc()

@@ -283,10 +283,10 @@ namespace Camellia
     // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
     FunctionPtr exactSolution_te(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity);
   
-    // ! For an exact solution (rho, u, E, B), returns the corresponding tB flux
+    // ! For an exact solution (rho, u, E, B), returns the corresponding tB flux.  (Since this is in general vector-valued, returns components in a std::vector; in 1D the first component will be null.)
     // ! If includeParity is true, then includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object
     // ! If includeParity is false, does not include the side parity weight (suitable for substitution into a bilinear form, or linear form, as in BF::testFunctional()).
-    FunctionPtr exactSolution_tB(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity);
+    std::vector<FunctionPtr> exactSolution_tB(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity);
     
     // ! For an exact solution (rho, u, E, B), returns the corresponding forcing in the continuity equation
     FunctionPtr exactSolution_fc(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
