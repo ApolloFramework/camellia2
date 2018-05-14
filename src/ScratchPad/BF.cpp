@@ -550,7 +550,7 @@ namespace Camellia
   
   template <typename Scalar>
   void TBF<Scalar>::stiffnessMatrix(FieldContainer<Scalar> &stiffness, Teuchos::RCP<ElementType> elemType,
-                                    FieldContainer<double> &cellSideParities, Teuchos::RCP<BasisCache> basisCache)
+                                    const FieldContainer<double> &cellSideParities, Teuchos::RCP<BasisCache> basisCache)
   {
     if (!_isLegacySubclass)
     {
@@ -561,19 +561,21 @@ namespace Camellia
       // call legacy version:
       DofOrderingPtr testOrdering  = elemType->testOrderPtr;
       DofOrderingPtr trialOrdering = elemType->trialOrderPtr;
-      stiffnessMatrix(stiffness,trialOrdering,testOrdering,cellSideParities,basisCache);
+      FieldContainer<double> cellSideParitiesNonConst = cellSideParities; // copy for sake of legacy, non-const argument.
+      stiffnessMatrix(stiffness,trialOrdering,testOrdering,cellSideParitiesNonConst,basisCache);
     }
   }
   
   // can override check for zero cols (i.e. in hessian matrix)
   template <typename Scalar>
   void TBF<Scalar>::stiffnessMatrix(FieldContainer<Scalar> &stiffness, Teuchos::RCP<ElementType> elemType,
-                                    FieldContainer<double> &cellSideParities, Teuchos::RCP<BasisCache> basisCache,
+                                    const FieldContainer<double> &cellSideParities, Teuchos::RCP<BasisCache> basisCache,
                                     bool rowMajor, bool checkForZeroCols)
   {
     // stiffness is sized as (C, FTest, FTrial)
     stiffness.initialize(0.0);
     basisCache->setCellSideParities(cellSideParities);
+    bool printTermWiseIntegrationOutput = false; // TODO: make this a settable member variable
     
     for (typename vector< TBilinearTerm<Scalar> >:: iterator btIt = _terms.begin();
          btIt != _terms.end(); btIt++)
@@ -582,10 +584,11 @@ namespace Camellia
       TLinearTermPtr<Scalar> trialTerm = btIt->first;
       TLinearTermPtr<Scalar> testTerm = btIt->second;
       
-      FieldContainer<double> stiffnessCopyDEBUGGING;
+      FieldContainer<double> stiffnessCopyForTermwiseOutput;
+      if (printTermWiseIntegrationOutput)
       {
         // DEBUGGING
-        stiffnessCopyDEBUGGING = stiffness;
+        stiffnessCopyForTermwiseOutput = stiffness;
         cout << "Integrating " << trialTerm->displayString() << " against " << testTerm->displayString() << endl;
       }
       if (rowMajor)
@@ -598,6 +601,7 @@ namespace Camellia
         trialTerm->integrate(stiffness, elemType->trialOrderPtr,
                              testTerm,  elemType->testOrderPtr, basisCache);
       }
+      if (printTermWiseIntegrationOutput)
       {
         // DEBUGGING
         cout << "This integration added the following to the stiffness matrix:\n";
@@ -608,10 +612,14 @@ namespace Camellia
           {
             for (int j=0; j<stiffness.dimension(2); j++)
             {
-              double diff = stiffness(cellOrdinal,i,j) - stiffnessCopyDEBUGGING(cellOrdinal,i,j);
+              double diff = stiffness(cellOrdinal,i,j) - stiffnessCopyForTermwiseOutput(cellOrdinal,i,j);
               if (diff > 1e-15)
               {
                 cout << i << "\t" << j << "\t" << diff << endl;
+              }
+              else if (isnan(stiffness(cellOrdinal,i,j)) && !isnan(stiffnessCopyForTermwiseOutput(cellOrdinal,i,j)))
+              {
+                cout << i << "\t" << j << "\t" << stiffness(cellOrdinal,i,j) << endl;
               }
             }
           }
@@ -891,7 +899,7 @@ namespace Camellia
   // No cellSideParities required, no checking of columns, integrates in a bubnov fashion
   template <typename Scalar>
   void TBF<Scalar>::bubnovStiffness(FieldContainer<Scalar> &stiffness, Teuchos::RCP<ElementType> elemType,
-                                    FieldContainer<double> &cellSideParities, Teuchos::RCP<BasisCache> basisCache)
+                                    const FieldContainer<double> &cellSideParities, Teuchos::RCP<BasisCache> basisCache)
   {
     // stiffness is sized as (C, FTrial, FTrial)
     stiffness.initialize(0.0);
@@ -1313,7 +1321,7 @@ namespace Camellia
       }
       
       timer.ResetStartTime();
-      FieldContainer<double> cellSideParities = basisCache->getCellSideParities();
+      const FieldContainer<double> & cellSideParities = basisCache->getCellSideParities();
 
       if (ip == Teuchos::null)
       {
@@ -1490,7 +1498,7 @@ namespace Camellia
   int TBF<Scalar>::optimalTestWeightsAndStiffness(FieldContainer<Scalar> &optimalTestWeights,
                                                   FieldContainer<Scalar> &stiffnessMatrix,
                                                   ElementTypePtr elemType,
-                                                  FieldContainer<double> &cellSideParities,
+                                                  const FieldContainer<double> &cellSideParities,
                                                   BasisCachePtr stiffnessBasisCache,
                                                   IPPtr ip, BasisCachePtr ipBasisCache)
   {
