@@ -163,10 +163,10 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     addConservationConstraint(form);
   }
   int rank = Teuchos::GlobalMPISession::getRank();
-  const int spaceDim = 1;
   
   SolutionPtr solnIncrement = form->solutionIncrement();
   SolutionPtr soln = form->solution();
+  SolutionPtr solnPreviousTime = form->solutionPreviousTimeStep();
   
   auto ip = solnIncrement->ip(); // this will be the transient graph norm...
   if (normChoice == STEADY_GRAPH_NORM)
@@ -314,6 +314,10 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     initialState = form->exactSolutionFieldMap(rho, uVector, T, BVector);
   }
   
+  int solutionOrdinal = 0;
+  soln->projectOntoMesh(initialState, solutionOrdinal);
+  solnPreviousTime->projectOntoMesh(initialState, solutionOrdinal);
+  
   auto & prevSolnMap = form->solutionPreviousTimeStepFieldMap();
   auto & solnMap     = form->solutionFieldMap();
   auto pAbstract = form->abstractPressure();
@@ -326,6 +330,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   FunctionPtr p_prev = pAbstract->evaluateAt(prevSolnMap);
   
   // define u so we can plot in solution export
+  cout << "uAbstract = " << uAbstract->displayString() << endl;
   FunctionPtr u_prev = uAbstract->evaluateAt(prevSolnMap);
   
   // define change in entropy so we can plot in our solution export
@@ -389,6 +394,8 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   form->addEnergyFluxCondition           ( SpatialFilter::allSpace(), Function::zero());
   form->addMomentumFluxCondition(      leftX, Function::constant(rho_a), uVector_a, Function::constant(T_a), BVector_a);
   form->addMomentumFluxCondition(     rightX, Function::constant(rho_b), uVector_b, Function::constant(T_b), BVector_b);
+  form->addMagneticFluxCondition(      leftX, Function::constant(rho_a), uVector_a, Function::constant(T_a), BVector_a);
+  form->addMagneticFluxCondition(     rightX, Function::constant(rho_b), uVector_b, Function::constant(T_b), BVector_b);
   
   FunctionPtr rho = Function::solution(form->rho(), form->solution());
   FunctionPtr m   = mAbstract->evaluateAt(solnMap);
@@ -493,7 +500,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   {
     double l2NormOfIncrement = 1.0;
     int stepNumber = 0;
-    int maxNonlinearSteps = 10;
+    int maxNonlinearSteps = 100;
     double alpha = 1.0;
     while ((l2NormOfIncrement > nonlinearTolerance) && (stepNumber < maxNonlinearSteps))
     {
@@ -551,7 +558,7 @@ int main(int argc, char *argv[])
   
   int meshWidth = 200;
   int polyOrder = 2;
-  int delta_k   = 3; // 1 is likely sufficient in 1D
+  int delta_k   = 3;
   bool useCondensedSolve = false; // condensed solve UNSUPPORTED for now; before turning this on, make sure the various Solution objects are all set to use this in a compatible way...
   int spaceDim = 1;
   int cubatureEnrichment = 3 * polyOrder; // there are places in the strong, nonlinear equations where 4 variables multiplied together.  Therefore we need to add 3 variables' worth of quadrature to the simple test v. trial quadrature.
