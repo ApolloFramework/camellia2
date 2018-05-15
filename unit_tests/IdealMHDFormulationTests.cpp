@@ -2,7 +2,7 @@
 // For licensing details, see LICENSE-Camellia in the licenses directory.
 //
 //
-//  CompressibleNavierStokesConservationFormulationTests.cpp
+//  IdealMHDFormulationTests.cpp
 //  Camellia
 //
 //  Created by Nate Roberts on 4/9/18.
@@ -26,6 +26,414 @@ using namespace Intrepid;
 #include "Teuchos_UnitTestHarness.hpp"
 namespace
 {
+  static const double TEST_CV = 1.000;
+  static const double TEST_GAMMA = 2.0;
+  static const double TEST_CP = TEST_GAMMA * TEST_CV;
+  static const double TEST_R = TEST_CP - TEST_CV;
+  
+  static const double DEFAULT_RESIDUAL_TOLERANCE = 1e-12; // now that we do a solve, need to be a bit more relaxed
+  static const double DEFAULT_NL_SOLVE_TOLERANCE =  1e-6; // for nonlinear stepping
+  
+  
+  // since we have defined things in other tests in terms of temperature: conversion here
+  FunctionPtr energy(FunctionPtr rho, FunctionPtr u, FunctionPtr T)
+  {
+    FunctionPtr u_dot_u = dot(3, u, u);
+    FunctionPtr E = TEST_CV * rho * T + 0.5 * rho * u_dot_u;
+    return E;
+  }
+  
+  FunctionPtr pressure(FunctionPtr rho, FunctionPtr u, FunctionPtr E)
+  {
+    FunctionPtr u_dot_u = dot(3, u, u);
+    FunctionPtr p = (TEST_R / TEST_CV) * (E - 0.5 * rho * u_dot_u);
+    return p;
+  }
+  
+  FunctionPtr pressure_star(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
+  {
+    FunctionPtr p = pressure(rho, u, E);
+    FunctionPtr p_star = p + 0.5 * dot(3,B,B);
+    return p_star;
+  }
+  
+  FunctionPtr temperature(FunctionPtr rho, FunctionPtr u, FunctionPtr E)
+  {
+    return 1./TEST_CV * (E / rho - 0.5 * dot(3,u,u));
+  }
+  
+  void testForcing_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B,
+                      FunctionPtr fc, FunctionPtr fm, FunctionPtr fe, FunctionPtr fB,
+                      int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    int meshWidth = 2;
+    int polyOrder = 2;
+    int delta_k   = 2; // 1 is likely sufficient in 1D
+    int spaceDim = 1;
+    
+    double x_a   = 0.0;
+    double x_b   = 1.0;
+    MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
+    
+    auto form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k);
+    form->setBx(B->spatialComponent(1));
+    
+    // sanity checks that the constructor has set things up the way we assume:
+    TEST_FLOATING_EQUALITY(form->Cv(),    TEST_CV,     tol);
+    TEST_FLOATING_EQUALITY(form->gamma(), TEST_GAMMA,  tol);
+    TEST_FLOATING_EQUALITY(form->Cp(),    TEST_CP,     tol);
+    TEST_FLOATING_EQUALITY(form->R(),     TEST_R,      tol);
+    
+    BFPtr bf = form->bf();
+    RHSPtr rhs = form->rhs();
+    
+    auto soln = form->solution();
+    auto solnIncrement = form->solutionIncrement();
+    auto mesh = soln->mesh();
+    
+    auto exact_fc = form->exactSolution_fc(rho, u, E, B);
+    auto exact_fe = form->exactSolution_fe(rho, u, E, B);
+    auto exact_fm = form->exactSolution_fm(rho, u, E, B);
+    auto exact_fB = form->exactSolution_fB(rho, u, E, B);
+    
+    double fc_err = (fc - exact_fc)->l2norm(mesh, cubatureEnrichment);
+    if (fc_err > tol)
+    {
+      success = false;
+      out << "FAILURE: fc_err " << fc_err << " > tol " << tol << endl;
+      out << "fc expected: " << fc->displayString() << endl;
+      out << "fc actual:   " << exact_fc->displayString() << endl;
+    }
+    
+    int trueSpaceDim = 3;
+    for (int d=0; d<trueSpaceDim; d++)
+    {
+      double fm_err = (fm->spatialComponent(d+1) - exact_fm[d])->l2norm(mesh);
+      if (fm_err > tol)
+      {
+        success = false;
+        out << "FAILURE: fm" << d+1 << "_err " << fm_err << " > tol " << tol << endl;
+        out << "fm" << d+1 << " expected: " << fm->spatialComponent(d+1)->displayString() << endl;
+        out << "fm" << d+1 << " actual:   " << exact_fm[d]->displayString() << endl;
+      }
+    }
+    
+    double fe_err = (fe - exact_fe)->l2norm(mesh, cubatureEnrichment);
+    if (fe_err > tol)
+    {
+      success = false;
+      out << "FAILURE: fe_err " << fe_err << " > tol " << tol << endl;
+      out << "fe expected: " << fe->displayString() << endl;
+      out << "fe actual:   " << exact_fe->displayString() << endl;
+    }
+    
+    int dStart = 1; // 1D
+    for (int d=dStart; d<trueSpaceDim; d++)
+    {
+      double fB_err = (fB->spatialComponent(d+1) - exact_fB[d])->l2norm(mesh);
+      if (fB_err > tol)
+      {
+        success = false;
+        out << "FAILURE: fB" << d+1 << "_err " << fB_err << " > tol " << tol << endl;
+        out << "fB" << d+1 << " expected: " << fB->spatialComponent(d+1)->displayString() << endl;
+        out << "fB" << d+1 << " actual:   " << exact_fB[d]->displayString() << endl;
+      }
+    }
+  }
+  
+  void testForcing_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B,
+                      int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    FunctionPtr Bx  = B->spatialComponent(1);
+    FunctionPtr By  = B->spatialComponent(2);
+    FunctionPtr Bz  = B->spatialComponent(3);
+    FunctionPtr ux  = u->spatialComponent(1);
+    FunctionPtr uy  = u->spatialComponent(2);
+    FunctionPtr uz  = u->spatialComponent(3);
+    FunctionPtr u_dot_u = dot(3,u,u);
+    FunctionPtr B_dot_B = dot(3,B,B);
+    FunctionPtr p_star = pressure_star(rho, u, E, B);
+    
+    FunctionPtr f_c = (rho * ux)->dx(); // expected forcing for continuity equation: div (rho * ux, 0, 0)
+    
+    FunctionPtr f_m1 = (rho * ux * ux + p_star)->dx(); // d/dx [ rho * u^2 + P* ]
+    FunctionPtr f_m2 = (rho * ux * uy - Bx * By)->dx(); // d/dx [ rho * u * v - Bx * By ]
+    FunctionPtr f_m3 = (rho * ux * uz - Bx * Bz)->dx(); // d/dx [ rho * u * w - Bx * Bz ]
+    FunctionPtr f_m  = Function::vectorize(f_m1, f_m2, f_m3);
+    
+    FunctionPtr f_e = ((E+p_star)*ux - Bx * dot(3,B,u))->dx();
+    FunctionPtr f_B1 = Function::zero(); // 1D: no B1 equation
+    FunctionPtr f_B2 = (By * ux - Bx * uy)->dx(); // d/dx [ By * u - Bx * v ] = d/dx [0] = 0
+    FunctionPtr f_B3 = (Bz * ux - Bx * uz)->dx(); // d/dx [ Bz * u - Bx * w ] = d/dx [0] = 0
+    FunctionPtr f_B = Function::vectorize(f_B1, f_B2, f_B3); // expected forcing for magnetism equation
+    testForcing_1D(u, rho, E, B, f_c, f_m, f_e, f_B, cubatureEnrichment, tol, out, success);
+  }
+  
+  void testResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, int cubatureEnrichment, double tol, bool steady, Teuchos::FancyOStream &out, bool &success)
+  {
+    int meshWidth = 2;
+    int polyOrder = 4; // could make some tests cheaper by taking the required poly order as argument...
+    int delta_k   = 2;
+    int spaceDim = 1;
+    
+    double x_a   = 0.01; // cheat to the right a bit to ensure that we don't get spurious failures due to zero density at LHS of mesh (if using linear density)
+    double x_b   = 1.01;
+    MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
+    
+    double dt    = 1.0;
+    
+    auto form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k);
+    form->setTimeStep(dt);
+    form->setBx(B->spatialComponent(1));
+    
+    BFPtr bf = form->bf();
+    RHSPtr rhs = form->rhs();
+    
+    auto soln = form->solution();
+    auto solnIncrement = form->solutionIncrement();
+    auto solnPrevTime  = form->solutionPreviousTimeStep();
+    
+    bool includeFluxParity = false; // for fluxes, we will substitute fluxes into the bf object, meaning that we want them to flip sign with the normal.
+    auto exactMap = form->exactSolutionMap(rho, u, E, B, includeFluxParity);
+    auto f_c = form->exactSolution_fc(rho, u, E, B);
+    auto f_m = form->exactSolution_fm(rho, u, E, B);
+    auto f_e = form->exactSolution_fe(rho, u, E, B);
+    auto f_B = form->exactSolution_fB(rho, u, E, B);
+    
+    auto vf = bf->varFactory();
+    // split the exact solution into traces and fields
+    // we want to project the traces onto the increment, and the fields onto the background flow (soln)
+    map<int, FunctionPtr> traceMap, fieldMap;
+    for (auto entry : exactMap)
+    {
+      int trialID = entry.first;
+      FunctionPtr f = entry.second;
+      if (vf->trial(trialID)->isDefinedOnVolume()) // field
+      {
+        fieldMap[trialID] = f;
+      }
+      else
+      {
+        traceMap[trialID] = f;
+      }
+    }
+    int solnOrdinal = 0; // no goal-oriented stuff here...
+    soln->projectOntoMesh(fieldMap, solnOrdinal);
+    
+    // each entry in the following two containers corresponds to a test
+    // we have one such test for steady, two for transient
+    vector<map<int, FunctionPtr>> previousSolutionFieldMaps;
+    vector<array<FunctionPtr,7>> forcingFunctions; // entries are fc, fm1, fm2, fm3, fe, fB2, fB3
+    if (!steady)
+    {
+      /*
+       Here, actually test for a sort of conservation property - that the time stepper is linear in the conservation
+       variables, basically.
+       */
+      
+      auto prevSolnFieldMapRho = fieldMap;
+      auto prevSolnFieldMapm1  = fieldMap;
+      auto prevSolnFieldMapm2  = fieldMap;
+      auto prevSolnFieldMapm3  = fieldMap;
+      auto prevSolnFieldMapE   = fieldMap;
+      auto prevSolnFieldMapB2  = fieldMap;
+      auto prevSolnFieldMapB3  = fieldMap;
+      
+      FunctionPtr m = rho * u;
+      FunctionPtr E = fieldMap[form->E()->ID() ];
+      
+      auto m1 = m->spatialComponent(1);
+      auto m2 = m->spatialComponent(2);
+      auto m3 = m->spatialComponent(3);
+      auto B2 = B->spatialComponent(2);
+      auto B3 = B->spatialComponent(3);
+      
+      prevSolnFieldMapRho[form->rho()->ID()] = rho - dt;
+      prevSolnFieldMapm1 [form->m(1)->ID() ] = m1  - dt;
+      prevSolnFieldMapm2 [form->m(2)->ID() ] = m2  - dt;
+      prevSolnFieldMapm3 [form->m(3)->ID() ] = m3  - dt;
+      prevSolnFieldMapE  [form->E()->ID()  ] = E   - dt;
+      prevSolnFieldMapB2 [form->B(2)->ID() ] = B2  - dt;
+      prevSolnFieldMapB3 [form->B(3)->ID() ] = B3  - dt;
+      
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapRho);
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapm1);
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapm2);
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapm3);
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapE);
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapB2);
+      previousSolutionFieldMaps.push_back(prevSolnFieldMapB3);
+      
+      array<FunctionPtr,7> rhoForcing = {{f_c + 1, f_m[0]    , f_m[1]    , f_m[2]    , f_e    , f_B[1]    , f_B[2]    }};
+      array<FunctionPtr,7> m1Forcing  = {{f_c    , f_m[0] + 1, f_m[1]    , f_m[2]    , f_e    , f_B[1]    , f_B[2]    }};
+      array<FunctionPtr,7> m2Forcing  = {{f_c    , f_m[0]    , f_m[1] + 1, f_m[2]    , f_e    , f_B[1]    , f_B[2]    }};
+      array<FunctionPtr,7> m3Forcing  = {{f_c    , f_m[0]    , f_m[1]    , f_m[2] + 1, f_e    , f_B[1]    , f_B[2]    }};
+      array<FunctionPtr,7> EForcing   = {{f_c    , f_m[0]    , f_m[1]    , f_m[2]    , f_e + 1, f_B[1]    , f_B[2]    }};
+      array<FunctionPtr,7> B2Forcing  = {{f_c    , f_m[0]    , f_m[1]    , f_m[2]    , f_e    , f_B[1] + 1, f_B[2]    }};
+      array<FunctionPtr,7> B3Forcing  = {{f_c    , f_m[0]    , f_m[1]    , f_m[2]    , f_e    , f_B[1]    , f_B[2] + 1}};
+      
+      forcingFunctions = {{rhoForcing, m1Forcing, m2Forcing, m3Forcing, EForcing, B2Forcing, B3Forcing}};
+    }
+    else
+    {
+      previousSolutionFieldMaps.push_back(fieldMap);
+      array<FunctionPtr,7> standardForcingFunctions = {{f_c, f_m[0], f_m[1], f_m[2], f_e, f_B[1], f_B[2]}};
+      forcingFunctions = {{standardForcingFunctions}};
+    }
+    
+    auto printTestInfo = [&] (map<int, FunctionPtr> &prevSolnFieldMap) -> void {
+      out << "Exact solution under test:\n";
+      for (auto traceEntry : traceMap)
+      {
+        int trialID = traceEntry.first;
+        std::string varName = vf->trial(trialID)->name();
+        out << "  " << varName << ": " << traceEntry.second->displayString() << std::endl;
+      }
+      for (auto trialEntry : fieldMap)
+      {
+        int trialID = trialEntry.first;
+        std::string varName = vf->trial(trialID)->name();
+        out << "  " << varName << ": " << trialEntry.second->displayString() << std::endl;
+      }
+      if (!steady)
+      {
+        out << "Previous solution under test:\n";
+        for (auto trialEntry : prevSolnFieldMap)
+        {
+          int trialID = trialEntry.first;
+          std::string varName = vf->trial(trialID)->name();
+          out << "  " << varName << ": " << trialEntry.second->displayString() << std::endl;
+        }
+      }
+    };
+    
+    int numEntries = previousSolutionFieldMaps.size();
+    for (int testOrdinal=0; testOrdinal<numEntries; testOrdinal++)
+    {
+      f_c    = forcingFunctions[testOrdinal][0];
+      f_m[0] = forcingFunctions[testOrdinal][1];
+      f_m[1] = forcingFunctions[testOrdinal][2];
+      f_m[2] = forcingFunctions[testOrdinal][3];
+      f_e    = forcingFunctions[testOrdinal][4];
+      f_B[1] = forcingFunctions[testOrdinal][5];
+      f_B[2] = forcingFunctions[testOrdinal][6];
+      f_B[0] = Function::zero();
+      form->setForcing(f_c, f_m, f_e, f_B);
+      
+      auto prevSolnFieldMap = previousSolutionFieldMaps[testOrdinal];
+      
+      solnPrevTime->projectOntoMesh(prevSolnFieldMap, solnOrdinal);
+      
+      auto residual = bf->testFunctional(traceMap) - rhs->linearTerm();
+      
+      auto testIP = solnIncrement->ip(); // We'll use this inner product to take the norm of the residual components
+      
+      auto testVars = vf->testVars();
+      
+      for (auto testEntry : testVars)
+      {
+        VarPtr testVar = testEntry.second;
+        // filter the parts of residual that involve testVar
+        LinearTermPtr testResidual = residual->getPartMatchingVariable(testVar);
+        double residualNorm = testResidual->computeNorm(testIP, soln->mesh(), cubatureEnrichment);
+        if (residualNorm > tol)
+        {
+          success = false;
+          out << "FAILURE: residual in " << testVar->name() << " component: " << residualNorm << " exceeds tolerance " << tol << ".\n";
+          out << "Residual string: " << testResidual->displayString() << "\n";
+          printTestInfo(prevSolnFieldMap);
+        }
+      }
+      
+      // sanity check: make sure that the manufactured solution's temperature is positive (otherwise the solve below won't work)
+      auto T = temperature(rho, u, E);
+      auto mesh = form->solutionIncrement()->mesh();
+      bool positiveT = T->isPositive(mesh);
+      bool positiveRho = rho->isPositive(mesh);
+      
+      if (!positiveT)
+      {
+        out << "ERROR in test setup: prescribed solution's temperature is not positive.\n";
+        success = false;
+      }
+      if (!positiveRho)
+      {
+        out << "ERROR in test setup: prescribed solution's density is not positive.\n";
+        success = false;
+      }
+      bool trySolving = true;  // I'm not clear that this is yet a reasonable thing -- probably it is, but I want to see failure/success independent of it for now.
+      if (trySolving)
+        {
+        /*
+         Harden this test a bit: add BCs corresponding to the exact solution, and do a solveAndAccumulate().  Since
+         the residual is zero before solve, we expect it to remain zero after solve.  This is basically a mild test
+         of solveAndAccumulate(), and maybe a bit harder test of the BC imposition methods.
+         */
+        form->addMassFluxCondition    (SpatialFilter::allSpace(), rho, u, E, B);
+        form->addMomentumFluxCondition(SpatialFilter::allSpace(), rho, u, E, B);
+        form->addEnergyFluxCondition  (SpatialFilter::allSpace(), rho, u, E, B);
+        form->addMagneticFluxCondition(SpatialFilter::allSpace(), rho, u, E, B);
+        form->solutionIncrement()->setCubatureEnrichmentDegree(cubatureEnrichment);
+        double alpha = form->solveAndAccumulate();
+        if (alpha < 1.0)
+        {
+          success = false;
+          out << "TEST FAILURE: with exact solution as background flow, line search used a step size of " << alpha << ", below expected 1.0\n";
+          printTestInfo(prevSolnFieldMap);
+        }
+        for (auto testEntry : testVars)
+        {
+          VarPtr testVar = testEntry.second;
+          // filter the parts of residual that involve testVar
+          LinearTermPtr testResidual = residual->getPartMatchingVariable(testVar);
+          double residualNorm = testResidual->computeNorm(testIP, soln->mesh(), cubatureEnrichment);
+          if (residualNorm > tol)
+          {
+            success = false;
+            out << "FAILURE: after solveAndAccumulate(), residual in " << testVar->name() << " component: " << residualNorm << " exceeds tolerance " << tol << ".\n";
+            out << "Residual string: " << testResidual->displayString() << "\n";
+            printTestInfo(prevSolnFieldMap);
+            
+            map<int, FunctionPtr> solnIncrementErrorFunctionMap;
+            for (auto exactSolnEntry : exactMap)
+            {
+              int trialID = exactSolnEntry.first;
+              FunctionPtr exactSolnFxn = exactSolnEntry.second;
+              FunctionPtr expectedSoln;
+              VarPtr var = vf->trial(trialID);
+              if (var->isDefinedOnVolume()) // field
+              {
+                expectedSoln = Function::zero();
+              }
+              else
+              {
+                // we solve for the traces in each nonlinear step; they stay in solnIncrement
+                expectedSoln = exactSolnFxn;
+              }
+              bool weightFluxesByParity = true; // pretty sure this is the right choice to make uniquely valued...
+              FunctionPtr solnIncrementFxn = Function::solution(var, form->solutionIncrement(), weightFluxesByParity);
+              FunctionPtr error = solnIncrementFxn - expectedSoln;
+              double l2Error = error->l2norm(soln->mesh());
+              out << var->name() << " error: " << l2Error << endl;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  void testSteadyResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    bool steady = true;
+    testResidual_1D(u, rho, E, B, cubatureEnrichment, tol, steady, out, success);
+  }
+  
+  void testTransientResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    bool steady = false;
+    testResidual_1D(u, rho, E, B, cubatureEnrichment, tol, steady, out, success);
+  }
+  
   void testTermsMatch(LinearTermPtr ltExpected, LinearTermPtr ltActual, MeshPtr mesh, IPPtr ip, double tol, Teuchos::FancyOStream &out, bool &success)
   {
     LinearTermPtr diff = ltExpected - ltActual;
@@ -41,13 +449,170 @@ namespace
     TEST_COMPARE(err, <, tol);
   }
   
-  static const double TEST_CV = 1.000;
-  static const double TEST_GAMMA = 2.0;
-  static const double TEST_CP = TEST_GAMMA * TEST_CV;
-  static const double TEST_R = TEST_CP - TEST_CV;
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, AbstractTemperature)
+  {
+    double tol = 1e-16;
+    
+    int meshWidth = 2;
+    int polyOrder = 2;
+    int delta_k   = 2; // 1 is likely sufficient in 1D
+    int spaceDim = 1;
+    
+    double x_a   = 0.0;
+    double x_b   = 1.0;
+    MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
+    
+    auto form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k);
+    // Temperature should be given by (R/Cv) * [E - 0.5 * m * m / rho]
+    FunctionPtr zero = Function::zero();
+    FunctionPtr one = Function::constant(1.0);
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr rho = 2. * one;
+    FunctionPtr u   = Function::vectorize(one, one, one);
+    FunctionPtr E   = x;
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+    FunctionPtr T_expected = temperature(rho, u, E); // (1.0 / TEST_CV) / rho * (E - 0.5 * m_dot_m / rho);
+    bool includeFluxParity = false; // inconsequential here
+    auto exactMap =  form->exactSolutionMap(rho, u, E, B, includeFluxParity);
+    
+    auto abstractT = form->abstractTemperature();
+    auto concreteT = abstractT->evaluateAt(exactMap);
+    
+    auto mesh = form->solution()->mesh();
+    double err = (concreteT - T_expected)->l2norm(mesh);
+    
+//    cout << "rho = " << rho->displayString() << endl;
+//    cout << "L^2 norm of T_expected: " << T_expected->l2norm(mesh) << endl;
+//    cout << "L^2 norm of concreteT:  " << concreteT->l2norm(mesh) << endl;
+    
+    TEST_COMPARE(err, <, tol);
+  }
   
-  static const double DEFAULT_RESIDUAL_TOLERANCE = 1e-12; // now that we do a solve, need to be a bit more relaxed
-  static const double DEFAULT_NL_SOLVE_TOLERANCE =  1e-6; // for nonlinear stepping
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_UnitDensity)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 0;
+    auto zero = Function::zero();
+    FunctionPtr u   = Function::vectorize(zero, zero, zero);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr E   = zero;
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+    
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearDensityUnitVelocity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 0;
+    auto one = Function::constant(1.0);
+    auto zero = Function::zero();
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::vectorize(one, one, one);
+    FunctionPtr rho = x;
+    FunctionPtr E   = zero;
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+    
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearTempUnitDensity)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 2;
+    auto one = Function::constant(1.0);
+    auto zero = Function::zero();
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::vectorize(zero, zero, zero);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = x;
+    FunctionPtr E   = energy(rho, u, T);
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearVelocityUnitDensity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 2;
+    auto x    = Function::xn(1);
+    auto zero = Function::zero();
+    FunctionPtr u   = Function::vectorize(x, zero, zero);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = zero;
+    FunctionPtr E   = energy(rho, u, T);
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+    
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_UnitDensityLinearMagnetism)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 2;
+    auto zero = Function::zero();
+    auto x    = Function::xn(1);
+    FunctionPtr Bx  = Function::constant(0.75);
+
+    FunctionPtr u   = Function::vectorize(zero, zero, zero);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr E   = zero;
+    FunctionPtr B   = Function::vectorize(Bx, x, x);
+    
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearDensityUnitVelocityLinearMagnetism)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 0;
+    auto one = Function::constant(1.0);
+    auto zero = Function::zero();
+    FunctionPtr Bx  = Function::constant(0.75);
+
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::vectorize(one, one, one);
+    FunctionPtr rho = x;
+    FunctionPtr E   = zero;
+    FunctionPtr B   = Function::vectorize(Bx, x, x);
+    
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearTempUnitDensityLinearMagnetism)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 2;
+    auto one = Function::constant(1.0);
+    auto zero = Function::zero();
+    FunctionPtr Bx  = Function::constant(0.75);
+
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::vectorize(zero, zero, zero);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = x;
+    FunctionPtr E   = energy(rho, u, T);
+    FunctionPtr B   = Function::vectorize(Bx, x, x);
+    
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearVelocityUnitDensityLinearMagnetism)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 2;
+    auto x    = Function::xn(1);
+    auto zero = Function::zero();
+    FunctionPtr Bx  = Function::constant(0.75);
+    FunctionPtr u   = Function::vectorize(x, zero, zero);
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr T   = zero;
+    FunctionPtr E   = energy(rho, u, T);
+    FunctionPtr B   = Function::vectorize(Bx, x, x);
+    
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Formulation_1D)
   {
@@ -67,7 +632,7 @@ namespace
     int numTrialVars = vf->trialVars().size(); // 1D: rho, E, 3 m's, 2 B's, plus 1 flux per equation: 14 variables
     TEST_EQUALITY(numTrialVars, 14);
     
-    auto bf = form->solution()->bf();
+    auto bf = form->solutionIncrement()->bf();
     // try momentum = 0, E = 1, rho = 1, B = 0 -- project this onto previous solution, and current guess
     // evaluate bf at this solution
     // we expect to have just five test terms survive:
@@ -96,14 +661,151 @@ namespace
     form->solutionPreviousTimeStep()->projectOntoMesh(valueMap, solutionOrdinal);
     form->solution()->projectOntoMesh(valueMap, solutionOrdinal);
     auto lt = bf->testFunctional(valueMap);
-    out << "lt: " << lt->displayString() << endl;
+//    out << "lt: " << lt->displayString() << endl;
     
     auto mesh = form->solution()->mesh();
     auto ip = form->solutionIncrement()->ip();
     
-    ip->printInteractions();
+//    ip->printInteractions();
 //    cout << "IP: " << ip->displayString() << endl;
     testTermsMatch(expectedLT, lt, mesh, ip, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, BFIsWellPosed_1D)
+  {
+    // a test that we have all non-zero rows in the rectangular stiffness for a 1D
+    // time-stepping formulation.  This test motivated by an issue that we have had
+    // with the Brio-Wu example.
+    
+    double tol = 1e-14;
+    int spaceDim = 1;
+    double x_a = 0.0, x_b = 1.0;
+    int meshWidth = 2;
+    int polyOrder = 1, delta_k = 1;
+    MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
+    
+    auto form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k);
+    
+    auto vf = form->solution()->bf()->varFactory();
+    int numTestVars = vf->testVars().size();
+    TEST_EQUALITY(numTestVars, 7); // 1D: vc, ve, plus 3 vm's, 2 vBs
+    
+    int numTrialVars = vf->trialVars().size(); // 1D: rho, E, 3 m's, 2 B's, plus 1 flux per equation: 14 variables
+    TEST_EQUALITY(numTrialVars, 14);
+    
+    auto bf = form->solutionIncrement()->bf();
+    // try momentum = 0, E = 1, rho = 1, B = 0 -- project this onto previous solution, and current guess
+    // evaluate bf at this solution
+    // we expect to have just five test terms survive:
+    // three corresponding to the pressure in the momentum equation
+    // two corresponding to the time derivatives on the rho, E solution increments
+    VarPtr vm1 = form->vm(1);
+    VarPtr vm2 = form->vm(2);
+    VarPtr vm3 = form->vm(3);
+    VarPtr vc  = form->vc();
+    VarPtr ve  = form->ve();
+    FunctionPtr rho = Function::constant(1.0);
+    FunctionPtr E = Function::constant(1.0);
+    FunctionPtr m = Function::vectorize(Function::constant(0.0), Function::constant(0.0), Function::constant(0.0));
+    FunctionPtr p = (TEST_GAMMA - 1.0) * (E - 0.5 * dot(3,m,m) / rho);
+    auto dt = form->getTimeStep();
+    auto expectedLT = p * vm1 + p * vm2 + p * vm3 + rho / dt * vc + E / dt * ve;
+    
+    map<int, FunctionPtr> valueMap;
+    valueMap[form->rho()->ID()] = rho;
+    valueMap[form->E()->ID()] = E;
+    valueMap[form->m(1)->ID()] = m->spatialComponent(1);
+    valueMap[form->m(2)->ID()] = m->spatialComponent(2);
+    valueMap[form->m(3)->ID()] = m->spatialComponent(3);
+    
+    int solutionOrdinal = 0;
+    form->solutionPreviousTimeStep()->projectOntoMesh(valueMap, solutionOrdinal);
+    form->solution()->projectOntoMesh(valueMap, solutionOrdinal);
+    
+    auto mesh = form->solution()->mesh();
+    auto ip = form->solutionIncrement()->ip();
+    
+    auto & myCellIDs = mesh->cellIDsInPartition();
+    
+    for (auto cellID : myCellIDs)
+    {
+      auto elemType = mesh->getElementType(cellID);
+      auto testDofs = elemType->testOrderPtr->totalDofs();
+      auto trialDofs = elemType->trialOrderPtr->totalDofs();
+      int numCells = 1;
+      FieldContainer<double> stiffnessEnriched(numCells,trialDofs,testDofs); // the "rectangular" stiffness matrix
+      bool rowMajor = true; // trial, test, not test, trial
+      bool warnAboutNonzeros = false;  // false because we'll do our own check, here
+      auto basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+      bf->stiffnessMatrix(stiffnessEnriched, elemType, basisCache->getCellSideParities(), basisCache, rowMajor, warnAboutNonzeros);
+      int cellOrdinal = 0;
+      for (int trialOrdinal=0; trialOrdinal<trialDofs; trialOrdinal++)
+      {
+        bool nonZeroFound = false;
+        for (int testOrdinal=0; testOrdinal<testDofs; testOrdinal++)
+        {
+          if (abs(stiffnessEnriched(cellOrdinal,trialOrdinal,testOrdinal)) > tol)
+          {
+            nonZeroFound = true;
+          }
+        }
+        if (!nonZeroFound)
+        {
+          success = false;
+          
+          VarPtr trialVar;
+          int varSideOrdinal = -1;
+          {
+            // find the var that corresponds to this trialOrdinal -- TODO: factor this out and put it somewhere that will be more generally useful
+            auto vf = bf->varFactory();
+            auto trialIDs = vf->trialIDs();
+            auto trialOrdering = elemType->trialOrderPtr;
+            for (auto varID : trialIDs)
+            {
+              int numSides = trialOrdering->getNumSidesForVarID(varID);
+              if (numSides > 1)
+              {
+                for (int sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
+                {
+                  auto dofIndices = trialOrdering->getDofIndices(varID,sideOrdinal);
+                  for (auto dofIndex : dofIndices)
+                  {
+                    if (dofIndex == trialOrdinal)
+                    {
+                      varSideOrdinal = sideOrdinal;
+                      trialVar = vf->trial(varID);
+                      break;
+                    }
+                  }
+                  if (trialVar != Teuchos::null) break;
+                }
+              }
+              else
+              {
+                auto dofIndices = trialOrdering->getDofIndices(varID);
+                for (auto dofIndex : dofIndices)
+                {
+                  if (dofIndex == trialOrdinal)
+                  {
+                    trialVar = vf->trial(varID);
+                    break;
+                  }
+                }
+              }
+              if (trialVar != Teuchos::null) break;
+            }
+          }
+          
+          out << "FAILURE: For cell " << cellID << ", stiffness matrix row for trial dof ordinal " << trialOrdinal;
+          out << "(corresponding to var " << trialVar->name();
+          if (varSideOrdinal != -1)
+          {
+            out << ", side " << varSideOrdinal;
+          }
+          out <<  ") is all zeros.\n";
+        }
+      }
+    }
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Formulation_2D)
@@ -140,5 +842,42 @@ namespace
     
     int numTrialVars = vf->trialVars().size(); // 2D: rho, E, 3 m's, 3 B's, plus 1 flux per equation: 17 variables
     TEST_EQUALITY(numTrialVars, 17);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Residual_1D_Steady_AllOne)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
+    int cubatureEnrichment = 0;
+    FunctionPtr one = Function::constant(1.0);
+    FunctionPtr u   = 1./sqrt(3.) * Function::vectorize(one, one, one);
+    FunctionPtr rho = one;
+    FunctionPtr E   = one;
+    FunctionPtr B   = Function::vectorize(one, one, one);
+    testSteadyResidual_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Residual_1D_Transient_AllOne)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
+    int cubatureEnrichment = 0;
+    FunctionPtr one = Function::constant(1.0);
+    FunctionPtr u   = 1./sqrt(3.) * Function::vectorize(one, one, one); // define u with unit magnitude
+    FunctionPtr rho = one;
+    FunctionPtr E   = one;
+    FunctionPtr B   = Function::vectorize(one, one, one);
+    testTransientResidual_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Residual_1D_Transient_AllOneZeroMagneticFlux)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE;
+    int cubatureEnrichment = 0;
+    FunctionPtr one  = Function::constant(1.0);
+    FunctionPtr zero = Function::zero();
+    FunctionPtr u   = 1./sqrt(3.) * Function::vectorize(one, one, one); // define u with unit magnitude
+    FunctionPtr rho = one;
+    FunctionPtr E   = one;
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+    testTransientResidual_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
 } // namespace

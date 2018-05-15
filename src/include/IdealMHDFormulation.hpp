@@ -46,11 +46,15 @@ namespace Camellia
     
     FunctionPtr _L2IncrementFunction, _L2SolutionFunction;
     
+    // Bx Parameter Function (used for 1D only)
+    Teuchos::RCP<ParameterFunction> _Bx;
+    
     // Abstract flux definitions (these are made concrete by evaluating at a Solution).
     FunctionPtr _massFlux;
     FunctionPtr _momentumFlux; // rank-2 tensor in 2D and 3D (_spaceDim rows, 3 columns).  In 1D, a 3-row vector.
     FunctionPtr _magneticFlux; // rank-2 tensor in 2D and 3D (_spaceDim rows, 3 columns).  In 1D, a 3-row vector.
     FunctionPtr _energyFlux;
+    FunctionPtr _gaussFlux;
     
     // abstract pressure and temperature, as well as velocity and momentum
     FunctionPtr _abstractPressure, _abstractTemperature;
@@ -254,6 +258,9 @@ namespace Camellia
     VarPtr ve();
     VarPtr vB(int i); // 1, 2, or 3, corresponding to Bx, By, Bz.  Note that in 1D, we don't solve for Bx, and input of "1" will cause an exception to be thrown.
     VarPtr vGauss(); // test function for Gauss' Law.  Only defined for meshes of dimension > 1.  (In 1D, Gauss' Law is trivially satisfied.)
+    
+    // ! in 1D, set the value of Bx
+    void setBx(FunctionPtr Bx);
     
     // ! For an exact solution (rho, u, E, B), produces a map with solution variables that depend on them (fields, traces, fluxes).
     // ! If includeFluxParity is true, then fluxes includes the side parity weight which gives a uniquely defined value everywhere, suitable for projection onto a Solution object

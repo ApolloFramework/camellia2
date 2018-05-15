@@ -2621,8 +2621,8 @@ TFunctionPtr<double> TFunction<Scalar>::zero(int rank)
     TFunctionPtr<double> zeroTensor = _zero;
     for (int i=0; i<rank; i++)
     {
-      // THIS ASSUMES 2D--3D would be TFunction<Scalar>::vectorize(zeroTensor, zeroTensor, zeroTensor)...
-      zeroTensor = TFunction<double>::vectorize(zeroTensor, zeroTensor);
+      // assume 3D; no real harm in having the extra zeros in 2D...
+      zeroTensor = TFunction<double>::vectorize(zeroTensor, zeroTensor, zeroTensor);
     }
     return zeroTensor;
   }

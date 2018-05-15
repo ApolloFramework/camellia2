@@ -227,7 +227,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     form->solutionPreviousTimeStep()->setIP(steadyIP);
   }
   
-  int numTimeSteps = 0.20 / dt; // run simulation to t = 0.20
+  int numTimeSteps = 0.08 / dt; // run simulation to t = 0.08
   
   if (rank == 0)
   {
@@ -248,7 +248,6 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   double c_v   = form->Cv();
   
   double rho_a = 1.0; // prescribed density at left
-  double u_a   = 0.0; // Mach number
   double p_a   = 1.0; // prescribed pressure at left
   double T_a   = p_a / (rho_a * (gamma - 1.) * c_v);
   double By_a  = 1.0;
@@ -256,10 +255,19 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   
   double rho_b = 0.125;
   double p_b   = 0.1;
-  double u_b   = 0.0;
   double T_b   = p_b / (rho_b * (gamma - 1.) * c_v);
   double By_b  = -1.0;
   double Bz_b  = 0.0;
+  
+//  {
+//    // DEBUGGING
+//    cout << "WARNING: setting values on right equal to values on left.  Just checking that things work OK.\n";
+//    rho_b = rho_a;
+//    p_b   = p_a;
+//    T_b   = T_a;
+//    By_b  = By_a;
+//    Bz_b  = Bz_a;
+//  }
   
   double Bx_a = 0.75;
   double Bx_b = 0.75;
@@ -278,12 +286,10 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     cout << "rho = " << rho_a << endl;
     cout << "p   = " << p_a   << endl;
     cout << "T   = " << T_a   << endl;
-    cout << "u   = " << u_a   << endl;
     cout << "State on right:\n";
     cout << "rho = " << rho_b << endl;
     cout << "p   = " << p_b   << endl;
     cout << "T   = " << T_b   << endl;
-    cout << "u   = " << u_b   << endl;
   }
   
   FunctionPtr n = Function::normal();
@@ -301,17 +307,16 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     
     FunctionPtr rho = step(rho_a,rho_b);
     FunctionPtr T   = step(T_a, T_b);
-    FunctionPtr u   = step(u_a, u_b);
     
     // for Ideal MHD, even in 1D, u is a vector, as is B
-    auto uVector = Function::vectorize(u, Function::zero(), Function::zero());
+    auto velocityVector = Function::vectorize(Function::zero(), Function::zero(), Function::zero());
     
     auto Bx = Function::constant(0.75);
     auto By = step(By_a, By_b);
     auto Bz = step(Bz_a, Bz_a);
     auto BVector = Function::vectorize(Bx, By, Bz);
     
-    initialState = form->exactSolutionFieldMap(rho, uVector, T, BVector);
+    initialState = form->exactSolutionFieldMap(rho, velocityVector, T, BVector);
   }
   
   int solutionOrdinal = 0;
@@ -323,6 +328,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   auto pAbstract = form->abstractPressure();
   auto TAbstract = form->abstractTemperature();
   auto uAbstract = form->abstractVelocity()->x();
+  auto vAbstract = form->abstractVelocity()->y();
   auto mAbstract = form->abstractMomentum();
   auto EAbstract = form->abstractEnergy();
   
@@ -330,8 +336,9 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   FunctionPtr p_prev = pAbstract->evaluateAt(prevSolnMap);
   
   // define u so we can plot in solution export
-  cout << "uAbstract = " << uAbstract->displayString() << endl;
+//  cout << "uAbstract = " << uAbstract->displayString() << endl;
   FunctionPtr u_prev = uAbstract->evaluateAt(prevSolnMap);
+  FunctionPtr v_prev = vAbstract->evaluateAt(prevSolnMap);
   
   // define change in entropy so we can plot in our solution export
   // s2 - s1 = c_p ln (T2/T1) - R ln (p2/p1)
@@ -382,20 +389,21 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     std::cout << "T_a = " << T_a << std::endl;
     std::cout << "T_b = " << T_b << std::endl;
   }
-  auto uVector_a = Function::vectorize(Function::constant(u_a), Function::zero(), Function::zero());
-  auto uVector_b = Function::vectorize(Function::constant(u_b), Function::zero(), Function::zero());
+  auto velocityVector = Function::vectorize(Function::zero(), Function::zero(), Function::zero());
   
   auto Bx = Function::constant(0.75);
   auto BVector_a = Function::vectorize(Bx, Function::constant(By_a), Function::constant(Bz_a));
   auto BVector_b = Function::vectorize(Bx, Function::constant(By_b), Function::constant(Bz_b));
   
   //  (SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
-  form->addMassFluxCondition             ( SpatialFilter::allSpace(), Function::zero());
-  form->addEnergyFluxCondition           ( SpatialFilter::allSpace(), Function::zero());
-  form->addMomentumFluxCondition(      leftX, Function::constant(rho_a), uVector_a, Function::constant(T_a), BVector_a);
-  form->addMomentumFluxCondition(     rightX, Function::constant(rho_b), uVector_b, Function::constant(T_b), BVector_b);
-  form->addMagneticFluxCondition(      leftX, Function::constant(rho_a), uVector_a, Function::constant(T_a), BVector_a);
-  form->addMagneticFluxCondition(     rightX, Function::constant(rho_b), uVector_b, Function::constant(T_b), BVector_b);
+  form->addMassFluxCondition(          leftX, Function::constant(rho_a), velocityVector, Function::constant(T_a), BVector_a);
+  form->addMassFluxCondition(         rightX, Function::constant(rho_b), velocityVector, Function::constant(T_b), BVector_b);
+  form->addMomentumFluxCondition(      leftX, Function::constant(rho_a), velocityVector, Function::constant(T_a), BVector_a);
+  form->addMomentumFluxCondition(     rightX, Function::constant(rho_b), velocityVector, Function::constant(T_b), BVector_b);
+  form->addEnergyFluxCondition(        leftX, Function::constant(rho_a), velocityVector, Function::constant(T_a), BVector_a);
+  form->addEnergyFluxCondition(       rightX, Function::constant(rho_b), velocityVector, Function::constant(T_b), BVector_b);
+  form->addMagneticFluxCondition(      leftX, Function::constant(rho_a), velocityVector, Function::constant(T_a), BVector_a);
+  form->addMagneticFluxCondition(     rightX, Function::constant(rho_b), velocityVector, Function::constant(T_b), BVector_b);
   
   FunctionPtr rho = Function::solution(form->rho(), form->solution());
   FunctionPtr m   = mAbstract->evaluateAt(solnMap);
@@ -567,7 +575,10 @@ int main(int argc, char *argv[])
   double x_a   = -0.5;
   double x_b   = 0.5;
 
-  double dt    = 0.001; // time step
+  // h is about 1/400; max speed of sound is about 1.4; the speed during the solve gets up to about 1.8
+  // call the max characteristic speed about 4.0.
+  // the CFL condition then would suggest 1/1600 -- about .000625 -- as the maximum time step
+  double dt    = 0.0005; // time step
   
   bool enforceConservationUsingLagrangeMultipliers = false;
   
