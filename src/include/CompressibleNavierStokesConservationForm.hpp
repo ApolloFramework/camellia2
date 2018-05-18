@@ -32,7 +32,7 @@ namespace Camellia
     double _gamma;
     double _Pr;
     double _Cv;
-    FunctionPtr _beta;
+    double _betaForGraphNorm; // weight for the L^2 terms corresponding to fluxes; have used 1.0, but now am thinking maybe 0.0 would be better for transient Euler; for transient, we get L^2 components in each test variable anyway....
     int _spatialPolyOrder;
     int _temporalPolyOrder;
     int _delta_k;

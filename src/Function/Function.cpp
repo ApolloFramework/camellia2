@@ -2065,7 +2065,6 @@ double TFunction<Scalar>::linfinitynorm(MeshPtr mesh, int cubatureDegreeEnrichme
     Intrepid::FieldContainer<Scalar> fxnValues(numCells,numPoints);
     this->values(fxnValues,basisCache);
 
-    Intrepid::FieldContainer<double> *weightedMeasures = &basisCache->getWeightedMeasures();
     for (int cellIndex=0; cellIndex<numCells; cellIndex++)
     {
       for (int ptIndex=0; ptIndex<numPoints; ptIndex++)

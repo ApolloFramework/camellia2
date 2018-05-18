@@ -5,6 +5,7 @@
 #include "EnergyErrorFunction.h"
 #include "ExpFunction.h" // defines Ln
 #include "Function.h"
+#include "Functions.hpp"
 #include "GMGSolver.h"
 #include "GnuPlotUtil.h"
 #include "HDF5Exporter.h"
@@ -156,7 +157,8 @@ FunctionPtr ln(FunctionPtr arg)
 template<class Form>
 int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, double x_b,
               int polyOrder, int cubatureEnrichment, bool useCondensedSolve, double nonlinearTolerance,
-              TestNormChoice normChoice, bool enforceConservationUsingLagrangeMultipliers)
+              TestNormChoice normChoice, bool enforceConservationUsingLagrangeMultipliers,
+              bool runSodInstead)
 {
   if (enforceConservationUsingLagrangeMultipliers)
   {
@@ -227,7 +229,12 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     form->solutionPreviousTimeStep()->setIP(steadyIP);
   }
   
-  int numTimeSteps = 0.08 / dt; // run simulation to t = 0.08
+  double finalTime = 0.08;
+  if (runSodInstead)
+  {
+    finalTime = 0.20;
+  }
+  int numTimeSteps = finalTime / dt; // run simulation to t = 0.08
   
   if (rank == 0)
   {
@@ -249,25 +256,13 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   
   double rho_a = 1.0; // prescribed density at left
   double p_a   = 1.0; // prescribed pressure at left
-  double T_a   = p_a / (rho_a * (gamma - 1.) * c_v);
   double By_a  = 1.0;
   double Bz_a  = 0.0;
   
   double rho_b = 0.125;
   double p_b   = 0.1;
-  double T_b   = p_b / (rho_b * (gamma - 1.) * c_v);
   double By_b  = -1.0;
   double Bz_b  = 0.0;
-  
-//  {
-//    // DEBUGGING
-//    cout << "WARNING: setting values on right equal to values on left.  Just checking that things work OK.\n";
-//    rho_b = rho_a;
-//    p_b   = p_a;
-//    T_b   = T_a;
-//    By_b  = By_a;
-//    Bz_b  = Bz_a;
-//  }
   
   double Bx_a = 0.75;
   double Bx_b = 0.75;
@@ -275,21 +270,42 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   auto B_a = Function::vectorize(Function::constant(Bx_a), Function::constant(By_a), Function::constant(Bz_a));
   auto B_b = Function::vectorize(Function::constant(Bx_b), Function::constant(By_b), Function::constant(Bz_b));
   
+  if (runSodInstead)
+  {
+    Bx_a = 0.0;
+    Bx_b = 0.0;
+    By_a = 0.0;
+    By_b = 0.0;
+  }
+  
+  double T_a   = p_a / (rho_a * (gamma - 1.) * c_v);
+  double T_b   = p_b / (rho_b * (gamma - 1.) * c_v);
+  
+  double E_a   = c_v * rho_a * T_a; // + 0.5 * u dot u [ == 0]
+  double E_b   = c_v * rho_b * T_b; // + 0.5 * u dot u [ == 0]
+  
   double R  = form->R();
   double Cv = form->Cv();
   
   if (rank == 0)
   {
-    cout << "R =   " << R << endl;
-    cout << "Cv =  " << Cv << endl;
+    cout << "R =     " << R << endl;
+    cout << "Cv =    " << Cv << endl;
+    cout << "gamma = " << gamma << endl;
     cout << "State on left:\n";
     cout << "rho = " << rho_a << endl;
     cout << "p   = " << p_a   << endl;
-    cout << "T   = " << T_a   << endl;
+    cout << "E   = " << E_a   << endl;
+    cout << "Bx  = " << Bx_a   << endl;
+    cout << "By  = " << By_a   << endl;
+    cout << "Bz  = " << Bz_a   << endl;
     cout << "State on right:\n";
     cout << "rho = " << rho_b << endl;
     cout << "p   = " << p_b   << endl;
-    cout << "T   = " << T_b   << endl;
+    cout << "E   = " << E_b   << endl;
+    cout << "Bx  = " << Bx_b   << endl;
+    cout << "By  = " << By_b   << endl;
+    cout << "Bz  = " << Bz_b   << endl;
   }
   
   FunctionPtr n = Function::normal();
@@ -306,17 +322,19 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     };
     
     FunctionPtr rho = step(rho_a,rho_b);
-    FunctionPtr T   = step(T_a, T_b);
+    FunctionPtr E   = step(E_a, E_b);
     
     // for Ideal MHD, even in 1D, u is a vector, as is B
-    auto velocityVector = Function::vectorize(Function::zero(), Function::zero(), Function::zero());
+    auto zero = Function::zero();
+    auto velocityVector = Function::vectorize(zero, zero, zero);
     
-    auto Bx = Function::constant(0.75);
+    auto Bx = runSodInstead ? zero : Function::constant(0.75);
     auto By = step(By_a, By_b);
     auto Bz = step(Bz_a, Bz_a);
     auto BVector = Function::vectorize(Bx, By, Bz);
     
-    initialState = form->exactSolutionFieldMap(rho, velocityVector, T, BVector);
+    initialState = form->exactSolutionFieldMap(rho, velocityVector, E, BVector);
+    form->setBx(Bx);
   }
   
   int solutionOrdinal = 0;
@@ -329,16 +347,22 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   auto TAbstract = form->abstractTemperature();
   auto uAbstract = form->abstractVelocity()->x();
   auto vAbstract = form->abstractVelocity()->y();
+  auto wAbstract = form->abstractVelocity()->z();
   auto mAbstract = form->abstractMomentum();
   auto EAbstract = form->abstractEnergy();
   
   // define the pressure so we can plot in our solution export
   FunctionPtr p_prev = pAbstract->evaluateAt(prevSolnMap);
+  FunctionPtr p_soln = pAbstract->evaluateAt(solnMap);
   
   // define u so we can plot in solution export
 //  cout << "uAbstract = " << uAbstract->displayString() << endl;
   FunctionPtr u_prev = uAbstract->evaluateAt(prevSolnMap);
   FunctionPtr v_prev = vAbstract->evaluateAt(prevSolnMap);
+  
+  auto velocityAbstract = form->abstractVelocity();
+  auto velocity_soln = velocityAbstract->evaluateAt(solnMap);
+  auto velocityMagnitude_soln = Function::sqrtFunction(dot(3,velocity_soln,velocity_soln));
   
   // define change in entropy so we can plot in our solution export
   // s2 - s1 = c_p ln (T2/T1) - R ln (p2/p1)
@@ -386,8 +410,8 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   
   if (rank == 0)
   {
-    std::cout << "T_a = " << T_a << std::endl;
-    std::cout << "T_b = " << T_b << std::endl;
+    std::cout << "E_a = " << E_a << std::endl;
+    std::cout << "E_b = " << E_b << std::endl;
   }
   auto velocityVector = Function::vectorize(Function::zero(), Function::zero(), Function::zero());
   
@@ -396,14 +420,14 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   auto BVector_b = Function::vectorize(Bx, Function::constant(By_b), Function::constant(Bz_b));
   
   //  (SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
-  form->addMassFluxCondition(          leftX, Function::constant(rho_a), velocityVector, Function::constant(T_a), BVector_a);
-  form->addMassFluxCondition(         rightX, Function::constant(rho_b), velocityVector, Function::constant(T_b), BVector_b);
-  form->addMomentumFluxCondition(      leftX, Function::constant(rho_a), velocityVector, Function::constant(T_a), BVector_a);
-  form->addMomentumFluxCondition(     rightX, Function::constant(rho_b), velocityVector, Function::constant(T_b), BVector_b);
-  form->addEnergyFluxCondition(        leftX, Function::constant(rho_a), velocityVector, Function::constant(T_a), BVector_a);
-  form->addEnergyFluxCondition(       rightX, Function::constant(rho_b), velocityVector, Function::constant(T_b), BVector_b);
-  form->addMagneticFluxCondition(      leftX, Function::constant(rho_a), velocityVector, Function::constant(T_a), BVector_a);
-  form->addMagneticFluxCondition(     rightX, Function::constant(rho_b), velocityVector, Function::constant(T_b), BVector_b);
+  form->addMassFluxCondition(          leftX, Function::constant(rho_a), velocityVector, Function::constant(E_a), BVector_a);
+  form->addMassFluxCondition(         rightX, Function::constant(rho_b), velocityVector, Function::constant(E_b), BVector_b);
+  form->addMomentumFluxCondition(      leftX, Function::constant(rho_a), velocityVector, Function::constant(E_a), BVector_a);
+  form->addMomentumFluxCondition(     rightX, Function::constant(rho_b), velocityVector, Function::constant(E_b), BVector_b);
+  form->addEnergyFluxCondition(        leftX, Function::constant(rho_a), velocityVector, Function::constant(E_a), BVector_a);
+  form->addEnergyFluxCondition(       rightX, Function::constant(rho_b), velocityVector, Function::constant(E_b), BVector_b);
+  form->addMagneticFluxCondition(      leftX, Function::constant(rho_a), velocityVector, Function::constant(E_a), BVector_a);
+  form->addMagneticFluxCondition(     rightX, Function::constant(rho_b), velocityVector, Function::constant(E_b), BVector_b);
   
   FunctionPtr rho = Function::solution(form->rho(), form->solution());
   FunctionPtr m   = mAbstract->evaluateAt(solnMap);
@@ -504,13 +528,50 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   
   printConservationReport();
   double t = 0;
-  for (int timeStepNumber = 0; timeStepNumber < numTimeSteps; timeStepNumber++)
+  int timeStepNumber = 0;
+  
+  // for the moment, time step adjustment only reduces time step size
+  auto adjustTimeStep = [&]() -> void
+  {
+    // Check that dt is reasonable vis-a-vis CFL
+    double h = (x_b-x_a) / meshWidth / polyOrder;
+    FunctionPtr soundSpeed = Function::sqrtFunction(gamma * p_soln / rho_soln);
+    FunctionPtr fluidSpeed = velocityMagnitude_soln;
+    double maxSoundSpeed = soundSpeed->linfinitynorm(mesh);
+    double maxFluidSpeed = fluidSpeed->linfinitynorm(mesh);
+    double dtCFL = h / (maxSoundSpeed + maxFluidSpeed);
+    if (dt > dtCFL)
+    {
+      if (rank == 0)
+      {
+        cout << "Time step " << dt << " exceeds CFL-stable value of " << dtCFL << endl;
+      }
+      while (dt > dtCFL)
+      {
+        dt /= 2.0;
+      }
+      numTimeSteps = (finalTime - t) / dt + timeStepNumber;
+      if (rank == 0)
+      {
+        cout << "Set time step to " << dt;
+        cout << "; set numTimeSteps to " << numTimeSteps << endl;
+      }
+    }
+    else
+    {
+      cout << "Time step " << dt << " is below CFL-stable value of " << dtCFL << endl;
+    }
+  };
+  
+  adjustTimeStep();
+  
+  for (timeStepNumber = 0; timeStepNumber < numTimeSteps; timeStepNumber++)
   {
     double l2NormOfIncrement = 1.0;
     int stepNumber = 0;
     int maxNonlinearSteps = 100;
     double alpha = 1.0;
-    while ((l2NormOfIncrement > nonlinearTolerance) && (stepNumber < maxNonlinearSteps))
+    while (((l2NormOfIncrement > nonlinearTolerance) || (alpha < 1.0)) && (stepNumber < maxNonlinearSteps))
     {
       alpha = form->solveAndAccumulate();
       int solveCode = form->getSolveCode();
@@ -523,7 +584,14 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
       if (rank == 0)
       {
         std::cout << "In Newton step " << stepNumber << ", L^2 norm of increment = " << l2NormOfIncrement;
-        std::cout << " (alpha = " << alpha << ")" << std::endl;
+        if (alpha != 1.0)
+        {
+          std::cout << " (alpha = " << alpha << ")" << std::endl;
+        }
+        else
+        {
+          std::cout << std::endl;
+        }
       }
       
       stepNumber++;
@@ -577,10 +645,12 @@ int main(int argc, char *argv[])
 
   // h is about 1/400; max speed of sound is about 1.4; the speed during the solve gets up to about 1.8
   // call the max characteristic speed about 4.0.
-  // the CFL condition then would suggest 1/1600 -- about .000625 -- as the maximum time step
+  // the CFL condition then would suggest 1/1600 -- about 0.000625 -- as the maximum time step
   double dt    = 0.0005; // time step
   
   bool enforceConservationUsingLagrangeMultipliers = false;
+  
+  bool runSodInstead = false;
   
   std::map<string, TestNormChoice> normChoices = {
     {"steadyGraph", STEADY_GRAPH_NORM},
@@ -598,6 +668,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("deltaP", &delta_k);
   cmdp.setOption("nonlinearTol", &nonlinearTolerance);
   cmdp.setOption("enforceConservation", "dontEnforceConservation", &enforceConservationUsingLagrangeMultipliers);
+  cmdp.setOption("runSodInstead", "runBrioWu", &runSodInstead);
   
   cmdp.setOption("norm", &normChoiceString);
   
@@ -621,8 +692,10 @@ int main(int argc, char *argv[])
   
   MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
   
-  auto form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k);
+  double gamma = runSodInstead ? 1.4 : 2.0;
+  
+  auto form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k, gamma);
 
   return runSolver(form, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                   nonlinearTolerance, normChoice, enforceConservationUsingLagrangeMultipliers);
+                   nonlinearTolerance, normChoice, enforceConservationUsingLagrangeMultipliers, runSodInstead);
 }

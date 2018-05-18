@@ -70,7 +70,7 @@ void IdealMHDFormulation::CHECK_VALID_COMPONENT(int i) // throws exception on ba
   }
 }
 
-Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k)
+Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k, double gamma)
 {
   Teuchos::ParameterList parameters;
   
@@ -82,6 +82,7 @@ Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::timeSteppingFormulation(i
   
   parameters.set("spatialPolyOrder", spatialPolyOrder);
   parameters.set("delta_k", delta_k);
+  parameters.set("gamma", gamma);
   
   return Teuchos::rcp(new IdealMHDFormulation(meshTopo, parameters));
 }
@@ -976,64 +977,153 @@ double IdealMHDFormulation::solveAndAccumulate()
     }
   }
   
-  double alpha = 1.0;
-  ParameterFunctionPtr alphaParameter = ParameterFunction::parameterFunction(alpha);
-  alphaParameter->setName("alpha");
-  
-  map<int,FunctionPtr> updatedFieldMap;
-  for (auto entry : _solnPreviousTimeMap)
-  {
-    auto uID = entry.first;
-    auto uPrev = entry.second;
-    FunctionPtr uIncr = _solnIncrementMap.find(uID)->second;
-    FunctionPtr uUpdated = uPrev + FunctionPtr(alphaParameter) * uIncr;
-    updatedFieldMap[uID] = uUpdated;
-  }
+  bool useFancyNewPositivityCheck = false; // it's pretty nice-looking code, but I'm concerned there might be a bug...
 
-  auto rhoUpdated = updatedFieldMap.find(this->rho()->ID())->second;
-  auto TUpdated   = _abstractTemperature->evaluateAt(updatedFieldMap);
-  
-//  cout << "TUpdated: " << TUpdated->displayString() << endl;
-//  cout << "rhoUpdated: " << rhoUpdated->displayString() << endl;
-  
-  // we may need to do something else to ensure positive changes in entropy;
-  // if we just add ds to the list of positive functions, we stall on the first Newton step...
-  vector<FunctionPtr> positiveFunctions = {rhoUpdated, TUpdated};
-//  {
-//    // DEBUGGING:
-//    cout << "WARNING: temporarily (DEBUGGING) turning off positivity enforcement.\n";
-//    positiveFunctions = {};
-//  }
-  double minDistanceFromZero = 0.000000001; // "positive" values should not get *too* small...
-  int posEnrich = 5;
-  
-  // lambda for positivity checking
-  auto isPositive = [&] () -> bool
+  double alpha = 1.0;
+  if (useFancyNewPositivityCheck)
   {
-    for (auto f : positiveFunctions)
+    ParameterFunctionPtr alphaParameter = ParameterFunction::parameterFunction(alpha);
+    alphaParameter->setName("alpha");
+    
+    map<int,FunctionPtr> updatedFieldMap;
+    for (auto entry : _solnPreviousTimeMap)
     {
-      FunctionPtr f_smaller = f - minDistanceFromZero;
-      bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
-      if (!isPositive)
+      auto uID = entry.first;
+      auto uPrev = entry.second;
+      FunctionPtr uIncr = _solnIncrementMap.find(uID)->second;
+      FunctionPtr uUpdated = uPrev + FunctionPtr(alphaParameter) * uIncr;
+      updatedFieldMap[uID] = uUpdated;
+    }
+
+    auto rhoUpdated = updatedFieldMap.find(this->rho()->ID())->second;
+    auto TUpdated   = _abstractTemperature->evaluateAt(updatedFieldMap);
+    
+  //  cout << "TUpdated: " << TUpdated->displayString() << endl;
+  //  cout << "rhoUpdated: " << rhoUpdated->displayString() << endl;
+    
+    // we may need to do something else to ensure positive changes in entropy;
+    // if we just add ds to the list of positive functions, we stall on the first Newton step...
+    vector<FunctionPtr> positiveFunctions = {rhoUpdated, TUpdated};
+  //  {
+  //    // DEBUGGING:
+  //    cout << "WARNING: temporarily (DEBUGGING) turning off positivity enforcement.\n";
+  //    positiveFunctions = {};
+  //  }
+    double minDistanceFromZero = 0.000000001; // "positive" values should not get *too* small...
+    int posEnrich = 5;
+    
+    // lambda for positivity checking
+    auto isPositive = [&] () -> bool
+    {
+      for (auto f : positiveFunctions)
       {
-//        cout << "function " << f->displayString() << " is not positive for alpha = " << alphaParameter->getValue()->displayString() << endl;
-        return false;
+        FunctionPtr f_smaller = f - minDistanceFromZero;
+        bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
+        if (!isPositive)
+        {
+  //        cout << "function " << f->displayString() << " is not positive for alpha = " << alphaParameter->getValue()->displayString() << endl;
+          return false;
+        }
+      }
+      return true;
+    };
+    
+    bool useLineSearch = true;
+    
+    if (useLineSearch)
+    {
+      double lineSearchFactor = .5;
+      int iter = 0; int maxIter = 20;
+      while (!isPositive() && iter < maxIter)
+      {
+        alpha = alpha*lineSearchFactor;
+        alphaParameter->setValue(alpha);
+        iter++;
       }
     }
-    return true;
-  };
-  
-  bool useLineSearch = true;
-  
-  if (useLineSearch)
+  }
+  else // not the fancy new, but the well-worn old, positivity check
   {
-    double lineSearchFactor = .5;
-    int iter = 0; int maxIter = 20;
-    while (!isPositive() && iter < maxIter)
+    ParameterFunctionPtr alphaParameter = ParameterFunction::parameterFunction(alpha);
+    
+    FunctionPtr rhoPrevious  = Function::solution(rho(),_backgroundFlow);
+    FunctionPtr rhoIncrement = Function::solution(rho(),_solnIncrement);
+    FunctionPtr rhoUpdated   = rhoPrevious + FunctionPtr(alphaParameter) * rhoIncrement;
+    
+    FunctionPtr EPrevious    = Function::solution(E(),_backgroundFlow);
+    FunctionPtr EIncrement   = Function::solution(E(),_solnIncrement);
+    FunctionPtr EUpdated     = EPrevious + FunctionPtr(alphaParameter) * EIncrement;
+    
+    vector<FunctionPtr> mPrevious(_spaceDim), mIncrement(_spaceDim), mUpdated(_spaceDim);
+    FunctionPtr mDotmPrevious = Function::zero();
+    FunctionPtr mDotmUpdated = Function::zero();
+    for (int d=0; d<_spaceDim; d++)
     {
-      alpha = alpha*lineSearchFactor;
-      alphaParameter->setValue(alpha);
-      iter++;
+      mPrevious[d] = Function::solution(m(d+1),_backgroundFlow);
+      mIncrement[d] = Function::solution(m(d+1),_solnIncrement);
+      mUpdated[d] = mPrevious[d] + FunctionPtr(alphaParameter) * mIncrement[d];
+      mDotmPrevious = mDotmPrevious + mPrevious[d] * mPrevious[d];
+      mDotmUpdated  = mDotmUpdated  + mUpdated [d] * mUpdated [d];
+    }
+    
+    double Cv = this->Cv();
+    FunctionPtr TUpdated  = (1.0/Cv) / rhoUpdated  * (EUpdated  - 0.5 * mDotmUpdated  / rhoUpdated);
+    FunctionPtr TPrevious = (1.0/Cv) / rhoPrevious * (EPrevious - 0.5 * mDotmPrevious / rhoPrevious);
+    
+    // pointwise change in Entropy should also be positive
+    // s2 - s1 = c_p ln (T2/T1) - R ln (p2/p1)
+    
+    FunctionPtr ds;
+    {
+      // pressure = rho * R * T
+      double R  = this->R();
+      double Cp = this->Cp();
+      FunctionPtr pPrevious = R * rhoPrevious * TPrevious;
+      FunctionPtr pUpdated  = R * rhoUpdated  * TUpdated;
+      
+      auto ln = [&] (FunctionPtr arg) -> FunctionPtr
+      {
+        return Teuchos::rcp(new Ln<double>(arg));
+      };
+      
+      ds = Cp * ln(TUpdated / TPrevious) - R * ln(pUpdated / pPrevious);
+    }
+    
+    // we may need to do something else to ensure positive changes in entropy;
+    // if we just add ds to the list of positive functions, we stall on the first Newton step...
+    vector<FunctionPtr> positiveFunctions = {rhoUpdated, TUpdated};
+    double minDistanceFromZero = 0.001; // "positive" values should not get *too* small...
+    int posEnrich = 5;
+    
+//    {
+//      cout << "DEBUGGING: turning off positivity check.\n";
+//      positiveFunctions = {};
+//    }
+    
+    // lambda for positivity checking
+    auto isPositive = [&] () -> bool
+    {
+      for (auto f : positiveFunctions)
+      {
+        FunctionPtr f_smaller = f - minDistanceFromZero;
+        bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
+        if (!isPositive) return false;
+      }
+      return true;
+    };
+    
+    bool useLineSearch = true;
+    
+    if (useLineSearch)
+    {
+      double lineSearchFactor = .5;
+      int iter = 0; int maxIter = 20;
+      while (!isPositive() && iter < maxIter)
+      {
+        alpha = alpha*lineSearchFactor;
+        alphaParameter->setValue(alpha);
+        iter++;
+      }
     }
   }
   

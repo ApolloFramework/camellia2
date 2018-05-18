@@ -359,7 +359,7 @@ namespace Camellia
     FunctionPtr abstractVelocity() const;
     
     // static utility functions:
-    static Teuchos::RCP<IdealMHDFormulation> timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k);
+    static Teuchos::RCP<IdealMHDFormulation> timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k, double gamma=2.0);
   }; // class IdealMHDFormulation
 } // namespace Camellia
 

@@ -437,7 +437,8 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
     form->solutionPreviousTimeStep()->setIP(steadyIP);
   }
   
-  int numTimeSteps = 0.20 / dt; // standard for Sod is to take it to t = 0.20
+  double finalTime = 0.20; // standard for Sod is to take it to t = 0.20
+  int numTimeSteps = finalTime / dt;
   
   if (rank == 0)
   {
@@ -657,6 +658,8 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   FunctionPtr energyTimeStep = (energy_soln - energy_prev) / dt;
   FunctionPtr energyFlux = Function::solution(form->te(), form->solution(), true); // include sideParity weights
 
+  FunctionPtr pressure_soln = pressure(form, false); // false: current time step (a.k.a background flow)
+  
 //  vector<FunctionPtr> conservationFluxes = {momentumFlux};
 //  vector<FunctionPtr> timeDifferences    = {momentumTimeStep};
   vector<FunctionPtr> conservationFluxes = {rhoFlux,     momentumFlux,     energyFlux};
@@ -702,7 +705,40 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
   printConservationReport();
   double t = 0;
   double Re_0;
-  for (int timeStepNumber = 0; timeStepNumber < numTimeSteps; timeStepNumber++)
+  int timeStepNumber = 0;
+  
+  // for the moment, time step adjustment only reduces time step size
+  auto adjustTimeStep = [&]() -> void
+  {
+    // Check that dt is reasonable vis-a-vis CFL
+    double h = (x_b-x_a) / meshWidth / polyOrder;
+    FunctionPtr soundSpeed = Function::sqrtFunction(gamma * pressure_soln / rho_soln);
+    FunctionPtr fluidSpeed = Function::sqrtFunction((momentum_soln / rho_soln) * (momentum_soln / rho_soln));
+    double maxSoundSpeed = soundSpeed->linfinitynorm(mesh);
+    double maxFluidSpeed = fluidSpeed->linfinitynorm(mesh);
+    double dtCFL = h / (maxSoundSpeed + maxFluidSpeed);
+    if (dt > dtCFL)
+    {
+      if (rank == 0)
+      {
+        cout << "Time step " << dt << " exceeds CFL-stable value of " << dtCFL << endl;
+      }
+      while (dt > dtCFL)
+      {
+        dt /= 2.0;
+      }
+      numTimeSteps = (finalTime - t) / dt + timeStepNumber;
+      if (rank == 0)
+      {
+        cout << "Set time step to " << dt;
+        cout << "; set numTimeSteps to " << numTimeSteps << endl;
+      }
+    }
+  };
+  
+  adjustTimeStep();
+  
+  for (timeStepNumber = 0; timeStepNumber < numTimeSteps; timeStepNumber++)
   {
     double l2NormOfIncrement = 1.0;
     int stepNumber = 0;
@@ -769,6 +805,8 @@ int runSolver(Teuchos::RCP<Form> form, bool conservationVariables, double dt, in
       return -1;
     }
     t += dt;
+    
+    adjustTimeStep();
     
     printLocalConservationReport(); // since this depends on the difference between current/previous solution, we need to call before we set prev to current.
     solutionExporter.exportSolution(form->solution(),functionsToPlot,functionNames,t); // similarly, since the entropy compares current and previous, need this to happen before setSolution()
