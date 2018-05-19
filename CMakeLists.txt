@@ -172,18 +172,21 @@ IF(NOT BUILD_SHARED_LIBS)
   SET(BUILD_SHARED_LIBS ${Trilinos_BUILD_SHARED_LIBS})
 ENDIF()
 
+option(ENABLE_MOAB "Look for MOAB in the path specified by MOAB_PATH" OFF)
 # Find MOAB
-find_package(MOAB PATHS ${MOAB_PATH}/lib)
+if (ENABLE_MOAB)
+  find_package(MOAB PATHS ${MOAB_PATH}/lib)
 
-if (MOAB_FOUND)
-  ADD_DEFINITIONS(-DHAVE_MOAB)
-  include_directories(
-    ${MOAB_INCLUDE_DIRS}
-  )
-  SET(ADDITIONAL_LIBRARIES ${ADDITIONAL_LIBRARIES} ${MOAB_LIBRARIES})
-else()
-  MESSAGE("MOAB not found; MOAB_PATH = ${MOAB_PATH}.")
-endif(MOAB_FOUND)
+  if (MOAB_FOUND)
+    ADD_DEFINITIONS(-DHAVE_MOAB)
+    include_directories(
+      ${MOAB_INCLUDE_DIRS}
+    )
+    SET(ADDITIONAL_LIBRARIES ${ADDITIONAL_LIBRARIES} ${MOAB_LIBRARIES})
+  else()
+    MESSAGE("MOAB not found; MOAB_PATH = ${MOAB_PATH}.")
+  endif(MOAB_FOUND)
+endif(ENABLE_MOAB)
 
 project(Camellia)
 
