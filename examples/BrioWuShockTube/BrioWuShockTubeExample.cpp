@@ -158,8 +158,10 @@ template<class Form>
 int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, double x_b,
               int polyOrder, int cubatureEnrichment, bool useCondensedSolve, double nonlinearTolerance,
               TestNormChoice normChoice, bool enforceConservationUsingLagrangeMultipliers,
-              bool runSodInstead)
+              bool runSodInstead, bool spaceTime)
 {
+  MeshPtr mesh = form->solutionIncrement()->mesh();
+  
   if (enforceConservationUsingLagrangeMultipliers)
   {
     addConservationConstraint(form);
@@ -234,7 +236,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   {
     finalTime = 0.20;
   }
-  int numTimeSteps = finalTime / dt; // run simulation to t = 0.08
+  int numTimeSteps = spaceTime ? 1 : finalTime / dt; // run simulation to t = 0.08
   
   if (rank == 0)
   {
@@ -242,7 +244,16 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     cout << "Solving with:\n";
     cout << "p  = " << polyOrder << endl;
     cout << "dt = " << dt << endl;
-    cout << meshWidth << " elements; " << numTimeSteps << " timesteps.\n";
+    if (spaceTime)
+    {
+      int totalElements = mesh->numActiveElements();
+      int temporalElements = totalElements / meshWidth;
+      cout << meshWidth << " spatial elements; " << temporalElements << " temporal divisions.\n";
+    }
+    else
+    {
+      cout << meshWidth << " elements; " << numTimeSteps << " timesteps.\n";
+    }
   }
   
   form->setTimeStep(dt);
@@ -311,8 +322,6 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   FunctionPtr n = Function::normal();
   FunctionPtr n_x = n->x() * Function::sideParity();
   
-  map<int, FunctionPtr> initialState;
-  
   {
     auto H_right = Function::heaviside((x_a + x_b)/2.0); // Heaviside is 0 left of center, 1 right of center
     auto H_left  = 1.0 - H_right;  // this guy is 1 left of center, 0 right of center
@@ -333,13 +342,27 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     auto Bz = step(Bz_a, Bz_a);
     auto BVector = Function::vectorize(Bx, By, Bz);
     
-    initialState = form->exactSolutionFieldMap(rho, velocityVector, E, BVector);
-    form->setBx(Bx);
+    form->setInitialCondition(rho, velocityVector, E, BVector);
+    if (spaceTime)
+    {
+      // have had some issues using the discontinuous initial guess for all time in Sod problem at least
+      // let's try something much more modest: just unit values for rho, E, B, zero for u
+      FunctionPtr one    = Function::constant(1.0);
+      FunctionPtr rhoOne = one;
+      FunctionPtr EOne   = one;
+      FunctionPtr BGuess;
+      if (!runSodInstead)
+      {
+        BGuess   = Function::vectorize(Bx, one, one);
+      }
+      else
+      {
+        BGuess   = Function::vectorize(zero, zero, zero);
+      }
+      auto initialGuess = form->exactSolutionFieldMap(rhoOne, velocityVector, EOne, BGuess);
+      form->setInitialState(initialGuess);
+    }
   }
-  
-  int solutionOrdinal = 0;
-  soln->projectOntoMesh(initialState, solutionOrdinal);
-  solnPreviousTime->projectOntoMesh(initialState, solutionOrdinal);
   
   auto & prevSolnMap = form->solutionPreviousTimeStepFieldMap();
   auto & solnMap     = form->solutionFieldMap();
@@ -376,7 +399,11 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     ds = c_p * ln(T2 / T1) - R * ln(p2/p1);
   }
   
-  MeshPtr mesh = form->solutionIncrement()->mesh();
+  if (spaceTime)
+  {
+    // DEBUGGING: print out all BF integrations (trying to see why we get zero rows)
+//    solnIncrement->bf()->setPrintTermWiseIntegrationOutput(true);
+  }
   
   vector<FunctionPtr> functionsToPlot = {p_prev,u_prev,ds};
   vector<string> functionNames = {"pressure","velocity","entropy change"};
@@ -533,6 +560,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   // for the moment, time step adjustment only reduces time step size
   auto adjustTimeStep = [&]() -> void
   {
+    if (spaceTime) return; // no time step to adjust...
     // Check that dt is reasonable vis-a-vis CFL
     double h = (x_b-x_a) / meshWidth / polyOrder;
     FunctionPtr soundSpeed = Function::sqrtFunction(gamma * p_soln / rho_soln);
@@ -639,6 +667,9 @@ int main(int argc, char *argv[])
   int spaceDim = 1;
   int cubatureEnrichment = 3 * polyOrder; // there are places in the strong, nonlinear equations where 4 variables multiplied together.  Therefore we need to add 3 variables' worth of quadrature to the simple test v. trial quadrature.
   double nonlinearTolerance    = 1e-2;
+  bool useSpaceTime = false;
+  int temporalPolyOrder =  1;
+  int temporalMeshWidth = -1;  // if useSpaceTime gets set to true and temporalMeshWidth is left unset, we'll use meshWidth = (finalTime / dt / temporalPolyOrder)
   
   double x_a   = -0.5;
   double x_b   = 0.5;
@@ -669,6 +700,9 @@ int main(int argc, char *argv[])
   cmdp.setOption("nonlinearTol", &nonlinearTolerance);
   cmdp.setOption("enforceConservation", "dontEnforceConservation", &enforceConservationUsingLagrangeMultipliers);
   cmdp.setOption("runSodInstead", "runBrioWu", &runSodInstead);
+  cmdp.setOption("spaceTime","backwardEuler", &useSpaceTime);
+  cmdp.setOption("temporalPolyOrder", &temporalPolyOrder);
+  cmdp.setOption("temporalMeshWidth", &temporalMeshWidth);
   
   cmdp.setOption("norm", &normChoiceString);
   
@@ -693,9 +727,28 @@ int main(int argc, char *argv[])
   MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
   
   double gamma = runSodInstead ? 1.4 : 2.0;
+  double finalTime = runSodInstead ? 0.20 : .08;
   
-  auto form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k, gamma);
+  Teuchos::RCP<IdealMHDFormulation> form;
+  if (useSpaceTime)
+  {
+    cout << "*********************************************************************************************************** \n";
+    cout << "****** SPACE-TIME NOTE: to date, we haven't had much luck with space-time for Brio-Wu or Euler/Sod. ******* \n";
+    cout << "*********************************************************************************************************** \n";
+    double t0 = 0.0;
+    double t1 = finalTime;
+    if (temporalMeshWidth == -1)
+    {
+      temporalMeshWidth = (finalTime / dt / temporalPolyOrder);
+    }
+    auto spaceTimeMeshTopo = MeshFactory::spaceTimeMeshTopology(meshTopo, t0, t1, temporalMeshWidth);
+    form = IdealMHDFormulation::spaceTimeFormulation(spaceDim, spaceTimeMeshTopo, polyOrder, temporalPolyOrder, delta_k, gamma);
+  }
+  else
+  {
+    form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k, gamma);
+  }
 
   return runSolver(form, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                   nonlinearTolerance, normChoice, enforceConservationUsingLagrangeMultipliers, runSodInstead);
+                   nonlinearTolerance, normChoice, enforceConservationUsingLagrangeMultipliers, runSodInstead, useSpaceTime);
 }
