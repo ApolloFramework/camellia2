@@ -70,6 +70,25 @@ void IdealMHDFormulation::CHECK_VALID_COMPONENT(int i) // throws exception on ba
   }
 }
 
+Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::spaceTimeFormulation(int spaceDim, MeshTopologyPtr meshTopo,
+                                                                            int spatialPolyOrder, int temporalPolyOrder, int delta_k, double gamma)
+{
+  Teuchos::ParameterList parameters;
+  
+  parameters.set("spaceDim", spaceDim);
+  parameters.set("useTimeStepping", true);
+  parameters.set("useSpaceTime", true);
+  
+  parameters.set("t0",0.0);
+  
+  parameters.set("spatialPolyOrder", spatialPolyOrder);
+  parameters.set("temporalPolyOrder", temporalPolyOrder);
+  parameters.set("delta_k", delta_k);
+  parameters.set("gamma", gamma);
+  
+  return Teuchos::rcp(new IdealMHDFormulation(meshTopo, parameters));
+}
+
 Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k, double gamma)
 {
   Teuchos::ParameterList parameters;
@@ -940,6 +959,28 @@ void IdealMHDFormulation::setForcing(FunctionPtr f_continuity, std::vector<Funct
   }
 }
 
+void IdealMHDFormulation::setInitialCondition(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
+{
+  if (_spaceDim == 1)
+  {
+    // then Bx needs to be set (it's not a variable; just material data)
+    this->setBx(B->spatialComponent(1));
+  }
+  
+  auto initialState = this->exactSolutionFieldMap(rho, u, E, B);
+  setInitialState(initialState);
+    
+  if (_spaceTime)
+  {
+    // for space-time, we set initial conditions as BCs for the mesh at time = 0
+    auto initialTime = SpatialFilter::matchingT(0.0);
+    addMassFluxCondition    (initialTime, rho, u, E, B);
+    addMomentumFluxCondition(initialTime, rho, u, E, B);
+    addEnergyFluxCondition  (initialTime, rho, u, E, B);
+    addMagneticFluxCondition(initialTime, rho, u, E, B);
+  }
+}
+
 void IdealMHDFormulation::setInitialState(const std::map<int, FunctionPtr> &initialState)
 {
   const int solutionOrdinal = 0;
@@ -961,6 +1002,7 @@ double IdealMHDFormulation::solveAndAccumulate()
 //  cout << "_solnIncrement->bf(): " << _solnIncrement->bf()->displayString() << endl;
   
   _solveCode = _solnIncrement->solve(_solver);
+  int rank = _solnIncrement->mesh()->Comm()->MyPID();
   
   set<int> nonlinearVariables = {{rho()->ID(), E()->ID()}};
   set<int> linearVariables = {{tc()->ID(), te()->ID()}};
@@ -1096,9 +1138,11 @@ double IdealMHDFormulation::solveAndAccumulate()
     int posEnrich = 5;
     
 //    {
-//      cout << "DEBUGGING: turning off positivity check.\n";
-//      positiveFunctions = {};
+//      cout << "DEBUGGING: turning off Temperature positivity check.\n";
+//      positiveFunctions = {rhoUpdated};
 //    }
+    
+    
     
     // lambda for positivity checking
     auto isPositive = [&] () -> bool
@@ -1107,10 +1151,39 @@ double IdealMHDFormulation::solveAndAccumulate()
       {
         FunctionPtr f_smaller = f - minDistanceFromZero;
         bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
-        if (!isPositive) return false;
+        if (!isPositive)
+        {
+          auto mesh = _solnIncrement->mesh();
+          double minValue = f->minimumValue(mesh, posEnrich);
+          if (rank == 0)
+          {
+            cout << "During positivity check, " << f->displayString() << " failed with minimum value of " << minValue << endl;
+          }
+          return false;
+        }
       }
       return true;
     };
+    
+    {
+      // DEBUGGING: check that the positive functions are positive with a zero alpha weight
+      double savedAlpha = alpha;
+      alphaParameter->setValue(0.0);
+      for (auto f : positiveFunctions)
+      {
+        auto mesh = _solnIncrement->mesh();
+        double minValue = f->minimumValue(mesh, posEnrich);
+        if (minValue < 0.0)
+        {
+          if (rank == 0)
+          {
+            cout << "ERROR: Prior to adding solution increment, 'positive' " << f->displayString() << " has minimum value of " << minValue << endl;
+          }
+        }
+      }
+      alphaParameter->setValue(savedAlpha);
+    }
+  
     
     bool useLineSearch = true;
     

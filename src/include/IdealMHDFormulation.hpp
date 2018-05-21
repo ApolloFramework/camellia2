@@ -139,6 +139,10 @@ namespace Camellia
     void addMagneticFluxCondition(SpatialFilterPtr region, FunctionPtr value);
     void addMagneticFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
     
+    // ! For time-stepping, projects onto the solution, previous solution.
+    // ! For space-time, sets BCs at time 0 (via addMassFluxCondition, etc.)
+    void setInitialCondition(FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B);
+    
     // ! returns true if this is a space-time formulation; false otherwise.
     bool isSpaceTime() const;
     
@@ -357,6 +361,9 @@ namespace Camellia
     // ! call evaluateAt(solutionMap) for some solution to get the velocity for that solution
     // ! Note: this is vector-valued, of length 3, even when mesh is lower-dimensional
     FunctionPtr abstractVelocity() const;
+    
+    // static utility functions:
+    static Teuchos::RCP<IdealMHDFormulation> spaceTimeFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k, double gamma=2.0);
     
     // static utility functions:
     static Teuchos::RCP<IdealMHDFormulation> timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k, double gamma=2.0);
