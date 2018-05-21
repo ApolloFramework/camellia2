@@ -64,7 +64,7 @@ namespace
   
   void testForcing_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B,
                       FunctionPtr fc, FunctionPtr fm, FunctionPtr fe, FunctionPtr fB,
-                      int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+                      int cubatureEnrichment, double tol, bool spaceTime, Teuchos::FancyOStream &out, bool &success)
   {
     int meshWidth = 2;
     int polyOrder = 2;
@@ -75,7 +75,20 @@ namespace
     double x_b   = 1.0;
     MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
     
-    auto form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k);
+    Teuchos::RCP<IdealMHDFormulation> form;
+    if (spaceTime)
+    {
+      int temporalDivisions = 2;
+      int temporalPolyOrder = 2;
+      double t0 = 0.0;
+      double t1 = 1.0;
+      meshTopo = MeshFactory::spaceTimeMeshTopology(meshTopo, t0, t1, temporalDivisions);
+      form = IdealMHDFormulation::spaceTimeFormulation(spaceDim, meshTopo, polyOrder, temporalPolyOrder, delta_k);
+    }
+    else
+    {
+      form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k);
+    }
     form->setBx(B->spatialComponent(1));
     
     // sanity checks that the constructor has set things up the way we assume:
@@ -142,7 +155,7 @@ namespace
   }
   
   void testForcing_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B,
-                      int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+                      int cubatureEnrichment, double tol, bool spaceTime, Teuchos::FancyOStream &out, bool &success)
   {
     FunctionPtr Bx  = B->spatialComponent(1);
     FunctionPtr By  = B->spatialComponent(2);
@@ -154,22 +167,37 @@ namespace
     FunctionPtr B_dot_B = dot(3,B,B);
     FunctionPtr p_star = pressure_star(rho, u, E, B);
     
-    FunctionPtr f_c = (rho * ux)->dx(); // expected forcing for continuity equation: div (rho * ux, 0, 0)
+    FunctionPtr f_c = rho->dt() + (rho * ux)->dx(); // expected forcing for continuity equation: d/dt(rho) div (rho * ux, 0, 0)
     
-    FunctionPtr f_m1 = (rho * ux * ux + p_star)->dx(); // d/dx [ rho * u^2 + P* ]
-    FunctionPtr f_m2 = (rho * ux * uy - Bx * By)->dx(); // d/dx [ rho * u * v - Bx * By ]
-    FunctionPtr f_m3 = (rho * ux * uz - Bx * Bz)->dx(); // d/dx [ rho * u * w - Bx * Bz ]
+    FunctionPtr f_m1 = (rho * ux)->dt() + (rho * ux * ux + p_star)->dx();  // d/dx [ rho * u^2 + P* ]
+    FunctionPtr f_m2 = (rho * uy)->dt() + (rho * ux * uy - Bx * By)->dx(); // d/dx [ rho * u * v - Bx * By ]
+    FunctionPtr f_m3 = (rho * uz)->dt() + (rho * ux * uz - Bx * Bz)->dx(); // d/dx [ rho * u * w - Bx * Bz ]
     FunctionPtr f_m  = Function::vectorize(f_m1, f_m2, f_m3);
     
-    FunctionPtr f_e = ((E+p_star)*ux - Bx * dot(3,B,u))->dx();
+    FunctionPtr f_e = E->dt() + ((E+p_star)*ux - Bx * dot(3,B,u))->dx();
     FunctionPtr f_B1 = Function::zero(); // 1D: no B1 equation
-    FunctionPtr f_B2 = (By * ux - Bx * uy)->dx(); // d/dx [ By * u - Bx * v ] = d/dx [0] = 0
-    FunctionPtr f_B3 = (Bz * ux - Bx * uz)->dx(); // d/dx [ Bz * u - Bx * w ] = d/dx [0] = 0
+    FunctionPtr f_B2 = By->dt() + (By * ux - Bx * uy)->dx(); // d/dx [ By * u - Bx * v ] = d/dx [0] = 0
+    FunctionPtr f_B3 = Bz->dt() + (Bz * ux - Bx * uz)->dx(); // d/dx [ Bz * u - Bx * w ] = d/dx [0] = 0
     FunctionPtr f_B = Function::vectorize(f_B1, f_B2, f_B3); // expected forcing for magnetism equation
-    testForcing_1D(u, rho, E, B, f_c, f_m, f_e, f_B, cubatureEnrichment, tol, out, success);
+    testForcing_1D(u, rho, E, B, f_c, f_m, f_e, f_B, cubatureEnrichment, tol, spaceTime, out, success);
   }
   
-  void testResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, int cubatureEnrichment, double tol, bool steady, Teuchos::FancyOStream &out, bool &success)
+  void testSpaceTimeForcing_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B,
+                               int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    bool spaceTime = true;
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, spaceTime, out, success);
+  }
+  
+  void testSteadyForcing_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B,
+                            int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    bool spaceTime = false;
+    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, spaceTime, out, success);
+  }
+  
+  void testResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, int cubatureEnrichment,
+                       double tol, bool steady, bool spaceTime, Teuchos::FancyOStream &out, bool &success)
   {
     int meshWidth = 2;
     int polyOrder = 4; // could make some tests cheaper by taking the required poly order as argument...
@@ -182,8 +210,21 @@ namespace
     
     double dt    = 1.0;
     
-    auto form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k);
-    form->setTimeStep(dt);
+    Teuchos::RCP<IdealMHDFormulation> form;
+    if (spaceTime)
+    {
+      int temporalDivisions = 2;
+      int temporalPolyOrder = 2;
+      double t0 = 0.0;
+      double t1 = 1.0;
+      meshTopo = MeshFactory::spaceTimeMeshTopology(meshTopo, t0, t1, temporalDivisions);
+      form = IdealMHDFormulation::spaceTimeFormulation(spaceDim, meshTopo, polyOrder, temporalPolyOrder, delta_k);
+    }
+    else
+    {
+      form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k);
+      form->setTimeStep(dt);
+    }
     form->setBx(B->spatialComponent(1));
     
     BFPtr bf = form->bf();
@@ -422,16 +463,25 @@ namespace
     }
   }
   
+  void testSpaceTimeResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
+  {
+    bool steady = true; // ignored for space-time, but basically what the false case means is perturb the time terms, which won't work out the same way for space-time
+    bool spaceTime = true;
+    testResidual_1D(u, rho, E, B, cubatureEnrichment, tol, steady, spaceTime, out, success);
+  }
+  
   void testSteadyResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
   {
     bool steady = true;
-    testResidual_1D(u, rho, E, B, cubatureEnrichment, tol, steady, out, success);
+    bool spaceTime = false;
+    testResidual_1D(u, rho, E, B, cubatureEnrichment, tol, steady, spaceTime, out, success);
   }
   
   void testTransientResidual_1D(FunctionPtr u, FunctionPtr rho, FunctionPtr E, FunctionPtr B, int cubatureEnrichment, double tol, Teuchos::FancyOStream &out, bool &success)
   {
     bool steady = false;
-    testResidual_1D(u, rho, E, B, cubatureEnrichment, tol, steady, out, success);
+    bool spaceTime = false;
+    testResidual_1D(u, rho, E, B, cubatureEnrichment, tol, steady, spaceTime, out, success);
   }
   
   void testTermsMatch(LinearTermPtr ltExpected, LinearTermPtr ltActual, MeshPtr mesh, IPPtr ip, double tol, Teuchos::FancyOStream &out, bool &success)
@@ -488,6 +538,140 @@ namespace
     TEST_COMPARE(err, <, tol);
   }
   
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_SpaceTime_UnitDensity)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 0;
+    auto zero = Function::zero();
+    FunctionPtr t   = Function::tn(1);
+    FunctionPtr u   = Function::vectorize(zero, zero, zero);
+    FunctionPtr rho = Function::constant(1.0) * t;
+    FunctionPtr E   = zero;
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+    
+    testSpaceTimeForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_SpaceTime_LinearDensityUnitVelocity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 0;
+    auto one = Function::constant(1.0);
+    auto zero = Function::zero();
+    FunctionPtr t   = Function::tn(1);
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::vectorize(t, t, t);
+    FunctionPtr rho = x * t;
+    FunctionPtr E   = zero;
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+    
+    testSpaceTimeForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_SpaceTime_LinearTempUnitDensity)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 2;
+    auto one = Function::constant(1.0);
+    auto zero = Function::zero();
+    FunctionPtr t   = Function::tn(1);
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::vectorize(zero, zero, zero);
+    FunctionPtr rho = t;
+    FunctionPtr T   = x * t;
+    FunctionPtr E   = energy(rho, u, T);
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+    
+    testSpaceTimeForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_SpaceTime_LinearVelocityUnitDensity)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 2;
+    auto x    = Function::xn(1);
+    auto t   = Function::tn(1);
+    auto zero = Function::zero();
+    FunctionPtr u   = Function::vectorize(x * t, zero, zero);
+    FunctionPtr rho = t;
+    FunctionPtr T   = zero;
+    FunctionPtr E   = energy(rho, u, T);
+    FunctionPtr B   = Function::vectorize(zero, zero, zero);
+    
+    testSpaceTimeForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_SpaceTime_UnitDensityLinearMagnetism)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 2;
+    auto zero = Function::zero();
+    auto x    = Function::xn(1);
+    auto t   = Function::tn(1);
+    FunctionPtr Bx  = Function::constant(0.75);
+    
+    FunctionPtr u   = Function::vectorize(zero, zero, zero);
+    FunctionPtr rho = t;
+    FunctionPtr E   = zero;
+    FunctionPtr B   = Function::vectorize(Bx, x*t, x*t);
+    
+    testSpaceTimeForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_SpaceTime_LinearDensityUnitVelocityLinearMagnetism)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 0;
+    auto one  = Function::constant(1.0);
+    auto zero = Function::zero();
+    auto t    = Function::tn(1);
+    FunctionPtr Bx  = Function::constant(0.75);
+    
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::vectorize(t, t, t);
+    FunctionPtr rho = x * t;
+    FunctionPtr E   = zero;
+    FunctionPtr B   = Function::vectorize(Bx, x * t, x * t);
+    
+    testSpaceTimeForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_SpaceTime_LinearTempUnitDensityLinearMagnetism)
+  {
+    double tol = 1e-16;
+    int cubatureEnrichment = 2;
+    auto one = Function::constant(1.0);
+    auto zero = Function::zero();
+    auto t    = Function::tn(1);
+    FunctionPtr Bx  = Function::constant(0.75);
+    
+    FunctionPtr x   = Function::xn(1);
+    FunctionPtr u   = Function::vectorize(zero, zero, zero);
+    FunctionPtr rho = t;
+    FunctionPtr T   = x * t;
+    FunctionPtr E   = energy(rho, u, T);
+    FunctionPtr B   = Function::vectorize(Bx, x * t, x * t);
+    
+    testSpaceTimeForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_SpaceTime_LinearVelocityUnitDensityLinearMagnetism)
+  {
+    double tol = 1e-15;
+    int cubatureEnrichment = 2;
+    auto x    = Function::xn(1);
+    auto zero = Function::zero();
+    auto t    = Function::tn(1);
+    FunctionPtr Bx  = Function::constant(0.75);
+    FunctionPtr u   = Function::vectorize(x * t, zero, zero);
+    FunctionPtr rho = t;
+    FunctionPtr T   = zero;
+    FunctionPtr E   = energy(rho, u, T);
+    FunctionPtr B   = Function::vectorize(Bx, x * t, x * t);
+    
+    testSpaceTimeForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_UnitDensity)
   {
     double tol = 1e-16;
@@ -498,7 +682,7 @@ namespace
     FunctionPtr E   = zero;
     FunctionPtr B   = Function::vectorize(zero, zero, zero);
     
-    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+    testSteadyForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearDensityUnitVelocity)
@@ -513,7 +697,7 @@ namespace
     FunctionPtr E   = zero;
     FunctionPtr B   = Function::vectorize(zero, zero, zero);
     
-    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+    testSteadyForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
 
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearTempUnitDensity)
@@ -529,7 +713,7 @@ namespace
     FunctionPtr E   = energy(rho, u, T);
     FunctionPtr B   = Function::vectorize(zero, zero, zero);
 
-    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+    testSteadyForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
 
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearVelocityUnitDensity)
@@ -544,7 +728,7 @@ namespace
     FunctionPtr E   = energy(rho, u, T);
     FunctionPtr B   = Function::vectorize(zero, zero, zero);
     
-    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+    testSteadyForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_UnitDensityLinearMagnetism)
@@ -560,7 +744,7 @@ namespace
     FunctionPtr E   = zero;
     FunctionPtr B   = Function::vectorize(Bx, x, x);
     
-    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+    testSteadyForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearDensityUnitVelocityLinearMagnetism)
@@ -577,7 +761,7 @@ namespace
     FunctionPtr E   = zero;
     FunctionPtr B   = Function::vectorize(Bx, x, x);
     
-    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+    testSteadyForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearTempUnitDensityLinearMagnetism)
@@ -595,7 +779,7 @@ namespace
     FunctionPtr E   = energy(rho, u, T);
     FunctionPtr B   = Function::vectorize(Bx, x, x);
     
-    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+    testSteadyForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Forcing_1D_Steady_LinearVelocityUnitDensityLinearMagnetism)
@@ -611,7 +795,7 @@ namespace
     FunctionPtr E   = energy(rho, u, T);
     FunctionPtr B   = Function::vectorize(Bx, x, x);
     
-    testForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+    testSteadyForcing_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Formulation_1D)
@@ -635,12 +819,10 @@ namespace
     auto bf = form->solutionIncrement()->bf();
     // try momentum = 0, E = 1, rho = 1, B = 0 -- project this onto previous solution, and current guess
     // evaluate bf at this solution
-    // we expect to have just five test terms survive:
-    // three corresponding to the pressure in the momentum equation
+    // we expect to have just three test terms survive:
+    // one corresponding to the pressure in the x-momentum equation
     // two corresponding to the time derivatives on the rho, E solution increments
     VarPtr vm1 = form->vm(1);
-    VarPtr vm2 = form->vm(2);
-    VarPtr vm3 = form->vm(3);
     VarPtr vc  = form->vc();
     VarPtr ve  = form->ve();
     FunctionPtr rho = Function::constant(1.0);
@@ -648,7 +830,7 @@ namespace
     FunctionPtr m = Function::vectorize(Function::constant(0.0), Function::constant(0.0), Function::constant(0.0));
     FunctionPtr p = (TEST_GAMMA - 1.0) * (E - 0.5 * dot(3,m,m) / rho);
     auto dt = form->getTimeStep();
-    auto expectedLT = p * vm1 + p * vm2 + p * vm3 + rho / dt * vc + E / dt * ve;
+    auto expectedLT = -p * vm1->dx() + rho / dt * vc + E / dt * ve;
     
     map<int, FunctionPtr> valueMap;
     valueMap[form->rho()->ID()] = rho;
@@ -660,8 +842,10 @@ namespace
     int solutionOrdinal = 0;
     form->solutionPreviousTimeStep()->projectOntoMesh(valueMap, solutionOrdinal);
     form->solution()->projectOntoMesh(valueMap, solutionOrdinal);
+    form->setBx(Function::zero());
     auto lt = bf->testFunctional(valueMap);
-//    out << "lt: " << lt->displayString() << endl;
+    out << "lt: " << lt->displayString() << endl;
+    out << "expected lt: " << expectedLT->displayString() << endl;
     
     auto mesh = form->solution()->mesh();
     auto ip = form->solutionIncrement()->ip();
@@ -842,6 +1026,31 @@ namespace
     
     int numTrialVars = vf->trialVars().size(); // 2D: rho, E, 3 m's, 3 B's, plus 1 flux per equation: 17 variables
     TEST_EQUALITY(numTrialVars, 17);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Residual_1D_SpaceTime_AllOne)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE * 100; // as we would for higher space dimensions, we relax tolerance for space-time a bit
+    int cubatureEnrichment = 0;
+    FunctionPtr one = Function::constant(1.0);
+    FunctionPtr u   = 1./sqrt(3.) * Function::vectorize(one, one, one);
+    FunctionPtr rho = one;
+    FunctionPtr E   = one;
+    FunctionPtr B   = Function::vectorize(one, one, one);
+    testSpaceTimeResidual_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST(IdealMHDFormulation, Residual_1D_SpaceTime_LinearInTime)
+  {
+    double tol = DEFAULT_RESIDUAL_TOLERANCE * 100; // as we would for higher space dimensions, we relax tolerance for space-time a bit
+    int cubatureEnrichment = 0;
+    FunctionPtr one = Function::constant(1.0);
+    FunctionPtr t   = Function::tn(1);
+    FunctionPtr u   = 1./sqrt(3.) * Function::vectorize(t, t, t);
+    FunctionPtr rho = one;
+    FunctionPtr E   = one + t;
+    FunctionPtr B   = Function::vectorize(one*t, one*t, one*t);
+    testSpaceTimeResidual_1D(u, rho, E, B, cubatureEnrichment, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Residual_1D_Steady_AllOne)
