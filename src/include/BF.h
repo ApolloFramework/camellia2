@@ -51,6 +51,7 @@ protected:
   bool _useIterativeRefinementsWithSPDSolve = false;
   bool _warnAboutZeroRowsAndColumns = true;
   bool _useSubgridMeshForOptimalTestSolve = false;
+  bool _printTermWiseIntegrationOutput = false;
   
   TBFPtr<Scalar> _bfForOptimalTestSolve; // if not null, then _bfForOptimalTestSolve will be used as the RHS in the test solve, instead of "this"
   
@@ -139,6 +140,9 @@ public:
                                              IPPtr ip, BasisCachePtr ipBasisCache);
 
   void printTrialTestInteractions();
+  
+  // ! Debugging facility: "narrates" as bilinear form is accumulated.  Particularly useful if you are seeing "zero row" warnings (best set to true on at most one MPI rank; otherwise, the output will be confusing...)
+  void setPrintTermWiseIntegrationOutput(bool value);
 
   void stiffnessMatrix(Intrepid::FieldContainer<Scalar> &stiffness, Teuchos::RCP<ElementType> elemType,
                        const Intrepid::FieldContainer<double> &cellSideParities, Teuchos::RCP<BasisCache> basisCache);

@@ -575,7 +575,6 @@ namespace Camellia
     // stiffness is sized as (C, FTest, FTrial)
     stiffness.initialize(0.0);
     basisCache->setCellSideParities(cellSideParities);
-    bool printTermWiseIntegrationOutput = false; // TODO: make this a settable member variable
     
     for (typename vector< TBilinearTerm<Scalar> >:: iterator btIt = _terms.begin();
          btIt != _terms.end(); btIt++)
@@ -585,7 +584,7 @@ namespace Camellia
       TLinearTermPtr<Scalar> testTerm = btIt->second;
       
       FieldContainer<double> stiffnessCopyForTermwiseOutput;
-      if (printTermWiseIntegrationOutput)
+      if (_printTermWiseIntegrationOutput)
       {
         // DEBUGGING
         stiffnessCopyForTermwiseOutput = stiffness;
@@ -601,7 +600,7 @@ namespace Camellia
         trialTerm->integrate(stiffness, elemType->trialOrderPtr,
                              testTerm,  elemType->testOrderPtr, basisCache);
       }
-      if (printTermWiseIntegrationOutput)
+      if (_printTermWiseIntegrationOutput)
       {
         // DEBUGGING
         cout << "This integration added the following to the stiffness matrix:\n";
@@ -1690,6 +1689,12 @@ namespace Camellia
   void TBF<Scalar>::setOptimalTestSolver(OptimalTestSolver choice)
   {
     _optimalTestSolver = choice;
+  }
+  
+  template <typename Scalar>
+  void TBF<Scalar>::setPrintTermWiseIntegrationOutput(bool value)
+  {
+    _printTermWiseIntegrationOutput = value;
   }
   
   template <typename Scalar>
