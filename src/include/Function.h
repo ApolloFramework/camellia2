@@ -122,10 +122,16 @@ public:
 
   bool isPositive(BasisCachePtr basisCache);
   bool isPositive(Teuchos::RCP<Mesh> mesh, int cubEnrich = 0, bool testVsTest = false);
-
+  
   double l1norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0, bool spatialSidesOnly = false);
   double l2norm(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0, bool spatialSidesOnly = false);
   double linfinitynorm(MeshPtr mesh, int cubatureDegreeEnrichment = 0);
+  
+  // ! returns the maximum value at quadrature points.  Performs MPI communication.
+  double maximumValue(MeshPtr mesh, int cubatureDegreeEnrichment = 0);
+  
+  // ! returns the minimum value at quadrature points.  Performs MPI communication.
+  double minimumValue(MeshPtr mesh, int cubatureDegreeEnrichment = 0);
   
   // ! computes the squared L^2 norm of the jumps of this Function along the mesh skeleton (external boundary values are treated as zero, so the jump
   // ! along the boundary is the value of the Function itself)

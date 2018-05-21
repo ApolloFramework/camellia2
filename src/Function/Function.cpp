@@ -124,6 +124,12 @@ public:
   {
     return (x < _xShift) ? 0.0 : 1.0;
   }
+  std::string displayString()
+  {
+    ostringstream name;
+    name << "H_x(" << _xShift << ")";
+    return name.str();
+  }
 };
 
 class HeavisideFunctionY : public SimpleFunction<double>
@@ -137,6 +143,12 @@ public:
   double value(double x, double y)
   {
     return (y < _yShift) ? 0.0 : 1.0;
+  }
+  std::string displayString()
+  {
+    ostringstream name;
+    name << "H_y(" << _yShift << ")";
+    return name.str();
   }
 };
 
@@ -934,7 +946,6 @@ Scalar  TFunction<Scalar>::integrate(BasisCachePtr basisCache)
 template <typename Scalar>
 bool TFunction<Scalar>::isPositive(BasisCachePtr basisCache)
 {
-  bool isPositive = true;
   int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
   int numPoints = basisCache->getPhysicalCubaturePoints().dimension(1);
   Intrepid::FieldContainer<double> fxnValues(numCells,numPoints);
@@ -985,26 +996,26 @@ bool TFunction<Scalar>::isPositive(Teuchos::RCP<Mesh> mesh, int cubEnrich, bool 
   {
     BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID, testVsTest, cubEnrich);
 
-    // if we want to check positivity on uniformly spaced points
-    if (basisCache->cellTopology()->getSideCount()==4)  // tensor product structure only works with quads
-    {
-      Intrepid::FieldContainer<double> origPts = basisCache->getRefCellPoints();
-      int numPts1D = ceil(sqrt(origPts.dimension(0)));
-      int numPts = numPts1D*numPts1D;
-      Intrepid::FieldContainer<double> uniformSpacedPts(numPts,origPts.dimension(1));
-      double h = 1.0/(numPts1D-1);
-      int iter = 0;
-      for (int i = 0; i<numPts1D; i++)
-      {
-        for (int j = 0; j<numPts1D; j++)
-        {
-          uniformSpacedPts(iter,0) = 2*h*i-1.0;
-          uniformSpacedPts(iter,1) = 2*h*j-1.0;
-          iter++;
-        }
-      }
-      basisCache->setRefCellPoints(uniformSpacedPts);
-    }
+//    // if we want to check positivity on uniformly spaced points
+//    if (basisCache->cellTopology()->getSideCount()==4)  // tensor product structure only works with quads
+//    {
+//      Intrepid::FieldContainer<double> origPts = basisCache->getRefCellPoints();
+//      int numPts1D = ceil(sqrt(origPts.dimension(0)));
+//      int numPts = numPts1D*numPts1D;
+//      Intrepid::FieldContainer<double> uniformSpacedPts(numPts,origPts.dimension(1));
+//      double h = 1.0/(numPts1D-1);
+//      int iter = 0;
+//      for (int i = 0; i<numPts1D; i++)
+//      {
+//        for (int j = 0; j<numPts1D; j++)
+//        {
+//          uniformSpacedPts(iter,0) = 2*h*i-1.0;
+//          uniformSpacedPts(iter,1) = 2*h*j-1.0;
+//          iter++;
+//        }
+//      }
+//      basisCache->setRefCellPoints(uniformSpacedPts);
+//    }
 
     bool isPositiveOnCell = this->isPositive(basisCache);
     if (!isPositiveOnCell)
@@ -2077,6 +2088,101 @@ double TFunction<Scalar>::linfinitynorm(MeshPtr mesh, int cubatureDegreeEnrichme
   mesh->Comm()->MaxAll(&localMax, &globalMax, 1);
   return globalMax;
 }
+  
+  template <typename Scalar>
+  double TFunction<Scalar>::maximumValue(MeshPtr mesh, int cubatureDegreeEnrichment)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(_rank != 0, std::invalid_argument, "can only compute the maximum value of scalar functions.");
+    double localMax = -numeric_limits<double>::max();
+    bool testVsTest = false;
+    set<GlobalIndexType> cellIDs = mesh->cellIDsInPartition();
+    for (GlobalIndexType cellID : cellIDs)
+    {
+      BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID, testVsTest, cubatureDegreeEnrichment);
+      int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
+      int numPoints = basisCache->getPhysicalCubaturePoints().dimension(1);
+      Intrepid::FieldContainer<Scalar> fxnValues(numCells,numPoints);
+      this->values(fxnValues,basisCache);
+      
+      for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+      {
+        for (int ptIndex=0; ptIndex<numPoints; ptIndex++)
+        {
+          localMax = std::max(localMax,fxnValues(cellIndex,ptIndex));
+        }
+      }
+      if (!basisCache->isSideCache())
+      {
+        int numSides = basisCache->cellTopology()->getSideCount();
+        for (int sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
+        {
+          auto sideCache = basisCache->getSideBasisCache(sideOrdinal);
+          int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
+          int numSidePoints = sideCache->getPhysicalCubaturePoints().dimension(1);
+          Intrepid::FieldContainer<Scalar> fxnValues(numCells,numSidePoints);
+          this->values(fxnValues,sideCache);
+          for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+          {
+            for (int ptIndex=0; ptIndex<numSidePoints; ptIndex++)
+            {
+              localMax = std::max(localMax,fxnValues(cellIndex,ptIndex));
+            }
+          }
+        }
+      }
+    }
+    double globalMax = 0.0;
+    mesh->Comm()->MaxAll(&localMax, &globalMax, 1);
+    return globalMax;
+  }
+  
+  template <typename Scalar>
+  double TFunction<Scalar>::minimumValue(MeshPtr mesh, int cubatureDegreeEnrichment)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(_rank != 0, std::invalid_argument, "can only compute the minimum value of scalar functions.");
+    double localMin = numeric_limits<double>::max();
+    bool testVsTest = false;
+    set<GlobalIndexType> cellIDs = mesh->cellIDsInPartition();
+    for (GlobalIndexType cellID : cellIDs)
+    {
+      BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID, testVsTest, cubatureDegreeEnrichment);
+      int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
+      int numPoints = basisCache->getPhysicalCubaturePoints().dimension(1);
+      Intrepid::FieldContainer<Scalar> fxnValues(numCells,numPoints);
+      this->values(fxnValues,basisCache);
+      
+      for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+      {
+        for (int ptIndex=0; ptIndex<numPoints; ptIndex++)
+        {
+          localMin = std::min(localMin,fxnValues(cellIndex,ptIndex));
+        }
+      }
+
+      if (!basisCache->isSideCache())
+      {
+        int numSides = basisCache->cellTopology()->getSideCount();
+        for (int sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
+        {
+          auto sideCache = basisCache->getSideBasisCache(sideOrdinal);
+          int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
+          int numSidePoints = sideCache->getPhysicalCubaturePoints().dimension(1);
+          Intrepid::FieldContainer<Scalar> fxnValues(numCells,numSidePoints);
+          this->values(fxnValues,sideCache);
+          for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+          {
+            for (int ptIndex=0; ptIndex<numSidePoints; ptIndex++)
+            {
+              localMin = std::min(localMin,fxnValues(cellIndex,ptIndex));
+            }
+          }
+        }
+      }
+    }
+    double globalMin = 0.0;
+    mesh->Comm()->MinAll(&localMin, &globalMin, 1);
+    return globalMin;
+  }
 
 template <typename Scalar>
 std::vector<TFunctionPtr<Scalar>> TFunction<Scalar>::memberFunctions()
