@@ -15,10 +15,13 @@
 #include "RHS.h"
 #include "SimpleFunction.h"
 #include "SuperLUDistSolver.h"
+#include "TrigFunctions.h"
 
 #include "Teuchos_GlobalMPISession.hpp"
 
 using namespace Camellia;
+
+const double PI  = 3.141592653589793238462;
 
 void addConservationConstraint(Teuchos::RCP<IdealMHDFormulation> form)
 {
@@ -158,7 +161,7 @@ template<class Form>
 int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, double x_b,
               int polyOrder, int cubatureEnrichment, bool useCondensedSolve, double nonlinearTolerance,
               TestNormChoice normChoice, bool enforceConservationUsingLagrangeMultipliers,
-              bool runSodInstead, bool spaceTime)
+              bool spaceTime)
 {
   MeshPtr mesh = form->solutionIncrement()->mesh();
   
@@ -175,67 +178,14 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   auto ip = solnIncrement->ip(); // this will be the transient graph norm...
   if (normChoice == STEADY_GRAPH_NORM)
   {
-    auto steadyBF = form->steadyBF();
-    auto steadyIP = steadyBF->graphNorm();
-    auto bf = form->bf();
-    
-    // steadyBF will have no rho terms wherever velocity is zero
-    // unclear what the right thing to do is; for now we just add something in
-    steadyBF = Teuchos::rcp( new BF(*steadyBF) ); // default copy constructor
-    steadyBF->addTerm(form->rho(),form->vc());
-    
-    cout << "steadyBF: " << steadyBF->displayString() << endl;
-    bf->setBFForOptimalTestSolve(steadyBF);
-    cout << "Using steady graph norm:\n";
-    steadyIP->printInteractions();
-    soln->setIP(steadyIP);
-    solnIncrement->setIP(steadyIP);
-    form->solutionPreviousTimeStep()->setIP(steadyIP);
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported norm choice");
   }
   else if (normChoice == EXPERIMENTAL_CONSERVATIVE_NORM)
   {
-    auto dt = form->getTimeStep();
-    auto steadyIP = IP::ip();
-    // let's walk through the members, dropping any summands that involve test terms without gradients
-    auto linearTerms = ip->getLinearTerms();
-    for (auto lt : linearTerms)
-    {
-      LinearTermPtr revisedLT = Teuchos::rcp(new LinearTerm);
-      auto summands = lt->summands();
-      for (auto summand : summands)
-      {
-        auto weight = summand.first;
-        auto var = summand.second;
-        if (var->op() == OP_VALUE)
-        {
-          continue; // skip this summand
-        }
-        else
-        {
-          revisedLT = revisedLT + weight * var;
-        }
-      }
-      if (revisedLT->summands().size() > 0)
-      {
-        steadyIP->addTerm(revisedLT);
-      }
-    }
-    // now, add boundary terms for each test function:
-    steadyIP->addBoundaryTerm(form->vc());
-    steadyIP->addBoundaryTerm(form->vm(1));
-    steadyIP->addBoundaryTerm(form->ve());
-    cout << "Using modified steady graph norm:\n";
-    steadyIP->printInteractions();
-    soln->setIP(steadyIP);
-    solnIncrement->setIP(steadyIP);
-    form->solutionPreviousTimeStep()->setIP(steadyIP);
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported norm choice");
   }
   
-  double finalTime = 0.08;
-  if (runSodInstead)
-  {
-    finalTime = 0.20;
-  }
+  double finalTime = 1.0;
   int numTimeSteps = spaceTime ? 1 : finalTime / dt; // run simulation to t = 0.08
   
   const double By_FACTOR = .01; // Should be 1.0.  Trying something else to see if we can solve an easier problem.
@@ -271,35 +221,65 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   double gamma = form->gamma();
   double c_v   = form->Cv();
   
-  double rho_a = 1.0; // prescribed density at left
-  double p_a   = 1.0; // prescribed pressure at left
-  double By_a  = 1.0 * By_FACTOR;
-  double Bz_a  = 0.0;
+  // set up initial conditions for 1D problem
+  auto rhoInitial       = Function::constant(1.0);
+  auto BParallel        = Function::constant(1.0);
+  auto BPerpendicular   = Function::constant(0.1);
+  auto direction        = Function::constant(1.0);
+  auto pressure         = Function::zero();
+  auto vParallel        = Function::zero();
   
-  double rho_b = 0.125;
-  double p_b   = 0.1;
-  double By_b  = -1.0 * By_FACTOR;
-  double Bz_b  = 0.0;
+  double x1size = 1.0;
+  double x2size = 0.0;
+  double x3size = 0.0;
   
-  double Bx_a = 0.75;
-  double Bx_b = 0.75;
+  double ang_3 = 0.0;
+  double sin_a3 = sin(ang_3);
+  double cos_a3 = cos(ang_3);
   
-  auto B_a = Function::vectorize(Function::constant(Bx_a), Function::constant(By_a), Function::constant(Bz_a));
-  auto B_b = Function::vectorize(Function::constant(Bx_b), Function::constant(By_b), Function::constant(Bz_b));
+  double ang_2 = 0.0;
+  double sin_a2 = sin(ang_2);
+  double cos_a2 = cos(ang_2);
+  /*ang_3 = atan(x1size/x2size);*/
+  /*ang_2 = atan(0.5*(x1size*cos_a3 + x2size*sin_a3)/x3size);*/
   
-  if (runSodInstead)
-  {
-    Bx_a = 0.0;
-    Bx_b = 0.0;
-    By_a = 0.0;
-    By_b = 0.0;
-  }
+  double x1 = x1size*cos_a2*cos_a3;
+  double x2 = x2size*cos_a2*sin_a3;
+  double x3 = x3size*sin_a2;
+  double lambda = x1;
+  double k_par = 2.0*PI/lambda;
   
-  double T_a   = p_a / (rho_a * (gamma - 1.) * c_v);
-  double T_b   = p_b / (rho_b * (gamma - 1.) * c_v);
+  FunctionPtr v_A            = BParallel      / Function::sqrtFunction(rhoInitial);
+  FunctionPtr vPerpendicular = BPerpendicular / Function::sqrtFunction(rhoInitial);
+  FunctionPtr fac            = direction;
   
-  double E_a   = c_v * rho_a * T_a; // + 0.5 * u dot u [ == 0]
-  double E_b   = c_v * rho_b * T_b; // + 0.5 * u dot u [ == 0]
+  FunctionPtr x = Function::xn(1);
+  FunctionPtr y = Function::zero(); // 1D // Function::yn(1);
+  FunctionPtr z = Function::zero(); // 1D // Function::zn(1);
+  
+  auto theta = cos_a2*(x*cos_a3 + y*sin_a3) + z*sin_a2;
+  auto sn = TrigFunctions<double>::sin(k_par*theta);
+  auto cs = fac*TrigFunctions<double>::cos(k_par*theta);
+  
+  auto Mx = rhoInitial*vParallel;
+  auto My = -fac*rhoInitial*vPerpendicular*sn;
+  auto Mz = -rhoInitial*vPerpendicular*cs;
+  
+  auto m1Initial = Mx*cos_a2*cos_a3 - My*sin_a3 - Mz*sin_a2*cos_a3;
+  auto m2Initial = Mx*cos_a2*sin_a3 + My*cos_a3 - Mz*sin_a2*sin_a3;
+  auto m3Initial = Mx*sin_a2                    + Mz*cos_a2;
+  auto vInitial = Function::vectorize(m1Initial / rhoInitial, m2Initial / rhoInitial, m3Initial / rhoInitial);
+  
+  auto bx = BParallel;
+  auto by = BPerpendicular*sn;
+  auto bz = BPerpendicular*cs;
+  
+  auto BxInitial = bx*cos_a2*cos_a3 - by*sin_a3 - bz*sin_a2*cos_a3;
+  auto ByInitial = bx*cos_a2*sin_a3 + by*cos_a3 - bz*sin_a2*sin_a3;
+  auto BzInitial = bx*sin_a2                    + bz*cos_a2;
+  auto BInitial  = Function::vectorize(BxInitial, ByInitial, BzInitial);
+  
+  auto EInitial = pressure / (gamma - 1.) + 0.5 * dot(3,vInitial,vInitial) + 0.5 * dot(3,BInitial,BInitial);
   
   double R  = form->R();
   double Cv = form->Cv();
@@ -309,65 +289,39 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     cout << "R =     " << R << endl;
     cout << "Cv =    " << Cv << endl;
     cout << "gamma = " << gamma << endl;
-    cout << "State on left:\n";
-    cout << "rho = " << rho_a << endl;
-    cout << "p   = " << p_a   << endl;
-    cout << "E   = " << E_a   << endl;
-    cout << "Bx  = " << Bx_a   << endl;
-    cout << "By  = " << By_a   << endl;
-    cout << "Bz  = " << Bz_a   << endl;
-    cout << "State on right:\n";
-    cout << "rho = " << rho_b << endl;
-    cout << "p   = " << p_b   << endl;
-    cout << "E   = " << E_b   << endl;
-    cout << "Bx  = " << Bx_b   << endl;
-    cout << "By  = " << By_b   << endl;
-    cout << "Bz  = " << Bz_b   << endl;
+    cout << "Initial State:\n";
+    cout << "rho = " << rhoInitial->displayString() << endl;
+    cout << "E   = " << EInitial->displayString()   << endl;
+    cout << "Bx  = " << BxInitial->displayString()  << endl;
+    cout << "By  = " << ByInitial->displayString()  << endl;
+    cout << "Bz  = " << BzInitial->displayString()  << endl;
   }
   
   FunctionPtr n = Function::normal();
   FunctionPtr n_x = n->x() * Function::sideParity();
   
   {
-    auto H_right = Function::heaviside((x_a + x_b)/2.0); // Heaviside is 0 left of center, 1 right of center
-    auto H_left  = 1.0 - H_right;  // this guy is 1 left of center, 0 right of center
-    auto step = [&](double val_a, double val_b)
-    {
-      return H_left * val_a + H_right * val_b;
-    };
-    
-    FunctionPtr rho = step(rho_a,rho_b);
-    FunctionPtr E   = step(E_a, E_b);
-    
     // for Ideal MHD, even in 1D, u is a vector, as is B
-    auto zero = Function::zero();
-    auto velocityVector = Function::vectorize(zero, zero, zero);
-    
-    auto Bx = runSodInstead ? zero : Function::constant(0.75);
-    auto By = step(By_a, By_b);
-    auto Bz = step(Bz_a, Bz_a);
-    auto BVector = Function::vectorize(Bx, By, Bz);
-    
-    form->setInitialCondition(rho, velocityVector, E, BVector);
-    if (spaceTime)
-    {
-      // have had some issues using the discontinuous initial guess for all time in Sod problem at least
-      // let's try something much more modest: just unit values for rho, E, B, zero for u
-      FunctionPtr one    = Function::constant(1.0);
-      FunctionPtr rhoOne = one;
-      FunctionPtr EOne   = one;
-      FunctionPtr BGuess;
-      if (!runSodInstead)
-      {
-        BGuess   = Function::vectorize(Bx, one, one);
-      }
-      else
-      {
-        BGuess   = Function::vectorize(zero, zero, zero);
-      }
-      auto initialGuess = form->exactSolutionFieldMap(rhoOne, velocityVector, EOne, BGuess);
-      form->setInitialState(initialGuess);
-    }
+    form->setInitialCondition(rhoInitial, vInitial, EInitial, BInitial);
+//    if (spaceTime)
+//    {
+//      // have had some issues using the discontinuous initial guess for all time in Sod problem at least
+//      // let's try something much more modest: just unit values for rho, E, B, zero for u
+//      FunctionPtr one    = Function::constant(1.0);
+//      FunctionPtr rhoOne = one;
+//      FunctionPtr EOne   = one;
+//      FunctionPtr BGuess;
+//      if (!runSodInstead)
+//      {
+//        BGuess   = Function::vectorize(Bx, one, one);
+//      }
+//      else
+//      {
+//        BGuess   = Function::vectorize(zero, zero, zero);
+//      }
+//      auto initialGuess = form->exactSolutionFieldMap(rhoOne, velocityVector, EOne, BGuess);
+//      form->setInitialState(initialGuess);
+//    }
   }
   
   auto & prevSolnMap = form->solutionPreviousTimeStepFieldMap();
@@ -415,11 +369,11 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   vector<string> functionNames = {"pressure","velocity","entropy change"};
   
   // history export gets every nonlinear increment as a separate step
-  HDF5Exporter solutionHistoryExporter(mesh, "brioWuSolutionHistory", ".");
-  HDF5Exporter solutionIncrementHistoryExporter(mesh, "brioWuSolutionIncrementHistory", ".");
+  HDF5Exporter solutionHistoryExporter(mesh, "cpAlfvenSolutionHistory", ".");
+  HDF5Exporter solutionIncrementHistoryExporter(mesh, "cpAlfvenSolutionIncrementHistory", ".");
   
   ostringstream solnName;
-  solnName << "brioWuSolution" << "_dt" << dt << "_k" << polyOrder;
+  solnName << "cpAlfvenSolution" << "_dt" << dt << "_k" << polyOrder;
   HDF5Exporter solutionExporter(mesh, solnName.str(), ".");
   
   solutionIncrementHistoryExporter.exportSolution(form->solutionIncrement(), 0.0);
@@ -440,27 +394,8 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   
   FunctionPtr zero = Function::zero();
   FunctionPtr one = Function::constant(1);
-  
-  if (rank == 0)
-  {
-    std::cout << "E_a = " << E_a << std::endl;
-    std::cout << "E_b = " << E_b << std::endl;
-  }
+
   auto velocityVector = Function::vectorize(Function::zero(), Function::zero(), Function::zero());
-  
-  auto Bx = Function::constant(0.75);
-  auto BVector_a = Function::vectorize(Bx, Function::constant(By_a), Function::constant(Bz_a));
-  auto BVector_b = Function::vectorize(Bx, Function::constant(By_b), Function::constant(Bz_b));
-  
-  //  (SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
-  form->addMassFluxCondition(          leftX, Function::constant(rho_a), velocityVector, Function::constant(E_a), BVector_a);
-  form->addMassFluxCondition(         rightX, Function::constant(rho_b), velocityVector, Function::constant(E_b), BVector_b);
-  form->addMomentumFluxCondition(      leftX, Function::constant(rho_a), velocityVector, Function::constant(E_a), BVector_a);
-  form->addMomentumFluxCondition(     rightX, Function::constant(rho_b), velocityVector, Function::constant(E_b), BVector_b);
-  form->addEnergyFluxCondition(        leftX, Function::constant(rho_a), velocityVector, Function::constant(E_a), BVector_a);
-  form->addEnergyFluxCondition(       rightX, Function::constant(rho_b), velocityVector, Function::constant(E_b), BVector_b);
-  form->addMagneticFluxCondition(      leftX, Function::constant(rho_a), velocityVector, Function::constant(E_a), BVector_a);
-  form->addMagneticFluxCondition(     rightX, Function::constant(rho_b), velocityVector, Function::constant(E_b), BVector_b);
   
   FunctionPtr rho = Function::solution(form->rho(), form->solution());
   FunctionPtr m   = mAbstract->evaluateAt(solnMap);
@@ -666,7 +601,7 @@ int main(int argc, char *argv[])
 {
   Teuchos::GlobalMPISession mpiSession(&argc, &argv); // initialize MPI
   
-  int meshWidth = 200;
+  int meshWidth = 32;
   int polyOrder = 2;
   int delta_k   = 3;
   bool useCondensedSolve = false; // condensed solve UNSUPPORTED for now; before turning this on, make sure the various Solution objects are all set to use this in a compatible way...
@@ -680,14 +615,9 @@ int main(int argc, char *argv[])
   double x_a   = -0.5;
   double x_b   = 0.5;
 
-  // h is about 1/400; max speed of sound is about 1.4; the speed during the solve gets up to about 1.8
-  // call the max characteristic speed about 4.0.
-  // the CFL condition then would suggest 1/1600 -- about 0.000625 -- as the maximum time step
-  double dt    = 0.0005; // time step
+  double dt    = 0.004; // time step
   
   bool enforceConservationUsingLagrangeMultipliers = false;
-  
-  bool runSodInstead = false;
   
   std::map<string, TestNormChoice> normChoices = {
     {"steadyGraph", STEADY_GRAPH_NORM},
@@ -705,7 +635,6 @@ int main(int argc, char *argv[])
   cmdp.setOption("deltaP", &delta_k);
   cmdp.setOption("nonlinearTol", &nonlinearTolerance);
   cmdp.setOption("enforceConservation", "dontEnforceConservation", &enforceConservationUsingLagrangeMultipliers);
-  cmdp.setOption("runSodInstead", "runBrioWu", &runSodInstead);
   cmdp.setOption("spaceTime","backwardEuler", &useSpaceTime);
   cmdp.setOption("temporalPolyOrder", &temporalPolyOrder);
   cmdp.setOption("temporalMeshWidth", &temporalMeshWidth);
@@ -730,17 +659,18 @@ int main(int argc, char *argv[])
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported norm choice");
   }
   
-  MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
+  bool periodicBCs = true;
+  MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth, periodicBCs);
   
-  double gamma = runSodInstead ? 1.4 : 2.0;
-  double finalTime = runSodInstead ? 0.20 : .08;
+  double gamma = 1.6667;
+  double finalTime = 1.0;
   
   Teuchos::RCP<IdealMHDFormulation> form;
   if (useSpaceTime)
   {
-    cout << "*********************************************************************************************************** \n";
-    cout << "****** SPACE-TIME NOTE: to date, we haven't had much luck with space-time for Brio-Wu or Euler/Sod. ******* \n";
-    cout << "*********************************************************************************************************** \n";
+    cout << "****************************************************************************************** \n";
+    cout << "****** SPACE-TIME NOTE: to date, we haven't tried space-time for CP Alfven waves. ******** \n";
+    cout << "****************************************************************************************** \n";
     double t0 = 0.0;
     double t1 = finalTime;
     if (temporalMeshWidth == -1)
@@ -756,5 +686,5 @@ int main(int argc, char *argv[])
   }
 
   return runSolver(form, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,
-                   nonlinearTolerance, normChoice, enforceConservationUsingLagrangeMultipliers, runSodInstead, useSpaceTime);
+                   nonlinearTolerance, normChoice, enforceConservationUsingLagrangeMultipliers, useSpaceTime);
 }

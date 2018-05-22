@@ -517,7 +517,7 @@ MeshPtr MeshFactory::intervalMesh(TBFPtr<double> bf, double xLeft, double xRight
   return Teuchos::rcp( new Mesh(meshTopology, bf, H1Order, delta_k) );
 }
 
-MeshTopologyPtr MeshFactory::intervalMeshTopology(double xLeft, double xRight, int numElements)
+MeshTopologyPtr MeshFactory::intervalMeshTopology(double xLeft, double xRight, int numElements, bool usePeriodicBCs)
 {
   int n = numElements;
   vector< vector<double> > vertices(n+1);
@@ -541,7 +541,14 @@ MeshTopologyPtr MeshFactory::intervalMeshTopology(double xLeft, double xRight, i
   vector< CellTopoPtr > cellTopos(numElements, topo);
   MeshGeometryPtr geometry = Teuchos::rcp( new MeshGeometry(vertices, elementVertices, cellTopos));
 
-  MeshTopologyPtr meshTopology = Teuchos::rcp( new MeshTopology(geometry) );
+  std::vector<PeriodicBCPtr> periodicBCs;
+  if (usePeriodicBCs)
+  {
+    auto bc = PeriodicBC::xIdentification(xLeft, xRight);
+    periodicBCs.push_back(bc);
+  }
+  
+  MeshTopologyPtr meshTopology = Teuchos::rcp( new MeshTopology(geometry, periodicBCs) );
   return meshTopology;
 }
 

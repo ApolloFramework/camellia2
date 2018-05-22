@@ -77,7 +77,7 @@ public:
   
   static MeshPtr intervalMesh(TBFPtr<double> bf, double xLeft, double xRight, int numElements, int H1Order, int delta_k); // 1D equispaced
 
-  static MeshTopologyPtr intervalMeshTopology(double xLeft, double xRight, int numElements); // 1D equispaced
+  static MeshTopologyPtr intervalMeshTopology(double xLeft, double xRight, int numElements, bool periodicBCs=false); // 1D equispaced
 
   static MeshPtr minRuleMesh(MeshTopologyPtr meshTopo, TBFPtr<double> bf, int H1Order, int delta_k,  Epetra_CommPtr Comm = Teuchos::null);
   

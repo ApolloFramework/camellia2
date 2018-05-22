@@ -1,0 +1,8 @@
+project(CircularlyPolarizedAlfvenWave)
+
+set( CIRCULARLY_POLARIZED_ALFVEN_WAVE_EXAMPLE "CircularlyPolarizedAlfvenWaveExample.cpp" )
+
+add_executable(CircularlyPolarizedAlfvenWaveExample ${CIRCULARLY_POLARIZED_ALFVEN_WAVE_EXAMPLE})
+target_link_libraries(CircularlyPolarizedAlfvenWaveExample
+  Camellia
+)

@@ -123,5 +123,12 @@ public:
   std::string displayString();
 };
 
+  template<class Scalar>
+  class TrigFunctions
+  {
+  public:
+    static TFunctionPtr<Scalar> sin(TFunctionPtr<Scalar> argument);
+    static TFunctionPtr<Scalar> cos(TFunctionPtr<Scalar> argument);
+  };
 }
 #endif
