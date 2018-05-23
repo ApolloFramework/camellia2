@@ -297,7 +297,14 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     _momentumFlux = outerProduct(trueSpaceDim, u, m) + p_star * I - outerProduct(trueSpaceDim, B, B);
     _energyFlux   = (E + p_star) * u - B * dot(trueSpaceDim,B,u);
     _magneticFlux = outerProduct(trueSpaceDim, u, B) - outerProduct(trueSpaceDim, B, u);
-    _gaussFlux    = B; // only used for spaceDim > 1
+    if (spaceDim == 2)
+    {
+      _gaussFlux    = Function::vectorize(B->spatialComponent(1), B->spatialComponent(2)); // in 2D, the d/dz part falls away by definition -- but VectorizedFunction gets upset if we have the Bz component there anyway...
+    }
+    else if (spaceDim == 3)
+    {
+      _gaussFlux    = B; // only used for spaceDim > 1
+    }
     
     if (_spaceDim == 1)
     {
@@ -466,6 +473,7 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   
   // DEBUGGING
   cout << "bf: " << _bf->displayString() << endl;
+  cout << "rhs: " << _rhs->linearTerm()->displayString() << endl;
   
   vector<VarPtr> missingTestVars = _bf->missingTestVars();
   vector<VarPtr> missingTrialVars = _bf->missingTrialVars();
