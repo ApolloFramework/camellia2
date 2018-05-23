@@ -42,6 +42,12 @@ GlobalDofAssignment::GlobalDofAssignment(MeshPtr mesh, VarFactoryPtr varFactory,
   _testOrderEnhancement = testOrderEnhancement;
   _enforceConformityLocally = enforceConformityLocally;
   
+  // For now, disallow mesh topology pruning (aka properly distributed MeshTopology) when periodicBCs are present
+  if (mesh->getTopology()->getPeriodicBCs().size() > 0)
+  {
+    _allowMeshTopologyPruning = false;
+  }
+  
   Epetra_CommPtr Comm = _mesh->getTopology()->Comm();
   
   if (_mesh->getTopology()->Comm() != Teuchos::null)
@@ -138,6 +144,8 @@ GlobalDofAssignment::GlobalDofAssignment( GlobalDofAssignment &otherGDA ) : DofI
 
   _numPartitions = otherGDA._numPartitions;
 
+  _allowMeshTopologyPruning = otherGDA._allowMeshTopologyPruning;
+  
   // we leave _registeredSolutions empty
   ///_registeredSolutions;
 }
