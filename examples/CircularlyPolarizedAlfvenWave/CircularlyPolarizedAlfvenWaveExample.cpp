@@ -164,6 +164,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
               bool spaceTime)
 {
   MeshPtr mesh = form->solutionIncrement()->mesh();
+  int spaceDim = mesh->getDimension();
   
   if (enforceConservationUsingLagrangeMultipliers)
   {
@@ -186,9 +187,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   }
   
   double finalTime = 1.0;
-  int numTimeSteps = spaceTime ? 1 : finalTime / dt; // run simulation to t = 0.08
-  
-  const double By_FACTOR = .01; // Should be 1.0.  Trying something else to see if we can solve an easier problem.
+  int numTimeSteps = spaceTime ? 1 : finalTime / dt;
   
   if (rank == 0)
   {
@@ -205,10 +204,6 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     else
     {
       cout << meshWidth << " elements; " << numTimeSteps << " timesteps.\n";
-    }
-    if (By_FACTOR != 1.0)
-    {
-      cout << "NOTE: SOLVING MODIFIED PROBLEM: multiplying By initial conditions by " << By_FACTOR << endl;
     }
   }
   
@@ -229,33 +224,82 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   auto pressure         = Function::zero();
   auto vParallel        = Function::zero();
   
-  double x1size = 1.0;
-  double x2size = 0.0;
-  double x3size = 0.0;
-  
-  double ang_3 = 0.0;
-  double sin_a3 = sin(ang_3);
-  double cos_a3 = cos(ang_3);
-  
-  double ang_2 = 0.0;
-  double sin_a2 = sin(ang_2);
-  double cos_a2 = cos(ang_2);
-  /*ang_3 = atan(x1size/x2size);*/
-  /*ang_2 = atan(0.5*(x1size*cos_a3 + x2size*sin_a3)/x3size);*/
+  double x1size, x2size, x3size;
+  double sin_a2, cos_a2;
+  double sin_a3, cos_a3;
+  double ang_2, ang_3;
+  if (spaceDim == 1)
+  {
+    x1size = 1.0;
+    x2size = 0.0;
+    x3size = 0.0;
+    ang_2  = 0.0;
+    ang_3  = 0.0;
+    
+    sin_a2 = sin(ang_2);
+    cos_a2 = cos(ang_2);
+    
+    sin_a3 = sin(ang_3);
+    cos_a3 = cos(ang_3);
+  }
+  else if (spaceDim == 2)
+  {
+    x1size = 2.2360680;
+    x2size = 1.1180399;
+    x3size = 1.0;
+    ang_3 = atan(x1size/x2size);
+    sin_a3 = sin(ang_3);
+    cos_a3 = cos(ang_3);
+    
+    ang_2 = atan(0.5*(x1size*cos_a3 + x2size*sin_a3)/x3size);
+    
+    sin_a2 = 0.0;
+    cos_a2 = 1.0;
+  }
+  else // (spaceDim == 3)
+  {
+    x1size = 3.0;
+    x2size = 1.5;
+    x3size = 1.5;
+    ang_3 = atan(x1size/x2size);
+    sin_a3 = sin(ang_3);
+    cos_a3 = cos(ang_3);
+    
+    ang_2 = atan(0.5*(x1size*cos_a3 + x2size*sin_a3)/x3size);
+    sin_a2 = sin(ang_2);
+    cos_a2 = cos(ang_2);
+  }
   
   double x1 = x1size*cos_a2*cos_a3;
   double x2 = x2size*cos_a2*sin_a3;
-  double x3 = x3size*sin_a2;
+//  double x3 = x3size*sin_a2; // x3 is unused in any dimension...
   double lambda = x1;
+  if ((spaceDim > 1) && (x2 < x1)) {
+    lambda = x2;
+  }
   double k_par = 2.0*PI/lambda;
   
   FunctionPtr v_A            = BParallel      / Function::sqrtFunction(rhoInitial);
   FunctionPtr vPerpendicular = BPerpendicular / Function::sqrtFunction(rhoInitial);
   FunctionPtr fac            = direction;
   
-  FunctionPtr x = Function::xn(1);
-  FunctionPtr y = Function::zero(); // 1D // Function::yn(1);
-  FunctionPtr z = Function::zero(); // 1D // Function::zn(1);
+  FunctionPtr x,y,z;
+  x = Function::xn(1);
+  if (spaceDim == 1)
+  {
+    y = Function::zero();
+    z = Function::zero();
+  }
+  else if (spaceDim == 2)
+  {
+    y = Function::yn(1);
+    z = Function::zero();
+  }
+  else if (spaceDim == 3)
+  {
+    y = Function::yn(1);
+    z = Function::zn(1);
+  }
   
   auto theta = cos_a2*(x*cos_a3 + y*sin_a3) + z*sin_a2;
   auto sn = TrigFunctions<double>::sin(k_par*theta);
@@ -274,9 +318,19 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   auto by = BPerpendicular*sn;
   auto bz = BPerpendicular*cs;
   
-  auto BxInitial = bx*cos_a2*cos_a3 - by*sin_a3 - bz*sin_a2*cos_a3;
-  auto ByInitial = bx*cos_a2*sin_a3 + by*cos_a3 - bz*sin_a2*sin_a3;
-  auto BzInitial = bx*sin_a2                    + bz*cos_a2;
+  FunctionPtr BxInitial, ByInitial, BzInitial;
+  if (spaceDim == 1)
+  {
+    BxInitial = bx*cos_a2*cos_a3 + by*sin_a3 + bz*sin_a2*cos_a3; // signs for 2nd, 3rd terms reversed from 1D input deck -- trust 2D input deck for these
+    ByInitial = bx*cos_a2*sin_a3 - by*cos_a3 + bz*sin_a2*sin_a3; // signs for 2nd, 3rd terms reversed from 1D input deck -- trust 2D input deck for these
+    BzInitial = bx*sin_a2                    - bz*cos_a2;        // signs for last term reversed from 1D input deck -- trust 2D input deck for these
+  }
+  else
+  {
+    BxInitial = bx*cos_a2*cos_a3 + by*sin_a3 + bz*sin_a2*cos_a3; // signs for 2nd, 3rd terms reversed from 1D input deck -- trust 2D input deck for these
+    ByInitial = bx*cos_a2*sin_a3 - by*cos_a3 + bz*sin_a2*sin_a3; // signs for 2nd, 3rd terms reversed from 1D input deck -- trust 2D input deck for these
+    BzInitial = bx*sin_a2                    - bz*cos_a2;        // signs for last term reversed from 1D input deck -- trust 2D input deck for these
+  }
   auto BInitial  = Function::vectorize(BxInitial, ByInitial, BzInitial);
   
   auto EInitial = pressure / (gamma - 1.) + 0.5 * dot(3,vInitial,vInitial) + 0.5 * dot(3,BInitial,BInitial);
@@ -592,7 +646,22 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   functionsToPlot.push_back(rho);
   functionNames.push_back("density");
   
-  writeFunctions(mesh, meshWidth, polyOrder, x_a, functionsToPlot, functionNames, solnName.str());
+  if (spaceDim == 1)
+  {
+    writeFunctions(mesh, meshWidth, polyOrder, x_a, functionsToPlot, functionNames, solnName.str());
+  }
+  
+  // output error in By:
+  FunctionPtr ByFinal = Function::solution(form->B(2), form->solution());
+  FunctionPtr err_By  = ByFinal - ByInitial;
+  double err_By_L2 = err_By->l2norm(mesh);
+  double err_By_L1 = err_By->l1norm(mesh);
+  
+  if (rank == 0)
+  {
+    cout << "Final L^1 error of By: " << err_By_L1 << endl;
+    cout << "Final L^2 error of By: " << err_By_L2 << endl;
+  }
   
   return 0;
 }
@@ -603,7 +672,7 @@ int main(int argc, char *argv[])
   
   int meshWidth = 32;
   int polyOrder = 2;
-  int delta_k   = 3;
+  int delta_k   = 1;
   bool useCondensedSolve = false; // condensed solve UNSUPPORTED for now; before turning this on, make sure the various Solution objects are all set to use this in a compatible way...
   int spaceDim = 1;
   int cubatureEnrichment = 3 * polyOrder; // there are places in the strong, nonlinear equations where 4 variables multiplied together.  Therefore we need to add 3 variables' worth of quadrature to the simple test v. trial quadrature.
@@ -630,7 +699,8 @@ int main(int argc, char *argv[])
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
   
   cmdp.setOption("polyOrder", &polyOrder);
-  cmdp.setOption("meshWidth", &meshWidth);
+  cmdp.setOption("meshWidth", &meshWidth); // x mesh width; y width will be 1/2 this in 2D
+  cmdp.setOption("spaceDim",  &spaceDim);
   cmdp.setOption("dt", &dt);
   cmdp.setOption("deltaP", &delta_k);
   cmdp.setOption("nonlinearTol", &nonlinearTolerance);
@@ -660,7 +730,46 @@ int main(int argc, char *argv[])
   }
   
   bool periodicBCs = true;
-  MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth, periodicBCs);
+  MeshTopologyPtr meshTopo;
+  if (spaceDim == 1)
+  {
+    meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth, periodicBCs);
+  }
+  else if (spaceDim == 2)
+  {
+    double width  = 2.2360680;
+    double height = 1.1180399;
+    double x0     = 0.0;
+    double y0     = 0.0;
+    int horizontalElements = meshWidth;
+    int verticalElements   = meshWidth / 2;
+    bool divideIntoTriangles = false;
+    vector<PeriodicBCPtr> periodicBCs;
+    periodicBCs.push_back(PeriodicBC::xIdentification(x0, width));
+    periodicBCs.push_back(PeriodicBC::yIdentification(y0, height));
+    meshTopo = MeshFactory::quadMeshTopology(width, height, horizontalElements, verticalElements, divideIntoTriangles,
+                                             x0, y0, periodicBCs);
+  }
+  else if (spaceDim == 3)
+  {
+    double width  = 3.0;
+    double height = 1.5;
+    double depth  = 1.5;
+    vector<double> meshDims = {width,height,depth};
+    double x0     = 0.0;
+    double y0     = 0.0;
+    double z0     = 0.0;
+    vector<double> meshOrigin = {x0,y0,z0};
+    int horizontalElements = meshWidth;
+    int verticalElements   = meshWidth / 2;
+    int depthElements      = meshWidth / 2;
+    vector<int> elementCounts = {horizontalElements, verticalElements, depthElements};
+    vector<PeriodicBCPtr> periodicBCs;
+    periodicBCs.push_back(PeriodicBC::xIdentification(x0, width));
+    periodicBCs.push_back(PeriodicBC::yIdentification(y0, height));
+    periodicBCs.push_back(PeriodicBC::zIdentification(z0, depth));
+    meshTopo = MeshFactory::rectilinearMeshTopology(meshDims, elementCounts, meshOrigin, periodicBCs);
+  }
   
   double gamma = 1.6667;
   double finalTime = 1.0;
