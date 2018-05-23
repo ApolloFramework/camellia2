@@ -117,6 +117,7 @@ void VectorizedFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values
     {
       if (!_fxns[i]->isZero())
       {
+        cout << this->displayString() << ": error during value computation: _fxns outnumber components and some of those extra Functions aren't zero!\n";
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "_fxns outnumber components and some of those extra Functions aren't zero!");
       }
     }
