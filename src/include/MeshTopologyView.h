@@ -40,6 +40,7 @@
 namespace Camellia {
   
   class MeshTransformationFunction;
+  class PeriodicBC;
 
   class MeshTopologyView
   {
@@ -151,6 +152,8 @@ namespace Camellia {
     
     //! AllGather MeshTopology info, including only the cells indicated and their ancestors, and create a new non-distributed copy on each rank.
     virtual MeshTopologyPtr getGatheredCopy(const std::set<IndexType> &cellsToInclude) const;
+    
+    virtual const std::vector< Teuchos::RCP<PeriodicBC> > & getPeriodicBCs() const;
     
     void printAllEntitiesInBaseMeshTopology() const;
     

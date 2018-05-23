@@ -1428,6 +1428,11 @@ vector<IndexType> MeshTopology::getBoundarySidesThatMatch(SpatialFilterPtr spati
   return matchingSides;
 }
 
+const std::vector<PeriodicBCPtr> & MeshTopology::getPeriodicBCs() const
+{
+  return _periodicBCs;
+}
+
 void MeshTopology::deactivateCell(CellPtr cell)
 {
   //  cout << "deactivating cell " << cell->cellIndex() << endl;

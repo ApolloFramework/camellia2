@@ -275,6 +275,8 @@ public:
                       unsigned dimForNeighborRelation);
   // ! Returns a counter, incremented when pruneToInclude was last called.  Allows caching of things that depend on ownedCellIndices (used in MeshTopologyView's determination of *its* ownedCellIndices).
   int pruningOrdinal() const;
+  
+  virtual const std::vector<PeriodicBCPtr> & getPeriodicBCs() const;
 
   // ! Generates a transformation function if edge-to-curve map has been set.  Particularly useful for cases where a null Mesh was previously provided, resulting in a null transformation function.
   void initializeTransformationFunction(MeshPtr mesh);

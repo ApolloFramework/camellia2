@@ -911,6 +911,11 @@ const set<IndexType> &MeshTopologyView::getMyActiveCellIndices() const
   return _ownedCellIndices;
 }
 
+const std::vector<PeriodicBCPtr> & MeshTopologyView::getPeriodicBCs() const
+{
+  return _meshTopo->getPeriodicBCs();
+}
+
 const set<IndexType> & MeshTopologyView::getRootCellIndicesLocal() const
 {
   return _rootCells;
