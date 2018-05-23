@@ -78,6 +78,7 @@ public:
   static MeshPtr intervalMesh(TBFPtr<double> bf, double xLeft, double xRight, int numElements, int H1Order, int delta_k); // 1D equispaced
 
   static MeshTopologyPtr intervalMeshTopology(double xLeft, double xRight, int numElements, bool periodicBCs=false); // 1D equispaced
+  static MeshTopologyPtr intervalMeshTopology(double xLeft, double xRight, int numElements, vector<PeriodicBCPtr> periodicBCs);
 
   static MeshPtr minRuleMesh(MeshTopologyPtr meshTopo, TBFPtr<double> bf, int H1Order, int delta_k,  Epetra_CommPtr Comm = Teuchos::null);
   
@@ -118,7 +119,8 @@ public:
                                  Epetra_CommPtr Comm = Teuchos::null);
 
   static MeshTopologyPtr rectilinearMeshTopology(vector<double> dimensions, vector<int> elementCounts,
-      vector<double> x0 = vector<double>());
+                                                 vector<double> x0 = vector<double>(),
+                                                 vector<PeriodicBCPtr> periodicBCs = vector<PeriodicBCPtr>());
 
   static MeshPtr readMesh(string filePath, TBFPtr<double> bilinearForm, int H1Order, int pToAdd);
 
