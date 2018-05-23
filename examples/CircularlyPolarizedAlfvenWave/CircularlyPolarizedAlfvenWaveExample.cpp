@@ -189,27 +189,42 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   double finalTime = 1.0;
   int numTimeSteps = spaceTime ? 1 : finalTime / dt;
   
+  int fieldDofCount = mesh->numFieldDofs(); // MPI-communicating method
+  int traceDofCount = mesh->numFluxDofs();  // MPI-communicating method
+  int totalDofCount = fieldDofCount + traceDofCount;
   if (rank == 0)
   {
     using namespace std;
     cout << "Solving with:\n";
     cout << "p  = " << polyOrder << endl;
     cout << "dt = " << dt << endl;
+    int totalElements = mesh->numActiveElements();
     if (spaceTime)
     {
-      int totalElements = mesh->numActiveElements();
-      int temporalElements = totalElements / meshWidth;
-      cout << meshWidth << " spatial elements; " << temporalElements << " temporal divisions.\n";
+      int spatialElements = meshWidth;
+      for (int d=1; d<spaceDim; d++)
+      {
+        spatialElements *= meshWidth/2;
+      }
+      
+      int temporalElements = totalElements / spatialElements;
+      cout << spatialElements << " spatial elements; " << temporalElements << " temporal divisions.\n";
     }
     else
     {
-      cout << meshWidth << " elements; " << numTimeSteps << " timesteps.\n";
+      cout << totalElements << " elements; " << numTimeSteps << " timesteps.\n";
     }
+    cout << totalDofCount << " total degrees of freedom (" << fieldDofCount << " volumetric; " << traceDofCount << " on mesh skeleton).\n";
   }
   
   form->setTimeStep(dt);
   solnIncrement->setUseCondensedSolve(useCondensedSolve);
   solnIncrement->setCubatureEnrichmentDegree(cubatureEnrichment);
+  soln->setUseCondensedSolve(useCondensedSolve);
+  if (!spaceTime)
+  {
+    solnPreviousTime->setUseCondensedSolve(useCondensedSolve);
+  }
 //  solnIncrement->setWriteMatrixToMatrixMarketFile(true, "/tmp/A.dat");
 //  solnIncrement->setWriteRHSToMatrixMarketFile(   true, "/tmp/b.dat");
   
@@ -648,6 +663,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   
   if (spaceDim == 1)
   {
+    // writeFunctions assumes 1D.  For now, it's probably not too useful to output these things for spaceDim > 1…
     writeFunctions(mesh, meshWidth, polyOrder, x_a, functionsToPlot, functionNames, solnName.str());
   }
   
@@ -673,7 +689,7 @@ int main(int argc, char *argv[])
   int meshWidth = 32;
   int polyOrder = 2;
   int delta_k   = 1;
-  bool useCondensedSolve = false; // condensed solve UNSUPPORTED for now; before turning this on, make sure the various Solution objects are all set to use this in a compatible way...
+  bool useCondensedSolve = true;
   int spaceDim = 1;
   int cubatureEnrichment = 3 * polyOrder; // there are places in the strong, nonlinear equations where 4 variables multiplied together.  Therefore we need to add 3 variables' worth of quadrature to the simple test v. trial quadrature.
   double nonlinearTolerance    = 1e-2;
@@ -705,6 +721,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("deltaP", &delta_k);
   cmdp.setOption("nonlinearTol", &nonlinearTolerance);
   cmdp.setOption("enforceConservation", "dontEnforceConservation", &enforceConservationUsingLagrangeMultipliers);
+  cmdp.setOption("useCondensedSolve", "useStandardSolve", &useCondensedSolve);
   cmdp.setOption("spaceTime","backwardEuler", &useSpaceTime);
   cmdp.setOption("temporalPolyOrder", &temporalPolyOrder);
   cmdp.setOption("temporalMeshWidth", &temporalMeshWidth);
