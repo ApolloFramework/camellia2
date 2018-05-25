@@ -75,25 +75,25 @@ int main(int argc, char *argv[])
   }
 
   //////////////////////   DECLARE VARIABLES   ////////////////////////
-  VarFactory vf;
+  VarFactoryPtr vf = VarFactory::varFactory();
   // trials:
-  VarPtr w       = vf.fieldVar("w", L2);
-  VarPtr u       = vf.fieldVar("u", VECTOR_L2);
-  VarPtr sigma11 = vf.fieldVar("\\sigma_{11}", L2);
-  VarPtr sigma12 = vf.fieldVar("\\sigma_{12}", L2);
-  VarPtr sigma22 = vf.fieldVar("\\sigma_{22}", L2);
+  VarPtr w       = vf->fieldVar("w", L2);
+  VarPtr u       = vf->fieldVar("u", VECTOR_L2);
+  VarPtr sigma11 = vf->fieldVar("\\sigma_{11}", L2);
+  VarPtr sigma12 = vf->fieldVar("\\sigma_{12}", L2);
+  VarPtr sigma22 = vf->fieldVar("\\sigma_{22}", L2);
 
   // traces:
-  VarPtr u1hat = vf.traceVar("\\hat{u_1}");
-  VarPtr u2hat = vf.traceVar("\\hat{u_2}");
-  VarPtr t1hat = vf.fluxVar("\\hat{t_1}");
-  VarPtr t2hat = vf.fluxVar("\\hat{t_2}");
+  VarPtr u1hat = vf->traceVar("\\hat{u_1}");
+  VarPtr u2hat = vf->traceVar("\\hat{u_2}");
+  VarPtr t1hat = vf->fluxVar("\\hat{t_1}");
+  VarPtr t2hat = vf->fluxVar("\\hat{t_2}");
 
   // tests:
-  VarPtr tau1 = vf.testVar("\\tau_1", HDIV);
-  VarPtr tau2 = vf.testVar("\\tau_2", HDIV);
-  VarPtr v1   = vf.testVar("v_1", HGRAD);
-  VarPtr v2   = vf.testVar("v_2", HGRAD);
+  VarPtr tau1 = vf->testVar("\\tau_1", HDIV);
+  VarPtr tau2 = vf->testVar("\\tau_2", HDIV);
+  VarPtr v1   = vf->testVar("v_1", HGRAD);
+  VarPtr v2   = vf->testVar("v_2", HGRAD);
 
   ////////////////    MISCELLANEOUS LOCAL VARIABLES    ////////////////
 

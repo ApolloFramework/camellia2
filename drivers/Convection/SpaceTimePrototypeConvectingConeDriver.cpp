@@ -21,8 +21,11 @@
 #endif
 
 #include "MeshTransferFunction.h"
+#include "SimpleFunction.h"
 
-class Cone_U0 : public SimpleFunction
+using namespace Camellia;
+
+class Cone_U0 : public SimpleFunction<double>
 {
   double _r; // cone radius
   double _h; // height
@@ -48,7 +51,7 @@ public:
       if (y > 0.5) y = y - 1;
     }
     double d = sqrt( (x-_x0) * (x-_x0) + (y-_y0) * (y-_y0) );
-    double u = max(0.0, _h * (1 - d/_r));
+    double u = std::max(0.0, _h * (1 - d/_r));
 
     return u;
   }
@@ -161,15 +164,15 @@ int main(int argc, char *argv[])
 
   int H1Order = k + 1;
 
-  VarFactory varFactory;
+  VarFactoryPtr varFactory = VarFactory::varFactory();
   // traces:
-  VarPtr qHat = varFactory.fluxVar("\\widehat{q}");
+  VarPtr qHat = varFactory->fluxVar("\\widehat{q}");
 
   // fields:
-  VarPtr u = varFactory.fieldVar("u", L2);
+  VarPtr u = varFactory->fieldVar("u", L2);
 
   // test functions:
-  VarPtr v = varFactory.testVar("v", HGRAD);
+  VarPtr v = varFactory->testVar("v", HGRAD);
 
   FunctionPtr x = Function::xn(1);
   FunctionPtr y = Function::yn(1);
@@ -235,7 +238,7 @@ int main(int argc, char *argv[])
   origin[1] = y0;
   origin[2] = t0;
 
-  Teuchos::RCP<Solver> solver = Teuchos::rcp( new KluSolver );
+  Teuchos::RCP<Solver> solver = Solver::getDirectSolver();
 
 #ifdef HAVE_AMESOS_MUMPS
   if (useMumpsIfAvailable) solver = Teuchos::rcp( new MumpsSolver );
@@ -357,7 +360,7 @@ int main(int argc, char *argv[])
       ostringstream dir_name;
       dir_name << "spacetime_convectingCone_k" << k << "_t" << timeSlab;
       HDF5Exporter exporter(soln->mesh(),dir_name.str());
-      exporter.exportSolution(soln, varFactory);
+      exporter.exportSolution(soln);
 
       if (rank==0) cout << "Exported HDF solution for time slab to directory " << dir_name.str() << endl;
 //      string u_name = "u_spacetime";

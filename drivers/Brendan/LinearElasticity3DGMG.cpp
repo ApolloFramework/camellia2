@@ -346,9 +346,9 @@ int main(int argc, char *argv[])
     vector<double> V7 = {0,1,1};
 
     vector< vector<double> > vertices = {V0,V1,V2,V3,V4,V5,V6,V7};
-    vector<unsigned> hexVertexList = {0,1,2,3,4,5,6,7};
+    vector<IndexType> hexVertexList = {0,1,2,3,4,5,6,7};
 
-    vector< vector<unsigned> > elementVertices;
+    vector< vector<IndexType> > elementVertices;
     elementVertices.push_back(hexVertexList);
 
     vector< CellTopoPtr > cellTopos;
@@ -373,7 +373,7 @@ int main(int argc, char *argv[])
     soln = Solution::load(bf, filePrefix.str());
     mesh = soln->mesh();
 
-    MeshTopologyPtr meshTopo = mesh->getTopology();
+    MeshTopologyViewPtr meshTopo = mesh->getTopology();
     k0Mesh = Teuchos::rcp( new Mesh (meshTopo->deepCopy(), bf, 1, delta_k) );
     mesh->registerObserver(k0Mesh);
 
