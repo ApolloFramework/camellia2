@@ -217,10 +217,10 @@ namespace
         int entriesExtracted;
         feMatrix->ExtractMyRowCopy(LID, entryCount, entriesExtracted, &myEntries[0], &myLIDs[0]);
         
-//        cout << "entry for cell " << myCellID << ":\n";
+        //        cout << "entry for cell " << myCellID << ":\n";
         for (int i=0; i<entriesExtracted; i++)
         {
-//          cout << "LID " << myLIDs[i] << ": " << myEntries[i] << endl;
+          //          cout << "LID " << myLIDs[i] << ": " << myEntries[i] << endl;
           int LID = myLIDs[i];
           out << "LID = " << LID << endl;
           double expectedValue = 0.0;
@@ -233,7 +233,7 @@ namespace
         
         int solutionOrdinal = 0;
         double rhsValue = (*(*load)(solutionOrdinal))[LID];
-//        cout << "Value: " << rhsValue << endl;
+        //        cout << "Value: " << rhsValue << endl;
         
         double expectedRHSValue = h; // integral of 1 over element
         TEST_FLOATING_EQUALITY(expectedRHSValue, rhsValue, tol);

@@ -1,4 +1,11 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.1)
+
+set (CMAKE_CXX_STANDARD 11)
+
+# Fix behavior of CMAKE_CXX_STANDARD when targeting macOS.
+if (POLICY CMP0025)
+  cmake_policy(SET CMP0025 NEW)
+endif ()
 
 # Set TARGET_SUPPORTS_SHARED_LIBS -- otherwise problems building shared libs on Macs (at least)
 SET_PROPERTY(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)
@@ -166,18 +173,21 @@ IF(NOT BUILD_SHARED_LIBS)
   SET(BUILD_SHARED_LIBS ${Trilinos_BUILD_SHARED_LIBS})
 ENDIF()
 
+option(ENABLE_MOAB "Look for MOAB in the path specified by MOAB_PATH" OFF)
 # Find MOAB
-find_package(MOAB PATHS ${MOAB_PATH}/lib)
+if (ENABLE_MOAB)
+  find_package(MOAB PATHS ${MOAB_PATH}/lib)
 
-if (MOAB_FOUND)
-  ADD_DEFINITIONS(-DHAVE_MOAB)
-  include_directories(
-    ${MOAB_INCLUDE_DIRS}
-  )
-  SET(ADDITIONAL_LIBRARIES ${ADDITIONAL_LIBRARIES} ${MOAB_LIBRARIES})
-else()
-  MESSAGE("MOAB not found; MOAB_PATH = ${MOAB_PATH}.")
-endif(MOAB_FOUND)
+  if (MOAB_FOUND)
+    ADD_DEFINITIONS(-DHAVE_MOAB)
+    include_directories(
+      ${MOAB_INCLUDE_DIRS}
+    )
+    SET(ADDITIONAL_LIBRARIES ${ADDITIONAL_LIBRARIES} ${MOAB_LIBRARIES})
+  else()
+    MESSAGE("MOAB not found; MOAB_PATH = ${MOAB_PATH}.")
+  endif(MOAB_FOUND)
+endif(ENABLE_MOAB)
 
 project(Camellia)
 
