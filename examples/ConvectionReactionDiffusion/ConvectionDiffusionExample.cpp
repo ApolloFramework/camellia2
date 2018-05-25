@@ -843,7 +843,8 @@ int main(int argc, char *argv[])
   SolutionPtr bestSolution = Solution::solution(bf, mesh, bc, rhs, ip);
   bestSolution->setCubatureEnrichmentDegree(quadratureEnrichment);
   map<int,FunctionPtr> exactSolutionMap = {{form.u()->ID(), u_exact}};
-  bestSolution->projectOntoMesh(exactSolutionMap);
+  int solutionOrdinal = 0;
+  bestSolution->projectOntoMesh(exactSolutionMap, solutionOrdinal);
   FunctionPtr u_best = Function::solution(form.u(), bestSolution);
   
   ostringstream matrixFileName;
@@ -1055,8 +1056,9 @@ int main(int argc, char *argv[])
   {
     GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
     GlobalIndexType numActiveElements = mesh->numActiveElements();
-    
-    bestSolution->projectOntoMesh(exactSolutionMap);
+
+    int solutionOrdinal = 0;
+    bestSolution->projectOntoMesh(exactSolutionMap, solutionOrdinal);
     bestErrL2 = (u_best - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
     
     
@@ -1239,8 +1241,8 @@ int main(int argc, char *argv[])
   
   GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
   GlobalIndexType numActiveElements = mesh->numActiveElements();
-
-  bestSolution->projectOntoMesh(exactSolutionMap);
+  
+  bestSolution->projectOntoMesh(exactSolutionMap, solutionOrdinal);
   bestErrL2 = (u_best - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
   errL2 = (u_soln - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
   
