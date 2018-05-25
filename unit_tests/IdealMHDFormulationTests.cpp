@@ -1042,7 +1042,7 @@ namespace
   
   TEUCHOS_UNIT_TEST(IdealMHDFormulation, Residual_1D_SpaceTime_LinearInTime)
   {
-    double tol = DEFAULT_RESIDUAL_TOLERANCE * 100; // as we would for higher space dimensions, we relax tolerance for space-time a bit
+    double tol = DEFAULT_RESIDUAL_TOLERANCE * 1000; // as we would for higher space dimensions, we relax tolerance for space-time a bit
     int cubatureEnrichment = 0;
     FunctionPtr one = Function::constant(1.0);
     FunctionPtr t   = Function::tn(1);
