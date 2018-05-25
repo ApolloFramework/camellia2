@@ -197,6 +197,10 @@ public:
   void setUseSubgridMeshForOptimalTestFunctions(bool value);
   void setWarnAboutZeroRowsAndColumns(bool value);
 
+  // ! Returns a map from trial ID to a function corresponding to that trial ID.  Fluxes are weighted by side parity (so that they are uniquely valued).
+  // ! the solutionIdentifierExponent will be used in string representations (if "", an overbar is used; otherwise "^k" will be used for "k" argument here)
+  std::map<int,FunctionPtr> solutionMap(SolutionPtr soln, const std::string &solutionIdentifierExponent="");
+  
   const vector< int > & trialIDs();
   const vector< int > & testIDs();
 

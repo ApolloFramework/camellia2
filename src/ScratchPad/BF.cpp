@@ -1855,6 +1855,20 @@ namespace Camellia
   }
   
   template <typename Scalar>
+  std::map<int,FunctionPtr> TBF<Scalar>::solutionMap(SolutionPtr soln, const std::string &expString)
+  {
+    std::map<int,FunctionPtr> solnMap;
+    for (int ID : _trialIDs)
+    {
+      auto var = _varFactory->trial(ID);
+      bool weightFluxesBySideParity = true;
+      auto fxn = Function::solution(var, soln, weightFluxesBySideParity, expString);
+      solnMap[ID] = fxn;
+    }
+    return solnMap;
+  }
+  
+  template <typename Scalar>
   const vector< int > & TBF<Scalar>::trialIDs()
   {
     return _trialIDs;
