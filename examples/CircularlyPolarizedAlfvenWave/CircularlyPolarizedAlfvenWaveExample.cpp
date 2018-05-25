@@ -393,6 +393,15 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
 //    }
   }
   
+  FunctionPtr BySoln = Function::solution(form->B(2), form->solution());
+  FunctionPtr BzSoln = Function::solution(form->B(3), form->solution());
+  FunctionPtr err_By  = BySoln - ByInitial;
+  FunctionPtr err_Bz  = BzSoln - BzInitial;
+  double err_By_L2_initial = err_By->l2norm(mesh);
+  double err_By_L1_initial = err_By->l1norm(mesh);
+  double err_Bz_L2_initial = err_Bz->l2norm(mesh);
+  double err_Bz_L1_initial = err_Bz->l1norm(mesh);
+  
   auto & prevSolnMap = form->solutionPreviousTimeStepFieldMap();
   auto & solnMap     = form->solutionFieldMap();
   auto pAbstract = form->abstractPressure();
@@ -668,15 +677,25 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   }
   
   // output error in By:
-  FunctionPtr ByFinal = Function::solution(form->B(2), form->solution());
-  FunctionPtr err_By  = ByFinal - ByInitial;
-  double err_By_L2 = err_By->l2norm(mesh);
-  double err_By_L1 = err_By->l1norm(mesh);
+  double err_By_L2_final = err_By->l2norm(mesh);
+  double err_By_L1_final = err_By->l1norm(mesh);
+  double err_Bz_L2_final = err_Bz->l2norm(mesh);
+  double err_Bz_L1_final = err_Bz->l1norm(mesh);
   
   if (rank == 0)
   {
-    cout << "Final L^1 error of By: " << err_By_L1 << endl;
-    cout << "Final L^2 error of By: " << err_By_L2 << endl;
+    cout << "Initial L^2 error of By: " << err_By_L2_initial << endl;
+    cout << "Initial L^2 error of Bz: " << err_Bz_L2_initial << endl;
+    cout << endl;
+    cout << "Initial L^1 error of By: " << err_By_L1_initial << endl;
+    cout << "Initial L^1 error of Bz: " << err_Bz_L1_initial << endl;
+    cout << endl;
+    cout << endl;
+    cout << "Final L^2 error of By: " << err_By_L2_final << endl;
+    cout << "Final L^2 error of Bz: " << err_Bz_L2_final << endl;
+    cout << endl;
+    cout << "Final L^1 error of By: " << err_By_L1_final << endl;
+    cout << "Final L^1 error of Bz: " << err_Bz_L1_final << endl;
   }
   
   return 0;
