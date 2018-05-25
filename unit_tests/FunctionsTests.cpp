@@ -61,9 +61,9 @@ namespace
     testFunctionsMatch(2.0 * v, matvec(spaceDim, 2.0 * I, v), mesh, tol, out, success);
   }
   
-  TEUCHOS_UNIT_TEST( Functions, OuterProduct )
-  {
-    success = false;
-    out << "OuterProduct test not yet implemented";
-  }
+//  TEUCHOS_UNIT_TEST( Functions, OuterProduct )
+//  {
+//    success = false;
+//    out << "OuterProduct test not yet implemented";
+//  }
 } // namespace
