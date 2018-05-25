@@ -757,21 +757,21 @@ void CompressibleNavierStokesConservationForm::addMassFluxCondition(SpatialFilte
 {
   VarPtr tc = this->tc();
   _solnIncrement->bc()->addDirichlet(tc, region, tc_exact);
-  cout << "adding boundary condition tc = " << tc_exact->displayString() << endl;
+//  cout << "adding boundary condition tc = " << tc_exact->displayString() << endl;
 }
 
 void CompressibleNavierStokesConservationForm::addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr tm_i_exact, int i)
 {
   VarPtr tm_i = this->tm(i);
   _solnIncrement->bc()->addDirichlet(tm_i, region, tm_i_exact);
-  cout << "adding boundary condition tm" << i << " = " << tm_i_exact->displayString() << endl;
+//  cout << "adding boundary condition tm" << i << " = " << tm_i_exact->displayString() << endl;
 }
 
 void CompressibleNavierStokesConservationForm::addEnergyFluxCondition(SpatialFilterPtr region, FunctionPtr te_exact)
 {
   VarPtr te = this->te();
   _solnIncrement->bc()->addDirichlet(te, region, te_exact);
-  cout << "adding boundary condition te = " << te_exact->displayString() << endl;
+//  cout << "adding boundary condition te = " << te_exact->displayString() << endl;
 }
 
 void CompressibleNavierStokesConservationForm::addMassFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact)
@@ -780,7 +780,7 @@ void CompressibleNavierStokesConservationForm::addMassFluxCondition(SpatialFilte
   bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
   auto tc_exact = this->exactSolution_tc(u_exact, rho_exact, T_exact, includeParity);
   _solnIncrement->bc()->addDirichlet(tc, region, tc_exact);
-  cout << "adding boundary condition tc = " << tc_exact->displayString() << endl;
+//  cout << "adding boundary condition tc = " << tc_exact->displayString() << endl;
 }
 
 void CompressibleNavierStokesConservationForm::addMomentumComponentFluxCondition(SpatialFilterPtr region, FunctionPtr rho_exact, FunctionPtr u_exact, FunctionPtr T_exact, int i)
@@ -799,7 +799,7 @@ void CompressibleNavierStokesConservationForm::addMomentumFluxCondition(SpatialF
   {
     VarPtr tm_i = this->tm(d+1);
     _solnIncrement->bc()->addDirichlet(tm_i, region, tm_exact[d]);
-    cout << "adding boundary condition tm" << d+1 << " = " << tm_exact[d]->displayString() << endl;
+//    cout << "adding boundary condition tm" << d+1 << " = " << tm_exact[d]->displayString() << endl;
   }
 }
 
@@ -809,7 +809,7 @@ void CompressibleNavierStokesConservationForm::addEnergyFluxCondition(SpatialFil
   bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
   auto te_exact = exactSolution_te(u_exact, rho_exact, T_exact, includeParity);
   _solnIncrement->bc()->addDirichlet(te, region, te_exact);
-  cout << "adding boundary condition te = " << te_exact->displayString() << endl;
+//  cout << "adding boundary condition te = " << te_exact->displayString() << endl;
 }
 
 BFPtr CompressibleNavierStokesConservationForm::bf()

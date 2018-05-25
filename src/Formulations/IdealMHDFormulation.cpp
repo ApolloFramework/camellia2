@@ -133,7 +133,7 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
       ostringstream name_fB;
       name_fB << "fB" << d+1;
       _fB[d]->setName(name_fB.str());
-      cout << "set name of fB[" << d << "] to " << name_fB.str() << endl;
+//      cout << "set name of fB[" << d << "] to " << name_fB.str() << endl;
     }
   }
   _gamma = parameters.get<double>("gamma",2.0); // 2.0 is what is used for Brio-Wu
@@ -336,10 +336,10 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     _abstractDensity = rho;
     _abstractMagnetism = B;
     
-    cout << "massFlux: " << _massFlux->displayString() << endl;
-    cout << "energyFlux: " << _energyFlux->displayString() << endl;
-    cout << "momentumFlux: " << _momentumFlux->displayString() << endl;
-    cout << "magneticFlux: " << _magneticFlux->displayString() << endl;
+//    cout << "massFlux: " << _massFlux->displayString() << endl;
+//    cout << "energyFlux: " << _energyFlux->displayString() << endl;
+//    cout << "momentumFlux: " << _momentumFlux->displayString() << endl;
+//    cout << "magneticFlux: " << _magneticFlux->displayString() << endl;
   }
   
   _bf = Teuchos::rcp( new BF(_vf) );
@@ -393,7 +393,7 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     }
     _fluxEquations[vm[d]->ID()] = {vm[d],momentumColumn,tm[d],mVar[d],_fm[d]};
     
-    cout << "for variable " << mVar[d]->name() << ", flux is " << momentumColumn->displayString() << endl;
+//    cout << "for variable " << mVar[d]->name() << ", flux is " << momentumColumn->displayString() << endl;
     if ((d > 0) || (_spaceDim != 1))
     {
       auto magneticColumn = (_spaceDim > 1) ? column(_spaceDim,_magneticFlux,d+1) : _magneticFlux->spatialComponent(d+1);
@@ -435,14 +435,14 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     auto flux     = eqn.flux;
     auto traceVar = eqn.traceVar;
     auto f_rhs    = eqn.f_rhs;
-    {
-      // DEBUGGING
-      cout << "testVar:  " << testVar->name() << endl;
-      if (timeTerm != Teuchos::null) cout << "timeTerm: " << timeTerm->name() << endl;
-      cout << "flux:     " << flux->displayString() << endl;
-      cout << "traceVar: " << traceVar->name() << endl;
-      cout << "f_rhs:    " << f_rhs->displayString() << endl;
-    }
+//    {
+//      // DEBUGGING
+//      cout << "testVar:  " << testVar->name() << endl;
+//      if (timeTerm != Teuchos::null) cout << "timeTerm: " << timeTerm->name() << endl;
+//      cout << "flux:     " << flux->displayString() << endl;
+//      cout << "traceVar: " << traceVar->name() << endl;
+//      cout << "f_rhs:    " << f_rhs->displayString() << endl;
+//    }
     if (timeTerm != Teuchos::null) // time term is null for Gauss' Law
     {
       auto timeTerm_prev      = _backgroundFlowMap.find(timeTerm->ID())->second;
@@ -472,8 +472,8 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   }
   
   // DEBUGGING
-  cout << "bf: " << _bf->displayString() << endl;
-  cout << "rhs: " << _rhs->linearTerm()->displayString() << endl;
+//  cout << "bf: " << _bf->displayString() << endl;
+//  cout << "rhs: " << _rhs->linearTerm()->displayString() << endl;
   
   vector<VarPtr> missingTestVars = _bf->missingTestVars();
   vector<VarPtr> missingTrialVars = _bf->missingTrialVars();
@@ -581,7 +581,7 @@ void IdealMHDFormulation::addMagneticFluxCondition(SpatialFilterPtr region, Func
   {
     VarPtr tB_i = this->tB(d+1);
     _solnIncrement->bc()->addDirichlet(tB_i, region, tB_exact[d]);
-    cout << "adding boundary condition tB" << d+1 << " = " << tB_exact[d]->displayString() << endl;
+//    cout << "adding boundary condition tB" << d+1 << " = " << tB_exact[d]->displayString() << endl;
   }
 }
 
@@ -591,7 +591,7 @@ void IdealMHDFormulation::addMassFluxCondition(SpatialFilterPtr region, Function
   bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
   auto tc_exact = this->exactSolution_tc(rho, u, E, B, includeParity);
   _solnIncrement->bc()->addDirichlet(tc, region, tc_exact);
-  cout << "adding boundary condition tc = " << tc_exact->displayString() << endl;
+//  cout << "adding boundary condition tc = " << tc_exact->displayString() << endl;
 }
 
 void IdealMHDFormulation::addMomentumFluxCondition(SpatialFilterPtr region, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B)
@@ -603,7 +603,7 @@ void IdealMHDFormulation::addMomentumFluxCondition(SpatialFilterPtr region, Func
   {
     VarPtr tm_i = this->tm(d+1);
     _solnIncrement->bc()->addDirichlet(tm_i, region, tm_exact[d]);
-    cout << "adding boundary condition tm" << d+1 << " = " << tm_exact[d]->displayString() << endl;
+//    cout << "adding boundary condition tm" << d+1 << " = " << tm_exact[d]->displayString() << endl;
   }
 }
 
@@ -613,7 +613,7 @@ void IdealMHDFormulation::addEnergyFluxCondition(SpatialFilterPtr region, Functi
   bool includeParity = true; // in the usual course of things, this should not matter for BCs, because the parity is always 1 on boundary.  But conceptually, the more correct thing is to include, because here we are imposing what ought to be a unique value, and if ever we have an internal boundary which also has non-positive parity on one of its sides, we'd want to include...
   auto te_exact = exactSolution_te(rho, u, E, B, includeParity);
   _solnIncrement->bc()->addDirichlet(te, region, te_exact);
-  cout << "adding boundary condition te = " << te_exact->displayString() << endl;
+//  cout << "adding boundary condition te = " << te_exact->displayString() << endl;
 }
 
 VarPtr IdealMHDFormulation::B(int i)
@@ -814,22 +814,22 @@ FunctionPtr IdealMHDFormulation::exactSolutionFlux(VarPtr testVar, FunctionPtr r
   auto abstractFlux = equation.flux;
   auto timeTerm = equation.timeTerm;
   
-  cout << "u: " << u->displayString() << endl;
+//  cout << "u: " << u->displayString() << endl;
   map<int,FunctionPtr> exactMap = exactSolutionFieldMap(rho, u, E, B);
-  {
-    // DEBUGGING
-    cout << "exactMap:\n";
-    for (auto entry : exactMap)
-    {
-      VarPtr var = _vf->trial(entry.first);
-      cout << var->name() << " -> " << entry.second->displayString() << endl;
-    }
-    cout << "abstract flux for test variable " << testVar->name() << ": " << abstractFlux->displayString() << endl;
-  }
+//  {
+//    // DEBUGGING
+//    cout << "exactMap:\n";
+//    for (auto entry : exactMap)
+//    {
+//      VarPtr var = _vf->trial(entry.first);
+//      cout << var->name() << " -> " << entry.second->displayString() << endl;
+//    }
+//    cout << "abstract flux for test variable " << testVar->name() << ": " << abstractFlux->displayString() << endl;
+//  }
   
   auto flux = abstractFlux->evaluateAt(exactMap);
   
-  cout << "Concrete flux: " << flux->displayString() << endl;
+//  cout << "Concrete flux: " << flux->displayString() << endl;
   
   auto n = TFunction<double>::normal();
   FunctionPtr flux_dot_n;
