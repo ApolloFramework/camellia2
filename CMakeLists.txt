@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 2.6)
 SET_PROPERTY(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)
 
 option(INCLUDE_DRIVERS_IN_ALL "Include drivers in make all (set to ON for IDE project generation)" OFF)
+option(BUILD_FOR_INSTALL "Build for installation (including examples and tests)" OFF)
 
 IF(INCLUDE_DRIVERS_IN_ALL)
   SET(EXCLUDE_DRIVERS_FROM_ALL "")
@@ -221,7 +222,15 @@ include(CTest)
 enable_testing()
 
 # Build Drivers
+
+# Build for install (as spack install does) should include examples, but exclude drivers
+IF(BUILD_FOR_INSTALL)
+  SET(EXCLUDE_EXAMPLES_FROM_ALL "")
+ELSE()
+  SET(EXCLUDE_EXAMPLES_FROM_ALL ${EXCLUDE_DRIVERS_FROM_ALL})
+ENDIF(BUILD_FOR_INSTALL)
+
 add_subdirectory(drivers ${EXCLUDE_DRIVERS_FROM_ALL})
-add_subdirectory(examples ${EXCLUDE_DRIVERS_FROM_ALL})
-add_subdirectory(manual-examples ${EXCLUDE_DRIVERS_FROM_ALL})
+add_subdirectory(examples ${EXCLUDE_EXAMPLES_FROM_ALL})
+add_subdirectory(manual-examples ${EXCLUDE_EXAMPLES_FROM_ALL})
 add_subdirectory(unit_tests)
