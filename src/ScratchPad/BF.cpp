@@ -616,7 +616,7 @@ namespace Camellia
               {
                 cout << i << "\t" << j << "\t" << diff << endl;
               }
-              else if (isnan(stiffness(cellOrdinal,i,j)) && !isnan(stiffnessCopyForTermwiseOutput(cellOrdinal,i,j)))
+              else if (std::isnan(stiffness(cellOrdinal,i,j)) && !std::isnan(stiffnessCopyForTermwiseOutput(cellOrdinal,i,j)))
               {
                 cout << i << "\t" << j << "\t" << stiffness(cellOrdinal,i,j) << endl;
               }
