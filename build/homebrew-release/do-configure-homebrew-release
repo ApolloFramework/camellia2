@@ -1,8 +1,0 @@
-cmake \
-  -D TRILINOS_PATH:FILEPATH="/usr/local/Cellar/trilinos/12.6.4_1" \
-  -D CAMELLIA_SOURCE_DIR:FILEPATH="../../src" \
-  -D CMAKE_BUILD_TYPE="Release" \
-  -D MOAB_DIR="/usr/local/Cellar/moab/4.9.2" \
-  -DCMAKE_INSTALL_PREFIX:PATH="/tmp" \
-  -DCMAKE_CXX_FLAGS_RELEASE:STRING="-g -O3 -stdlib=libc++ -std=c++11" \
-  ../..

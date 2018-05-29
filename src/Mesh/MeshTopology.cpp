@@ -1023,6 +1023,7 @@ vector<IndexType> MeshTopology::getCanonicalEntityNodesViaPeriodicBCs(unsigned d
 bool MeshTopology::cellHasCurvedEdges(IndexType cellIndex) const
 {
   CellPtr cell = getCell(cellIndex);
+  if (cell->topology()->getDimension() <= 1) return false; // 0D, 1D cells can't have curved edges
   unsigned edgeCount = cell->topology()->getEdgeCount();
   unsigned edgeDim = 1;
   for (int edgeOrdinal=0; edgeOrdinal<edgeCount; edgeOrdinal++)
