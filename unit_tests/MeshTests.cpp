@@ -969,25 +969,77 @@ TEUCHOS_UNIT_TEST( Mesh, ParitySpaceTime1D )
     mesh->registerSolution(solution);
     solution()->projectOntoMesh(functionMap, solutionOrdinal);
     
+    // check that cell neighbors are all well-ordered in terms of fineness in h and p
+    // (i.e. finer in h and finer in p is OK, but finer in one and coarser in the other not)
+    auto checkNeighborWellOrdering = [&] () -> void
+    {
+      auto & myCells = mesh->cellIDsInPartition();
+      auto meshTopo  = mesh->getTopology();
+      auto meshTopoBase = mesh->getTopology()->baseMeshTopology();
+      for (auto cellID : myCells)
+      {
+        auto cell = meshTopo->getCell(cellID);
+        
+        int cellPOrder = mesh->globalDofAssignment()->getH1Order(cellID)[0]; // assume isotropic in p
+        
+        int edgeCount = cell->topology()->getEdgeCount();
+        static int edgeDim = 1;
+        for (int edgeOrdinal=0; edgeOrdinal < edgeCount; edgeOrdinal++)
+        {
+          IndexType edgeEntityIndex = cell->entityIndex(edgeDim, edgeOrdinal);
+          
+          auto childEdges = meshTopoBase->getChildEntities(edgeDim, edgeEntityIndex);
+          
+          for (auto childEdgeEntityIndex : childEdges)
+          {
+            auto hRefinedEdgeNeighbors = meshTopo->getCellsContainingEntity(edgeDim, childEdgeEntityIndex);
+            for (auto neighborEntry : hRefinedEdgeNeighbors)
+            {
+              // neighbor is finer in h; is it at least as fine in p?
+              auto neighborID = neighborEntry.first;
+              auto neighborPOrder = mesh->globalDofAssignment()->getH1Order(neighborID)[0]; // assume isotropic in p
+              if (neighborPOrder < cellPOrder)
+              {
+                out << "Failure: cell " << neighborID << " is finer in h than its neighbor " << cellID;
+                out << ", but has H^1 order " << neighborPOrder << ", while cell " << cellID << " has order " << cellPOrder;
+                out << ".  This means that neither is uniformly finer than the other...\n";
+                success = false;
+              }
+            }
+          }
+        }
+      }
+    };
+    
+    checkNeighborWellOrdering();
     int pToAdd = 1;
     std::set<GlobalIndexType> cellsToHRefine = {1, 2, 3, 7, 8, 9, 12, 13, 14, 15, 26, 27, 28, 29};
     std::set<GlobalIndexType> cellsToPRefine = {0, 4, 5, 6, 10, 11, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35};
     //  print("cellsToHRefine", cellsToHRefine);
     bool repartitionAndRebuild = false;
     mesh->hRefine(cellsToHRefine, repartitionAndRebuild);
-    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
-    
     mesh->enforceOneIrregularity(repartitionAndRebuild);
+    checkNeighborWellOrdering();
+    
+    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+    mesh->enforceOneIrregularity(repartitionAndRebuild);
+    checkNeighborWellOrdering();
+    
     mesh->repartitionAndRebuild();
+    checkNeighborWellOrdering();
     
     cellsToHRefine = {36, 39, 40, 43, 44, 49, 50, 53, 54, 57};
     cellsToPRefine = {0, 4, 5, 6, 10, 11, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35, 37, 38, 41, 42, 45, 46, 47, 48, 58, 63};
     
     mesh->hRefine(cellsToHRefine, repartitionAndRebuild);
-    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
-    
     mesh->enforceOneIrregularity(repartitionAndRebuild);
+    checkNeighborWellOrdering();
+    
+    mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
+    mesh->enforceOneIrregularity(repartitionAndRebuild);
+    
     mesh->repartitionAndRebuild();
+    checkNeighborWellOrdering();
   }
 
   

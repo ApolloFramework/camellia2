@@ -524,6 +524,61 @@ void Mesh::enforceOneIrregularity(bool repartitionAndMigrate)
       meshIsNotRegular = false;
     }
   }
+  
+  // now, check p-order.  If any cells are finer in h than neighbors but coarser in p, refine in p to match those neighbors
+  meshIsNotRegular = true;
+  while (meshIsNotRegular)
+  {
+    int spaceDim = _meshTopology->getDimension();
+    if (spaceDim == 1) return;
+    
+    map<RefinementPatternKey, set<GlobalIndexType> > irregularCellsToRefineLocal;
+    set<GlobalIndexType> myCellIDs = this->cellIDsInPartition();
+    
+    set<GlobalIndexType> cellsToPRefine;
+    for (GlobalIndexType cellID : myCellIDs)
+    {
+      CellPtr cell = _meshTopology->getCell(cellID);
+      int cellPOrder = this->globalDofAssignment()->getH1Order(cellID)[0]; // assume isotropic in p
+      
+      int edgeCount = cell->topology()->getEdgeCount();
+      static int edgeDim = 1;
+      for (int edgeOrdinal=0; edgeOrdinal < edgeCount; edgeOrdinal++)
+      {
+        IndexType edgeEntityIndex = cell->entityIndex(edgeDim, edgeOrdinal);
+        auto childEdges = _meshTopology->baseMeshTopology()->getChildEntities(edgeDim, edgeEntityIndex);
+        
+        for (auto childEdgeEntityIndex : childEdges)
+        {
+          auto hRefinedEdgeNeighbors = _meshTopology->getCellsContainingEntity(edgeDim, childEdgeEntityIndex);
+          for (auto neighborEntry : hRefinedEdgeNeighbors)
+          {
+            // neighbor is finer in h; is it at least as fine in p?
+            auto neighborID = neighborEntry.first;
+            auto neighborPOrder = this->globalDofAssignment()->getH1Order(neighborID)[0]; // assume isotropic in p
+            if (neighborPOrder < cellPOrder)
+            {
+              cellsToPRefine.insert(neighborID); // for now, we don't refine more than one order per pass.  Not sure if this is best.
+            }
+          }
+        }
+      }
+    }
+    vector<GlobalIndexType> cellIDsToPRefineLocal(cellsToPRefine.begin(),cellsToPRefine.end());
+    vector<GlobalIndexType> cellIDsToPRefineGlobal;
+    vector<int> offsets;
+    MPIWrapper::allGatherVariable(*Comm(), cellIDsToPRefineGlobal, cellIDsToPRefineLocal, offsets);
+    if (cellIDsToPRefineGlobal.size() > 0)
+    {
+      this->pRefine(cellIDsToPRefineGlobal);
+      meshChanged = true;
+    }
+    else
+    {
+      meshIsNotRegular = false; // mesh *is* regular
+    }
+  }
+  
   if (meshChanged && repartitionAndMigrate)
   {
     // then repartition and migrate now
