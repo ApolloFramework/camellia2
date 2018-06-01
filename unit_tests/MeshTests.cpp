@@ -1019,6 +1019,7 @@ TEUCHOS_UNIT_TEST( Mesh, ParitySpaceTime1D )
     bool repartitionAndRebuild = false;
     mesh->hRefine(cellsToHRefine, repartitionAndRebuild);
     mesh->enforceOneIrregularity(repartitionAndRebuild);
+    mesh->repartitionAndRebuild();
     checkNeighborWellOrdering();
     
     mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);
@@ -1033,6 +1034,7 @@ TEUCHOS_UNIT_TEST( Mesh, ParitySpaceTime1D )
     
     mesh->hRefine(cellsToHRefine, repartitionAndRebuild);
     mesh->enforceOneIrregularity(repartitionAndRebuild);
+    mesh->repartitionAndRebuild();
     checkNeighborWellOrdering();
     
     mesh->pRefine(cellsToPRefine, pToAdd, repartitionAndRebuild);

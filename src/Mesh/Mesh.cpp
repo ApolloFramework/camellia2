@@ -570,7 +570,9 @@ void Mesh::enforceOneIrregularity(bool repartitionAndMigrate)
     MPIWrapper::allGatherVariable(*Comm(), cellIDsToPRefineGlobal, cellIDsToPRefineLocal, offsets);
     if (cellIDsToPRefineGlobal.size() > 0)
     {
-      this->pRefine(cellIDsToPRefineGlobal);
+      set<GlobalIndexType> cellSet(cellIDsToPRefineGlobal.begin(), cellIDsToPRefineGlobal.end());
+      int pToAdd = 1;
+      this->pRefine(cellSet, pToAdd, false); // false: don't repartition and rebuild yet.
       meshChanged = true;
     }
     else
