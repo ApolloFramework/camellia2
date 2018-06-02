@@ -26,9 +26,9 @@ endif(BUILD_CONVECTION_DRIVERS)
 
 if (BUILD_DPGTESTS_DRIVER)
   add_subdirectory(DPGTests)
-  MESSAGE("Setting up makefile for DPGTests driver in drivers/DPGTests, because BUILD_DPGTESTS_DRIVER is ON.")
+  MESSAGE("Setting up makefile for legacy DPGTests driver in drivers/DPGTests, because BUILD_DPGTESTS_DRIVER is ON.")
 else()
-  MESSAGE("Not setting up makefile for DPGTests driver in drivers/DPGTests, because BUILD_DPGTESTS_DRIVER is OFF.")  
+  MESSAGE("Not setting up makefile for legacy DPGTests driver in drivers/DPGTests, because BUILD_DPGTESTS_DRIVER is OFF.")  
 endif(BUILD_DPGTESTS_DRIVER)
 
 if (BUILD_PRECONDITIONING_DRIVERS)
