@@ -5,3 +5,5 @@ target_link_libraries(Poisson2DTriangles
   Camellia
 )
 
+install (TARGETS Poisson2DTriangles DESTINATION bin/examples/)
+
