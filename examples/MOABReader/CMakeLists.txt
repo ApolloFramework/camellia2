@@ -14,6 +14,8 @@ if (MOAB_FOUND)
     Camellia
     ${MOAB_LIBRARIES}
   )
+  install (TARGETS MOABReaderExample DESTINATION bin/examples/)
+
 else()
   MESSAGE("MOAB not found; not configuring MOABReaderExample.")
 endif(MOAB_FOUND)
