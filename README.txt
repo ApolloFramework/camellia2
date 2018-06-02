@@ -33,7 +33,13 @@ Start a new shell session, or execute the appropriate lines above manually (this
 
 	spack install camellia
 
-This will take some time, as it downloads and builds all the dependencies.  Once the installation succeeds, the install location can be found by executing:
+(If you want to maintain your own build of Camellia (as you might if you are a Camellia developer), then instead do:
+
+	spack install camellia --only dependencies
+
+If you want to maintain your own build, then the next step is to edit the CMake do-config.sh script found in build/spack-based in the Camellia distribution.)
+
+This will take some time, as it downloads and builds all the dependencies.  If you did a full install, the install location can be found by executing:
 
 	spack location -i camellia
 
@@ -50,9 +56,9 @@ Further details about Spack can be found at
 ******************************** Instructions for Manual Builds *********************************
 
 ******** PREREQUISITES ********
-Trilinos is required for all builds of Camellia.  A couple of sample do-configure scripts for Trilinos can be found in distribution directory, under build/trilinos-do-configure-samples.  These include the packages within Trilinos that Camellia requires.
+Trilinos is required for all builds of Camellia.  A couple of sample do-configure scripts for Trilinos can be found in the Camellia distribution directory, under build/trilinos-do-configure-samples.  These include the packages within Trilinos that Camellia requires.
 
-Building Trilinos (specifically Epetra) with HDF5 is not absolutely required, but without this nearly all data I/O facilities will fail with an exception.  This will also result in test failures for tests related to mesh and solution I/O.  Note that there is an incompatibility with HDF5 version 1.10; please use 1.8.x instead.
+Building Trilinos (specifically Epetra) with HDF5 is not absolutely required, but without this nearly all Camellia's data I/O facilities (mesh and solution serialization, as well as visualization output) will fail with an exception.  This will also result in test failures for tests related to mesh and solution I/O.  Note that there is an incompatibility with HDF5 version 1.10; please use 1.8.x instead.
 
 For an MPI build, Camellia also requires some version of the MPI libraries.  Open MPI is what we use most of the time.  Additionally, Camellia supports MUMPS and SuperLU_Dist if both Camellia and Trilinos are built with these libraries.  MUMPS also requires SCALAPACK to be installed.
 
