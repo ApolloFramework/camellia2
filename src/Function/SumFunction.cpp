@@ -32,6 +32,22 @@ string SumFunction<Scalar>::displayString()
 }
 
 template <typename Scalar>
+TFunctionPtr<Scalar> SumFunction<Scalar>::evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap)
+{
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f1, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_f2, valueMap);
+  return f1 + f2;
+}
+
+template <typename Scalar>
+TLinearTermPtr<Scalar> SumFunction<Scalar>::jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap)
+{
+  auto df1 = _f1->jacobian(valueMap);
+  auto df2 = _f2->jacobian(valueMap);
+  return df1 + df2;
+}
+
+template <typename Scalar>
 void SumFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
 {
   this->CHECK_VALUES_RANK(values);
@@ -141,6 +157,12 @@ TFunctionPtr<Scalar> SumFunction<Scalar>::div()
   {
     return _f1->div() + _f2->div();
   }
+}
+
+template <typename Scalar>
+std::vector<TFunctionPtr<Scalar>> SumFunction<Scalar>::memberFunctions()
+{
+  return {{_f1, _f2}};
 }
 
 namespace Camellia

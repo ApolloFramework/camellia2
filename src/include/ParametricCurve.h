@@ -50,6 +50,8 @@ public:
   ParametricFunctionPtr dt_parametric(); // not named dt() to avoid conflict with Function, which means space-time by this...
 
   ParametricFunctionPtr subFunction(double t0, double t1);
+  
+  std::vector< TFunctionPtr<double> > memberFunctions();
 
   // parametric function: function on refCellPoints mapped to [0,1]
   static ParametricFunctionPtr parametricFunction(TFunctionPtr<double> fxn, double t0=0, double t1=1);
@@ -73,6 +75,7 @@ public:
                   ParametricFunctionPtr yFxn_x_as_t = Teuchos::rcp((ParametricFunction*)NULL),
                   ParametricFunctionPtr zFxn_x_as_t = Teuchos::rcp((ParametricFunction*)NULL));
 
+  std::vector< TFunctionPtr<double> > memberFunctions();
 
   ParametricCurvePtr interpolatingLine();
 

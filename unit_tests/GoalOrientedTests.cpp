@@ -249,6 +249,12 @@ namespace
     
     auto soln_TwoRHS = simplePoissonSolutionWithSecondaryRHS(elementWidths, H1Order, useConformingTraces);
     
+    auto Comm = soln_TwoRHS->mesh()->Comm();
+    int rank = Comm->MyPID();
+    
+    // barrier for debugger attachment:
+    Comm->Barrier();
+    
     //    {
     //      // DEBUGGING: write out the matrices and RHSes to file
     //      soln_OneRHS->setWriteMatrixToMatrixMarketFile(true, "/tmp/A_one.dat");
@@ -276,6 +282,7 @@ namespace
     const int numRefinements = 2;
     for (int refinementNumber=0; refinementNumber<=numRefinements; refinementNumber++)
     {
+//      cout << "Rank " << rank << ", starting refinement " << refinementNumber << endl;
       int localLength = lhs_TwoRHS->MyLength();
       for (int i=0; i<localLength; i++)
       {
@@ -295,6 +302,16 @@ namespace
       // Solution *also* stores a cell-local representation of solution coefficients, and this should also match
       // for the first (0) solution ordinals.
       auto & myCellIDs = soln_TwoRHS->mesh()->cellIDsInPartition();
+//      {
+//        // DEBUGGING
+//        cout << "Rank " << rank << ", myCellIDs: ";
+//        for (auto cellID : myCellIDs)
+//        {
+//          cout << cellID << " ";
+//        }
+//        cout << endl;
+//      }
+      
       for (auto cellID : myCellIDs)
       {
         bool warnAboutOffRank = true; // should all be on-rank
@@ -360,11 +377,27 @@ namespace
           TSolution<double>* registeredSolutionPtr = registeredSolutions[0].get();
           TEST_EQUALITY(registeredSolutionPtr, soln_TwoRHS.get());
         }
+        else
+        {
+          cout << "registeredSolutions.size() == " << registeredSolutions.size() << endl;
+        }
         
-        mesh->hRefine(myCellIDs);
+        auto activeCellIDs = mesh->getActiveCellIDsGlobal();
+//        {
+//          // DEBUGGING
+//          int rank = mesh->Comm()->MyPID();
+//          cout << "On rank " << rank << ", active cellIDs = ";
+//          for (auto cellID : activeCellIDs)
+//          {
+//            cout << cellID << " ";
+//          }
+//          cout << endl;
+//        }
         
-      }
-    }
+        mesh->hRefine(activeCellIDs);
+        
+      } // if (refinementNumber != numRefinements)
+    } // for (int refinementNumber=0; refinementNumber<=numRefinements; refinementNumber++)
   }
   
   TEUCHOS_UNIT_TEST( GoalOriented, PoissonSolveMatches_1D )
@@ -374,7 +407,7 @@ namespace
     auto elementWidths = vector<int>(spaceDim,meshWidth);
     int H1Order = 4;
     bool useConformingTraces = true;
-    double tol = 1e-16;
+    double tol = 1e-14;
     
     testPoissonSolveMatches(elementWidths, H1Order, useConformingTraces, tol, success, out);
   }
@@ -384,9 +417,9 @@ namespace
     const int spaceDim = 2;
     const int meshWidth = 2;
     auto elementWidths = vector<int>(spaceDim,meshWidth);
-    int H1Order = 3;
+    int H1Order = 1;
     bool useConformingTraces = true;
-    double tol = 1e-16;
+    double tol = 1e-14;
     
     testPoissonSolveMatches(elementWidths, H1Order, useConformingTraces, tol, success, out);
   }
@@ -398,7 +431,7 @@ namespace
     auto elementWidths = vector<int>(spaceDim,meshWidth);
     int H1Order = 1;
     bool useConformingTraces = true;
-    double tol = 1e-16;
+    double tol = 1e-13;
     
     testPoissonSolveMatches(elementWidths, H1Order, useConformingTraces, tol, success, out);
   }

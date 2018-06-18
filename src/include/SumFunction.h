@@ -43,6 +43,11 @@ public:
   bool boundaryValueOnly();
 
   string displayString();
+  
+  TFunctionPtr<Scalar> evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap);
+  TLinearTermPtr<Scalar> jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap);
+  
+  std::vector< TFunctionPtr<Scalar> > memberFunctions();
 };
 }
 

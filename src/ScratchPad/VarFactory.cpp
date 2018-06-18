@@ -270,9 +270,23 @@ VarPtr VarFactory::traceVarSpaceOnly(string name, Space fs, int ID)
   return traceVarSpaceOnly(name, Teuchos::rcp((LinearTerm*)NULL), fs, ID);
 }
 
+VarPtr VarFactory::testVar(const std::string &name) const
+{
+  auto entry = _testVars.find(name);
+  TEUCHOS_TEST_FOR_EXCEPTION (entry == _testVars.end(), std::invalid_argument, "Unknown variable name");
+  return entry->second;
+}
+
 const map< int, VarPtr > & VarFactory::testVars() const
 {
   return _testVarsByID;
+}
+
+VarPtr VarFactory::trialVar(const std::string &name) const
+{
+  auto entry = _trialVars.find(name);
+  TEUCHOS_TEST_FOR_EXCEPTION (entry == _trialVars.end(), std::invalid_argument, "Unknown variable name");
+  return entry->second;
 }
 
 const map< int, VarPtr > & VarFactory::trialVars() const

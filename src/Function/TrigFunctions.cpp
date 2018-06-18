@@ -10,6 +10,119 @@ using namespace Camellia;
 using namespace Intrepid;
 using namespace std;
 
+template<class Scalar>
+class Sin : public TFunction<Scalar>
+{
+  TFunctionPtr<Scalar> _arg;
+public:
+  Sin(TFunctionPtr<Scalar> arg) : TFunction<Scalar>(0) // Sin is scalar-valued
+  {
+    _arg = arg;
+  }
+  string displayString()
+  {
+    ostringstream name;
+    name << "sin(" << _arg->displayString() << ")";
+    return name.str();
+  }
+  
+  virtual void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
+  {
+    this->CHECK_VALUES_RANK(values);
+    int numCells = values.dimension(0);
+    int numPoints = values.dimension(1);
+    
+    _arg->values(values, basisCache);
+    for (int cellOrdinal=0; cellOrdinal<numCells; cellOrdinal++)
+    {
+      for (int ptOrdinal=0; ptOrdinal<numPoints; ptOrdinal++)
+      {
+        values(cellOrdinal,ptOrdinal) = std::sin(values(cellOrdinal,ptOrdinal));
+      }
+    }
+  }
+  
+  TFunctionPtr<Scalar> dx()
+  {
+    // chain rule
+    return TrigFunctions<Scalar>::cos(_arg) * _arg->dx();
+  }
+  
+  TFunctionPtr<Scalar> dy()
+  {
+    // chain rule
+    return TrigFunctions<Scalar>::cos(_arg) * _arg->dy();
+  }
+  
+  TFunctionPtr<Scalar> dz()
+  {
+    // chain rule
+    return TrigFunctions<Scalar>::cos(_arg) * _arg->dz();
+  }
+  
+  TFunctionPtr<Scalar> dt()
+  {
+    // chain rule
+    return TrigFunctions<Scalar>::cos(_arg) * _arg->dt();
+  }
+};
+
+template<class Scalar>
+class Cos : public TFunction<Scalar>
+{
+  TFunctionPtr<Scalar> _arg;
+public:
+  Cos(TFunctionPtr<Scalar> arg) : TFunction<Scalar>(0) // Cos is scalar-valued
+  {
+    _arg = arg;
+  }
+  string displayString()
+  {
+    ostringstream name;
+    name << "cos(" << _arg->displayString() << ")";
+    return name.str();
+  }
+  virtual void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
+  {
+    this->CHECK_VALUES_RANK(values);
+    int numCells = values.dimension(0);
+    int numPoints = values.dimension(1);
+    
+    _arg->values(values, basisCache);
+    for (int cellOrdinal=0; cellOrdinal<numCells; cellOrdinal++)
+    {
+      for (int ptOrdinal=0; ptOrdinal<numPoints; ptOrdinal++)
+      {
+        values(cellOrdinal,ptOrdinal) = std::cos(values(cellOrdinal,ptOrdinal));
+      }
+    }
+  }
+  
+  TFunctionPtr<Scalar> dx()
+  {
+    // chain rule
+    return -TrigFunctions<Scalar>::sin(_arg) * _arg->dx();
+  }
+  
+  TFunctionPtr<Scalar> dy()
+  {
+    // chain rule
+    return -TrigFunctions<Scalar>::sin(_arg) * _arg->dy();
+  }
+  
+  TFunctionPtr<Scalar> dz()
+  {
+    // chain rule
+    return -TrigFunctions<Scalar>::sin(_arg) * _arg->dz();
+  }
+  
+  TFunctionPtr<Scalar> dt()
+  {
+    // chain rule
+    return -TrigFunctions<Scalar>::sin(_arg) * _arg->dt();
+  }
+};
+
 string Sin_y::displayString()
 {
   return "\\sin y";
@@ -17,7 +130,7 @@ string Sin_y::displayString()
 
 double Sin_y::value(double x, double y)
 {
-  return sin(y);
+  return std::sin(y);
 }
 TFunctionPtr<double> Sin_y::dx()
 {
@@ -38,7 +151,7 @@ string Cos_y::displayString()
 }
 double Cos_y::value(double x, double y)
 {
-  return cos(y);
+  return std::cos(y);
 }
 TFunctionPtr<double> Cos_y::dx()
 {
@@ -61,7 +174,7 @@ string Sin_x::displayString()
 
 double Sin_x::value(double x, double y)
 {
-  return sin(x);
+  return std::sin(x);
 }
 TFunctionPtr<double> Sin_x::dx()
 {
@@ -82,7 +195,7 @@ string Cos_x::displayString()
 }
 double Cos_x::value(double x, double y)
 {
-  return cos(x);
+  return std::cos(x);
 }
 TFunctionPtr<double> Cos_x::dx()
 {
@@ -105,7 +218,7 @@ Cos_ax::Cos_ax(double a, double b)
 }
 double Cos_ax::value(double x)
 {
-  return cos( _a * x + _b);
+  return std::cos( _a * x + _b);
 }
 TFunctionPtr<double> Cos_ax::dx()
 {
@@ -129,7 +242,7 @@ Cos_ay::Cos_ay(double a)
 }
 double Cos_ay::value(double x, double y)
 {
-  return cos( _a * y );
+  return std::cos( _a * y );
 }
 TFunctionPtr<double> Cos_ay::dx()
 {
@@ -155,7 +268,7 @@ Sin_ax::Sin_ax(double a, double b)
 }
 double Sin_ax::value(double x)
 {
-  return sin( _a * x + _b);
+  return std::sin( _a * x + _b);
 }
 TFunctionPtr<double> Sin_ax::dx()
 {
@@ -178,7 +291,7 @@ Sin_ay::Sin_ay(double a)
 }
 double Sin_ay::value(double x, double y)
 {
-  return sin( _a * y);
+  return std::sin( _a * y);
 }
 TFunctionPtr<double> Sin_ay::dx()
 {
@@ -245,4 +358,21 @@ string ArcTan_ay::displayString()
   ostringstream ss;
   ss << "\\atan( " << _a << " y )";
   return ss.str();
+}
+
+template<class Scalar>
+TFunctionPtr<Scalar> TrigFunctions<Scalar>::sin(TFunctionPtr<Scalar> argument)
+{
+  return Teuchos::rcp(new Sin<Scalar>(argument));
+}
+
+template<class Scalar>
+TFunctionPtr<Scalar> TrigFunctions<Scalar>::cos(TFunctionPtr<Scalar> argument)
+{
+  return Teuchos::rcp(new Cos<Scalar>(argument));
+}
+
+// ETIs below
+namespace Camellia {
+  template class TrigFunctions<double>;
 }

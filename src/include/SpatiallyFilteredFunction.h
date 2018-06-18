@@ -37,6 +37,8 @@ public:
   TFunctionPtr<Scalar> dx();
   TFunctionPtr<Scalar> dy();
   TFunctionPtr<Scalar> dz();
+  
+  std::vector< TFunctionPtr<Scalar> > memberFunctions();
 };
 }
 

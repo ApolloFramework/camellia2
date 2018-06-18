@@ -8,3 +8,5 @@ target_link_libraries(runTests ${Trilinos_LIBRARIES} ${Trilinos_TPL_LIBRARIES} C
 )
 
 add_test(NAME runTests COMMAND runTests)
+
+install (TARGETS runTests DESTINATION bin/tests)

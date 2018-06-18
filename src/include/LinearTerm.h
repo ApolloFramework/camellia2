@@ -93,8 +93,9 @@ public:
   /** \brief  Computes the norm of the TLinearTerm using the Riesz representation corresponding to the inner product ip on the specified mesh.
    *  \param  ip        [in]  - inner product to use for the Riesz representation
    *  \param  mesh      [in]  - mesh over which to measure
+   *  \param  cubatureEnrichment - degree to raise the cubature over the default (2 * test poly order)
    */
-  double computeNorm(TIPPtr<Scalar> ip, MeshPtr mesh);
+  double computeNorm(TIPPtr<Scalar> ip, MeshPtr mesh, int cubatureEnrichment = 0);
 
   void evaluate(Intrepid::FieldContainer<Scalar> &values, TSolutionPtr<Scalar> solution, BasisCachePtr basisCache,
                 bool applyCubatureWeights = false, int solutionOrdinal = 0);
@@ -152,7 +153,7 @@ public:
   TLinearTerm<Scalar>& operator+=(const TLinearTerm<Scalar> &rhs);
 
   TLinearTerm<Scalar>& operator+=(VarPtr v);
-
+  
   ~TLinearTerm();
 };
 
@@ -169,8 +170,12 @@ TLinearTermPtr<double> operator*(vector<double> weight, VarPtr v);
 TLinearTermPtr<double> operator*(VarPtr v, vector<double> weight);
 TLinearTermPtr<double> operator*(TFunctionPtr<double> f, TLinearTermPtr<double> a);
 TLinearTermPtr<double> operator*(TLinearTermPtr<double> a, TFunctionPtr<double> f);
+TLinearTermPtr<double> operator*(TLinearTermPtr<double> a, double weight);
+TLinearTermPtr<double> operator*(double weight, TLinearTermPtr<double> a);
 TLinearTermPtr<double> operator/(VarPtr v, double weight);
 TLinearTermPtr<double> operator/(VarPtr v, TFunctionPtr<double> f);
+TLinearTermPtr<double> operator/(TLinearTermPtr<double> a, double weight);
+TLinearTermPtr<double> operator/(TLinearTermPtr<double> a, TFunctionPtr<double> f);
 TLinearTermPtr<double> operator-(TLinearTermPtr<double> a);
 TLinearTermPtr<double> operator-(TLinearTermPtr<double> a, VarPtr v);
 TLinearTermPtr<double> operator-(VarPtr v, TLinearTermPtr<double> a);

@@ -81,6 +81,14 @@ HDF5Exporter::~HDF5Exporter()
 
 void HDF5Exporter::exportSolution(TSolutionPtr<double> solution, double timeVal, unsigned int defaultNum1DPts, map<int, int> cellIDToNum1DPts, set<GlobalIndexType> cellIndices)
 {
+  std::vector<TFunctionPtr<double>> otherFunctions;
+  std::vector<std::string> otherFunctionNames;
+  this->exportSolution(solution, otherFunctions, otherFunctionNames, timeVal, defaultNum1DPts, cellIDToNum1DPts, cellIndices);
+}
+
+void HDF5Exporter::exportSolution(TSolutionPtr<double> solution, std::vector<TFunctionPtr<double>> otherFunctions, std::vector<std::string> otherFunctionNames,
+                                  double timeVal, unsigned int defaultNum1DPts, map_int_int cellIDToNum1DPts, set<GlobalIndexType> cellIndices)
+{
   // TODO: change this to get VarFactoryPtr from solution
   VarFactoryPtr varFactory = _mesh->bilinearForm()->varFactory();
 
@@ -120,6 +128,23 @@ void HDF5Exporter::exportSolution(TSolutionPtr<double> solution, double timeVal,
       traceFunctionNames.push_back(traceFunctionName);
     }
   }
+  TEUCHOS_TEST_FOR_EXCEPTION(otherFunctionNames.size() != otherFunctions.size(), std::invalid_argument, "length of otherFunctions must match that of otherFunctionNames");
+  for (int i=0; i<otherFunctions.size(); i++)
+  {
+    FunctionPtr f = otherFunctions[i];
+    std::string name = otherFunctionNames[i];
+    if (f->boundaryValueOnly())
+    {
+      traceFunctions.push_back(f);
+      traceFunctionNames.push_back(name);
+    }
+    else
+    {
+      fieldFunctions.push_back(f);
+      fieldFunctionNames.push_back(name);
+    }
+  }
+  
   if (fieldFunctions.size() > 0)
     exportFunction(fieldFunctions, fieldFunctionNames, timeVal, defaultNum1DPts, cellIDToNum1DPts, cellIndices);
   if (traceFunctions.size() > 0)

@@ -31,14 +31,14 @@ namespace Camellia {
     Teuchos::RCP<Epetra_LinearProblem> _savedProblem;
     bool _saveFactorization;
     bool _havePrintedStatus;
-    bool _runSilent; // false by default -- true outputs when reuse is requested
+    bool _runSilent; // true by default -- false outputs when reuse is requested
     int _maxProcsToUse;
   public:
     SuperLUDistSolver(bool saveFactorization)
     {
       _saveFactorization = saveFactorization;
       _havePrintedStatus = false;
-      _runSilent = false;
+      _runSilent = true;
       _maxProcsToUse = 256;
     }
     

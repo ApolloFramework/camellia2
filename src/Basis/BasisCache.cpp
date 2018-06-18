@@ -18,7 +18,6 @@
 #include "CubatureFactory.h"
 #include "Function.h"
 #include "Mesh.h"
-#include "MeshTransformationFunction.h"
 #include "SerialDenseWrapper.h"
 #include "SpaceTimeBasisCache.h"
 
@@ -1262,9 +1261,9 @@ void BasisCache::determinePhysicalPoints()
   int cellDim = _cellTopo->getDimension();
   if (cellDim==0)
   {
-    // physical points not meaningful then...
+    // then the "cubature" points are just identical to the cell nodes
     _physCubPointsIsValid = true;
-    _physCubPoints.resize(0);
+    _physCubPoints = _physicalCellNodes;
     return;
   }
   int numPoints = isSideCache() ? _cubPointsSideRefCell.dimension(0) : _cubPoints.dimension(0);

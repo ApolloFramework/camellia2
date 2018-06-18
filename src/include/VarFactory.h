@@ -59,6 +59,10 @@ public:
 
   std::vector<int> trialIDs();
 
+  // lookups for existing variables:
+  VarPtr testVar(const std::string &) const;
+  VarPtr trialVar(const std::string &) const;
+  
   VarPtr testVar(std::string name, Space fs, int ID = -1);
   VarPtr fieldVar(std::string name, Space fs = L2, int ID = -1);
 

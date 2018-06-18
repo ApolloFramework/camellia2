@@ -40,6 +40,8 @@ public:
   virtual TFunctionPtr<double> dt1();
   virtual TFunctionPtr<double> dt2();
 
+  virtual std::vector< TFunctionPtr<double> > memberFunctions() = 0;
+  
   virtual void value(double t1, double t2, double &x, double &y) = 0;
   virtual void values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache);
 

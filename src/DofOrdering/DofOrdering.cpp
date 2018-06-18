@@ -254,7 +254,14 @@ const vector<int> & DofOrdering::getDofIndices(int varID, int sideOrdinal) const
   auto entryIt = _indices[sideIndex].find(varID);
   if ( entryIt == _indices[sideIndex].end() )
   {
-    cout << "No entry found for DofIndex " << varID << " on side " << sideIndex << endl;
+    if (sideIndex == _volumeIndex)
+    {
+      cout << "No entry found for DofIndex " << varID << " in volume.\n";
+    }
+    else
+    {
+      cout << "No entry found for DofIndex " << varID << " on side " << sideIndex << endl;
+    }
     cout << "DofOrdering has entries:\n";
     cout << *this;
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "No entry found for DofIndex.");
@@ -313,6 +320,11 @@ set<int> DofOrdering::getTraceDofIndices()
   return traceDofIndices;
 }
 
+VarFactoryPtr DofOrdering::getVarFactory() const
+{
+  return _varFactory;
+}
+
 const set<int> & DofOrdering::getVarIDs() const
 {
   return varIDs;
@@ -342,6 +354,11 @@ bool DofOrdering::hasSideVarIDs()
     }
   }
   return false;
+}
+
+bool DofOrdering::isTrialOrdering() const
+{
+  return _isTrialOrdering;
 }
 
 int DofOrdering::maxBasisDegree()
@@ -541,6 +558,12 @@ vector<pair<int,vector<int>>> DofOrdering::variablesWithNonZeroEntries(const Int
   return results;
 }
 
+void DofOrdering::setVarFactory(VarFactoryPtr varFactory, bool isTrialOrdering)
+{
+  _varFactory = varFactory;
+  _isTrialOrdering = isTrialOrdering;
+}
+
 std::ostream& operator << (std::ostream& os, const DofOrdering& dofOrdering)
 {
   // Save the format state of the original ostream os.
@@ -550,6 +573,18 @@ std::ostream& operator << (std::ostream& os, const DofOrdering& dofOrdering)
   os.setf(std::ios_base::scientific, std::ios_base::floatfield);
   os.setf(std::ios_base::right);
 
+  VarFactoryPtr vf = dofOrdering.getVarFactory();
+  bool isTrialOrdering = dofOrdering.isTrialOrdering();
+  map< int, string > varNames;
+  if (vf != Teuchos::null)
+  {
+    map<int, VarPtr> vars = (isTrialOrdering) ? vf->trialVars() : vf->testVars();
+    for (auto entry : vars)
+    {
+      varNames[entry.first] = entry.second->name();
+    }
+  }
+  
   set< int > varIDs = dofOrdering.getVarIDs();
 
   unsigned numVarIDs = varIDs.size();
@@ -560,7 +595,12 @@ std::ostream& operator << (std::ostream& os, const DofOrdering& dofOrdering)
   for (set<int>::iterator varIt = varIDs.begin(); varIt != varIDs.end(); varIt++)
   {
     int varID = *varIt;
-    os << varID << " (" << dofOrdering.getSidesForVarID(varID).size() << " sides)" << endl;
+    os << varID << " (" << dofOrdering.getSidesForVarID(varID).size() << " sides)";
+    if (varNames.find(varID) != varNames.end())
+    {
+      os << " -- var name: " << varNames[varID];
+    }
+    os << endl;
   }
 
   if( numVarIDs == 0 )

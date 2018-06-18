@@ -40,17 +40,13 @@ class TRieszRep
 private:
 
   map<GlobalIndexType, Intrepid::FieldContainer<Scalar> > _rieszRepDofs; // from cellID to dofs of riesz representation
-  map<GlobalIndexType, Intrepid::FieldContainer<Scalar> > _rieszRepDofsGlobal; // from cellID to dofs of riesz representation
   map<GlobalIndexType, double > _rieszRepNormSquared; // from cellID to norm squared of riesz inversion
-  map<GlobalIndexType, double > _rieszRepNormSquaredGlobal; // from cellID to norm squared of riesz inversion
 
   MeshPtr _mesh;
   TIPPtr<Scalar> _ip;
   TLinearTermPtr<Scalar> _functional;  // the RHS stuff here and below is misnamed -- should just be called functional
   bool _printAll;
   bool _repsNotComputed;
-
-  bool _distributeDofs = false; // old behavior corresponds to "true" value.
   
 public:
   TRieszRep(MeshPtr mesh, TIPPtr<Scalar> ip, TLinearTermPtr<Scalar> functional)
@@ -86,9 +82,6 @@ public:
   // ! Returns reference to container for rank-local cells
   const map<GlobalIndexType,double> &getNormsSquared();
 
-  // ! Returns reference to redundantly stored container for *all* active cells
-  const map<GlobalIndexType,double> &getNormsSquaredGlobal();
-
   void distributeDofs();
 
   void computeRepresentationValues(Intrepid::FieldContainer<Scalar> &values, int testID, EOperator op, BasisCachePtr basisCache);
@@ -96,6 +89,12 @@ public:
   double computeAlternativeNormSqOnCell(TIPPtr<Scalar> ip, GlobalIndexType cellID);
   map<GlobalIndexType,double> computeAlternativeNormSqOnCells(TIPPtr<Scalar> ip, vector<GlobalIndexType> cellIDs);
 
+  // ! if the coefficients are not locally known, will initialize to 0 and return a FieldContainer filled with 0s.
+  const Intrepid::FieldContainer<Scalar>& getCoefficientsForCell(GlobalIndexType cellID);
+  
+  // ! coefficients should be over all test dofs
+  void setCoefficientsForCell(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar>& coefficients);
+  
   static TFunctionPtr<Scalar> repFunction( VarPtr var, TRieszRepPtr<Scalar> rep );
   static TRieszRepPtr<Scalar> rieszRep(MeshPtr mesh, TIPPtr<Scalar> ip, TLinearTermPtr<Scalar> functional);
 };
@@ -169,6 +168,40 @@ public:
   {
     _rep->computeRepresentationValues(values, _testID, op, basisCache);
   }
+  
+  size_t getCellDataSize(GlobalIndexType cellID)
+  {
+    auto numTestDofs = _rep->mesh()->getElementType(cellID)->testOrderPtr->totalDofs();
+    return numTestDofs * sizeof(Scalar); // size in bytes
+  }
+  
+  void packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength)
+  {
+    size_t requiredLength = getCellDataSize(cellID);
+    TEUCHOS_TEST_FOR_EXCEPTION(requiredLength > bufferLength, std::invalid_argument, "Buffer length too small");
+    
+    auto & cellDofs = _rep->getCoefficientsForCell(cellID);
+    size_t objSize = sizeof(Scalar);
+    const Scalar* copyFromLocation = &cellDofs[0];
+    memcpy(cellData, copyFromLocation, objSize * cellDofs.size());
+  }
+  
+  size_t unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength) // returns bytes consumed
+  {
+    int numDofs = _rep->mesh()->getElementType(cellID)->testOrderPtr->totalDofs();
+    size_t numBytes = numDofs * sizeof(Scalar);
+    if (numBytes > bufferLength)
+    {
+      std::cout << "In RepFunction, bufferLength " << bufferLength << " is not enough to fill required " << numBytes << " bytes.\n";
+      TEUCHOS_TEST_FOR_EXCEPTION(numBytes > bufferLength, std::invalid_argument, "buffer is too short");
+    }
+    Intrepid::FieldContainer<Scalar> cellDofs(numDofs);
+    Scalar* copyToLocation = &cellDofs[0];
+    memcpy(copyToLocation, cellData, numBytes);
+    _rep->setCoefficientsForCell(cellID, cellDofs);
+    return numBytes;
+  }
+  
 };
 
 extern template class RepFunction<double>;

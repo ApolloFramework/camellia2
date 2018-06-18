@@ -29,6 +29,11 @@ string AbsFunction::displayString()
   return ss.str();
 }
 
+std::vector< TFunctionPtr<double> > AbsFunction::memberFunctions()
+{
+  return {{_f}};
+}
+
 void AbsFunction::values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache)
 {
   this->CHECK_VALUES_RANK(values);

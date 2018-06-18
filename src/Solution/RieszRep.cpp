@@ -121,8 +121,6 @@ void TRieszRep<Scalar>::computeRieszRep(int cubatureEnrichment)
     }
     _rieszRepDofs[cellID] = dofs;
   }
-  if (_distributeDofs)
-    distributeDofs();
   _repsNotComputed = false;
 }
 
@@ -152,128 +150,6 @@ template <typename Scalar>
 const map<GlobalIndexType,double> & TRieszRep<Scalar>::getNormsSquared()
 {
   return _rieszRepNormSquared;
-}
-
-template <typename Scalar>
-const map<GlobalIndexType,double> & TRieszRep<Scalar>::getNormsSquaredGlobal()
-{
-  if (_distributeDofs)
-    return _rieszRepNormSquaredGlobal;
-  else
-    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "_distributeDofs must be true for getNormsSquaredGlobal()");
-}
-
-template <typename Scalar>
-void TRieszRep<Scalar>::distributeDofs()
-{
-  int myRank = _mesh->Comm()->MyPID();
-  int numRanks = _mesh->Comm()->NumProc();
-
-  // the code below could stand to be reworked; I'm pretty sure this is not the best way to distribute the data, and it would also be best to get rid of the iteration over the global set of active elements.  But a similar point could be made about this method as a whole: do we really need to distribute all the dofs to every rank?  It may be best to eliminate this method altogether. [NVR]
-
-  vector<GlobalIndexType> cellIDsByPartitionOrdering;
-  for (int rank=0; rank<numRanks; rank++)
-  {
-    set<GlobalIndexType> cellIDsForRank = _mesh->globalDofAssignment()->cellsInPartition(rank);
-    cellIDsByPartitionOrdering.insert(cellIDsByPartitionOrdering.end(), cellIDsForRank.begin(), cellIDsForRank.end());
-  }
-  // determine inverse map:
-  map<GlobalIndexType,int> ordinalForCellID;
-  for (int ordinal=0; ordinal<cellIDsByPartitionOrdering.size(); ordinal++)
-  {
-    GlobalIndexType cellID = cellIDsByPartitionOrdering[ordinal];
-    ordinalForCellID[cellID] = ordinal;
-//    cout << "ordinalForCellID[" << cellID << "] = " << ordinal << endl;
-  }
-
-  for (int cellOrdinal=0; cellOrdinal<cellIDsByPartitionOrdering.size(); cellOrdinal++)
-  {
-    GlobalIndexType cellID = cellIDsByPartitionOrdering[cellOrdinal];
-    ElementTypePtr elemTypePtr = _mesh->getElementType(cellID);
-    DofOrderingPtr testOrderingPtr = elemTypePtr->testOrderPtr;
-    int numDofs = testOrderingPtr->totalDofs();
-
-    int cellIDPartition = _mesh->partitionForCellID(cellID);
-    bool isInPartition = (cellIDPartition == myRank);
-
-    int numMyDofs;
-    FieldContainer<Scalar> dofs(numDofs);
-    if (isInPartition)   // if in partition
-    {
-      numMyDofs = numDofs;
-      dofs = _rieszRepDofs[cellID];
-    }
-    else
-    {
-      numMyDofs = 0;
-    }
-
-    Epetra_Map dofMap(numDofs,numMyDofs,0,*_mesh->Comm());
-    Epetra_Vector distributedRieszDofs(dofMap);
-    if (isInPartition)
-    {
-      for (int i = 0; i<numMyDofs; i++) // shouldn't activate on off-proc partitions
-      {
-        distributedRieszDofs.ReplaceGlobalValues(1,&dofs(i),&i);
-      }
-    }
-    Epetra_Map importMap(numDofs,numDofs,0,*_mesh->Comm()); // every proc should own their own copy of the dofs
-    Epetra_Import testDofImporter(importMap, dofMap);
-    Epetra_Vector globalRieszDofs(importMap);
-    globalRieszDofs.Import(distributedRieszDofs, testDofImporter, Insert);
-    if (!isInPartition)
-    {
-      for (int i = 0; i<numDofs; i++)
-      {
-        dofs(i) = globalRieszDofs[i];
-      }
-    }
-    _rieszRepDofsGlobal[cellID] = dofs;
-//    { // debugging
-//      ostringstream cellIDlabel;
-//      cellIDlabel << "cell " << cellID << " _rieszRepDofsGlobal, after global import";
-//      TestSuite::serializeOutput(cellIDlabel.str(), _rieszRepDofsGlobal[cellID]);
-//    }
-  }
-
-  // distribute norms as well
-  GlobalIndexType numElems = _mesh->numActiveElements();
-  set<GlobalIndexType> rankLocalCellIDs = _mesh->cellIDsInPartition();
-  IndexType numMyElems = rankLocalCellIDs.size();
-  GlobalIndexType myElems[numMyElems];
-  // build cell index
-  GlobalIndexType myCellOrdinal = 0;
-
-  double rankLocalRieszNorms[numMyElems];
-
-  for (set<GlobalIndexType>::iterator cellIDIt = rankLocalCellIDs.begin(); cellIDIt != rankLocalCellIDs.end(); cellIDIt++)
-  {
-    GlobalIndexType cellID = *cellIDIt;
-    myElems[myCellOrdinal] = ordinalForCellID[cellID];
-    rankLocalRieszNorms[myCellOrdinal] = _rieszRepNormSquared[cellID];
-    myCellOrdinal++;
-  }
-  Epetra_Map normMap((GlobalIndexTypeToCast)numElems,(int)numMyElems,(GlobalIndexTypeToCast *)myElems,(GlobalIndexTypeToCast)0,*_mesh->Comm());
-
-  Epetra_Vector distributedRieszNorms(normMap);
-  int err = distributedRieszNorms.ReplaceGlobalValues(numMyElems,rankLocalRieszNorms,(GlobalIndexTypeToCast *)myElems);
-  if (err != 0)
-  {
-    cout << "TRieszRep<Scalar>::distributeDofs(): on rank" << myRank << ", ReplaceGlobalValues returned error code " << err << endl;
-  }
-
-  Epetra_Map normImportMap((GlobalIndexTypeToCast)numElems,(GlobalIndexTypeToCast)numElems,0,*_mesh->Comm());
-  Epetra_Import normImporter(normImportMap,normMap);
-  Epetra_Vector globalNorms(normImportMap);
-  globalNorms.Import(distributedRieszNorms, normImporter, Add);  // add should be OK (everything should be zeros)
-
-  for (int cellOrdinal=0; cellOrdinal<cellIDsByPartitionOrdering.size(); cellOrdinal++)
-  {
-    GlobalIndexType cellID = cellIDsByPartitionOrdering[cellOrdinal];
-    _rieszRepNormSquaredGlobal[cellID] = globalNorms[cellOrdinal];
-//    if (myRank==0) cout << "_rieszRepNormSquaredGlobal[" << cellID << "] = " << globalNorms[cellOrdinal] << endl;
-  }
-
 }
 
 // computes riesz representation over a single element - map is from int (testID) to FieldContainer of values (sized cellIndex, numPoints)
@@ -318,7 +194,7 @@ void TRieszRep<Scalar>::computeRepresentationValues(FieldContainer<Scalar> &valu
     int cellID = cellIDs[cellIndex];
     if (_rieszRepDofs.find(cellID) == _rieszRepDofs.end())
     {
-      cout << "cellID " << cellID << " not found in _riesRepDofs container.\n";
+      cout << "cellID " << cellID << " not found in _rieszRepDofs container.\n";
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellID not found");
     }
     for (int j = 0; j<numTestDofsForVarID; j++)
@@ -395,6 +271,35 @@ template <typename Scalar>
 TRieszRepPtr<Scalar> TRieszRep<Scalar>::rieszRep(MeshPtr mesh, TIPPtr<Scalar> ip, TLinearTermPtr<Scalar> rhs)
 {
   return Teuchos::rcp( new TRieszRep<Scalar>(mesh,ip,rhs) );
+}
+
+template <typename Scalar>
+const Intrepid::FieldContainer<Scalar> & TRieszRep<Scalar>::getCoefficientsForCell(GlobalIndexType cellID)
+{
+  if (_rieszRepDofs.find(cellID) == _rieszRepDofs.end())
+  {
+    // we'll return a container filled with 0s, but we're going to complain about it.
+    std::cout << "WARNING: request for getCoefficientsForCell in RieszRep for cell " << cellID;
+    std::cout << ", which does not have coefficients (locally) set; initializing coefficients to 0.0.\n";
+    int testSize = _mesh->getElementType(cellID)->testOrderPtr->totalDofs();
+    Intrepid::FieldContainer<Scalar> coefficients(testSize);
+    coefficients.initialize(0.0);
+    _rieszRepDofs[cellID] = coefficients;
+  }
+  return _rieszRepDofs[cellID];
+}
+
+template <typename Scalar>
+void TRieszRep<Scalar>::setCoefficientsForCell(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &coefficients)
+{
+  int expectedTestSize = _mesh->getElementType(cellID)->testOrderPtr->totalDofs();
+  if (coefficients.size() != expectedTestSize)
+  {
+    std::cout << "Coefficients size " << coefficients.size() << " does not match expected " << expectedTestSize <<std::endl;
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "coefficients.size() != testOrdering.totalDofs()");
+  }
+  _rieszRepDofs[cellID] = coefficients;
+  _repsNotComputed = false; // if coefficients are being set manually, then don't allow them to be overwritten until/unless we get an explicit call to computeRieszRep()
 }
 
 namespace Camellia

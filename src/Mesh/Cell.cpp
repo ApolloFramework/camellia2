@@ -531,6 +531,21 @@ void Cell::setParent(Teuchos::RCP<Cell> parent)
   }
 }
 
+bool Cell::isDescendant(IndexType ancestralCellIndex) // true if the provided cell index is one of this cell's ancestors
+{
+  if (ancestralCellIndex == _cellIndex) return true;
+  CellPtr ancestor = this->getParent();
+  while (ancestor != Teuchos::null)
+  {
+    if (ancestor->cellIndex() == ancestralCellIndex)
+    {
+      return true;
+    }
+    ancestor = ancestor->getParent();
+  }
+  return false;
+}
+
 bool Cell::isParent(ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
 {
   return meshTopoViewForCellValidity->isParent(_cellIndex);

@@ -26,8 +26,9 @@ class SimpleSolutionFunction : public TFunction<Scalar>
   VarPtr _var;
   bool _weightFluxesBySideParity;
   int _solutionOrdinal;
+  std::string _solutionIdentifierExponent; // used in displayString (allows disambiguation of solutions; if non-empty means we'll drop the \overline business)
 public:
-  SimpleSolutionFunction(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal);
+  SimpleSolutionFunction(VarPtr var, TSolutionPtr<Scalar> soln, bool weightFluxesBySideParity, int solutionOrdinal, const std::string &solutionIdentifierExponent="");
   void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
   TFunctionPtr<Scalar> x();
   TFunctionPtr<Scalar> y();
@@ -40,6 +41,10 @@ public:
 
   void importCellData(std::vector<GlobalIndexType> cellIDs);
 
+  size_t getCellDataSize(GlobalIndexType cellID); // size in bytes
+  void packCellData(GlobalIndexType cellID, char* cellData, size_t bufferLength);
+  size_t unpackCellData(GlobalIndexType cellID, const char* cellData, size_t bufferLength); // returns bytes consumed
+  
   std::string displayString();
   bool boundaryValueOnly();
 };

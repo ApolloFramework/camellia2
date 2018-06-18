@@ -66,6 +66,12 @@ ParametricFunction::ParametricFunction(TFunctionPtr<double> fxn) : TFunction<dou
   _derivativeOrder = 0;
   setArgumentMap();
 }
+
+std::vector< TFunctionPtr<double> > ParametricFunction::memberFunctions()
+{
+  return {{_underlyingFxn}};
+}
+
 void ParametricFunction::value(double t, double &x)
 {
   t = remapForSubCurve(t);
@@ -188,6 +194,10 @@ public:
     _edgeLine = ParametricCurve::line(_x0, _y0, _x1, _y1);
     _isDerivative = false;
   }
+  std::vector< TFunctionPtr<double> > memberFunctions()
+  {
+    return {{_edgeCurve}};
+  }
   void value(double t, double &x, double &y)
   {
     _edgeCurve->value(t, x,y);
@@ -286,6 +296,17 @@ public:
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unimplemented method!");
     return Teuchos::rcp((ParametricCurve*)NULL);
   }
+  
+  std::vector< TFunctionPtr<double> > memberFunctions()
+  {
+    std::vector< TFunctionPtr<double> > members;
+    for (auto &curve : _curves)
+    {
+      auto curveMembers = curve->memberFunctions();
+      members.insert(members.end(),curveMembers.begin(),curveMembers.end());
+    }
+    return members;
+  }
 };
 
 ParametricCurve::ParametricCurve(Teuchos::RCP<ParametricFunction> xFxn_x_as_t, Teuchos::RCP<ParametricFunction> yFxn_x_as_t, Teuchos::RCP<ParametricFunction> zFxn_x_as_t) : TFunction<double>(1)
@@ -327,6 +348,15 @@ ParametricCurvePtr ParametricCurve::interpolatingLine()
   this->value(0, x0,y0);
   this->value(1, x1,y1);
   return line(x0, y0, x1, y1);
+}
+
+std::vector< TFunctionPtr<double> > ParametricCurve::memberFunctions()
+{
+  std::vector< TFunctionPtr<double> > members;
+  if (_xFxn != Teuchos::null) members.push_back(_xFxn);
+  if (_yFxn != Teuchos::null) members.push_back(_yFxn);
+  if (_zFxn != Teuchos::null) members.push_back(_zFxn);
+  return members;
 }
 
 void ParametricCurve::projectionBasedInterpolant(FieldContainer<double> &basisCoefficients, BasisPtr basis1D, int component,

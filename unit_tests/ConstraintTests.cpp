@@ -2,18 +2,17 @@
 // © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
 //
 //
-//  TestTemplate
+//  ConstraintTests
 //  Camellia
 //
 //  Created by Nate Roberts on 11/25/14.
 //
 //
 
-// empty test file.  Copy (naming "MyClassTests.cpp", typically) and then add your tests below.
-
 #include "Teuchos_UnitTestHarness.hpp"
 
 #include "Camellia.h"
+#include "CamelliaDebugUtility.h"
 
 using namespace Camellia;
 
@@ -136,27 +135,35 @@ namespace
     int spaceDim = 1;
     int H1Order = 1, delta_k=1;
     bool useConformingTraces = true;
+    int numConstraints = 3; // we'll just add the same constraint multiple times, essentially as a check that the partition map, etc. do something reasonable here....
+    double tol = 1e-14;
     PoissonFormulation form(spaceDim, useConformingTraces);
     MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {3});
+    double h = 1.0 / meshTopo->cellCount();
     
     MeshPtr mesh = MeshFactory::minRuleMesh(meshTopo, form.bf(), vector<int>{H1Order}, delta_k);
     BCPtr bc = BC::bc();
     RHSPtr rhs = RHS::rhs();
     SolutionPtr soln = Solution::solution(mesh,bc,rhs,form.bf()->graphNorm());
     
-    // add a constraint that the trace "integral" on each element is 1.0
-    VarPtr u_hat = form.u_hat();
-    soln->lagrangeConstraints()->addConstraint(u_hat == Function::constant(1.0));
-    
-    int lagrangeOrdinal = 0;
+    // add a constraint that the trace integral on each element is 1.0
+    VarPtr uHat = form.u_hat();
+    LinearTermPtr uHatIntegrand = uHat * Function::normal_1D();
+    for (int lagrangeOrdinal=0; lagrangeOrdinal<numConstraints; lagrangeOrdinal++)
+    {
+      soln->lagrangeConstraints()->addConstraint(uHatIntegrand == Function::constant(1.0));
+    }
     
     Epetra_Map partMap = soln->getPartitionMap();
     for (GlobalIndexType myCellID : mesh->cellIDsInPartition())
     {
-      GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
-      int LID = partMap.LID(GID);
-      // if GID is local (as it should be), LID should be non-negative
-      TEST_COMPARE(LID, >=, 0);
+      for (int lagrangeOrdinal=0; lagrangeOrdinal<numConstraints; lagrangeOrdinal++)
+      {
+        GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
+        int LID = partMap.LID(GID);
+        // if GID is local (as it should be), LID should be non-negative
+        TEST_COMPARE(LID, >=, 0);
+      }
     }
     
     soln->initializeStiffnessAndLoad();
@@ -167,66 +174,123 @@ namespace
     Epetra_FECrsMatrix* feMatrix = dynamic_cast<Epetra_FECrsMatrix*>( stiffness.get() );
     feMatrix->GlobalAssemble();
     
-    for (GlobalIndexType myCellID : mesh->cellIDsInPartition())
+    int myMaxEntries = feMatrix->MaxNumEntries();
+    vector<double> myEntries(myMaxEntries); // storage
+    vector<int> myLIDs(myMaxEntries);
+    
+    auto colMap = feMatrix->ColMap();
+    
+    auto & myCellIDs = mesh->cellIDsInPartition();
+    print(out, "myCellIDs", myCellIDs);
+    for (GlobalIndexType myCellID : myCellIDs)
     {
-      GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
-      int LID = partMap.LID(GID);
-      
-      // TODO: check values in stiffness and load, corresponding to the Constraint.
-    }
-  }
-  
-  TEUCHOS_UNIT_TEST( Constraint, StokesLocalConservation )
-  {
-    // just about any solution that is not exact will not by itself
-    // be locally conservative.  So we use the Cockburn/Kanschat solution
-    // to test our enforcement via element Lagrange constraints
-    MPIWrapper::CommWorld()->Barrier();
-    
-    bool conformingTraces = true;
-    int spaceDim = 2;
-    vector<int> elementCounts = {2,2};
-    int H1Order = 2;
-    bool enforceConservation = true;
-    SolutionPtr soln = kanschatStokesSolution(conformingTraces, spaceDim, elementCounts, H1Order, enforceConservation);
-    
-    bool exportMatrix = true;
-    if (exportMatrix)
-    {
-      soln->setWriteMatrixToFile(true, "A.dat");
-    }
-
-    soln->solve();
-
-    double mu = 1.0;
-    StokesVGPFormulation form = StokesVGPFormulation::steadyFormulation(spaceDim, mu, conformingTraces);
-    VarPtr u1_hat = form.u_hat(1), u2_hat = form.u_hat(2);
-    FunctionPtr n = Function::normal();
-    FunctionPtr u1hat_soln = Function::solution(u1_hat, soln);
-    FunctionPtr u2hat_soln = Function::solution(u2_hat, soln);
-    
-    FunctionPtr uhat_soln = Function::vectorize(u1hat_soln, u2hat_soln);
-    FunctionPtr flux = uhat_soln * n;
-    
-    double tol = 1e-12;
-    auto myCellIDs = &soln->mesh()->cellIDsInPartition();
-    for (GlobalIndexType cellID : *myCellIDs)
-    {
-      double cellFlux = flux->integrate(cellID, soln->mesh());
-      if (abs(cellFlux) > tol)
+      out << "cellID " << myCellID << endl;
+      for (int lagrangeOrdinal=0; lagrangeOrdinal<numConstraints; lagrangeOrdinal++)
       {
-        success = false;
-        out << "FAILURE: flux on cell " << cellID << " = " << cellFlux << endl;
+        GlobalIndexType GID = soln->elementLagrangeIndex(myCellID, lagrangeOrdinal);
+        int LID = partMap.LID(GID);
+        out << "lagrangeOrdinal " << lagrangeOrdinal << " has GID " << GID << ", LID " << LID << endl;
+        
+        auto trialOrdering = mesh->getElementType(myCellID)->trialOrderPtr;
+        
+        map<int,double> expectedRowValues;
+        
+        for (int sideOrdinal=0; sideOrdinal<2; sideOrdinal++) // 1D
+        {
+          set<GlobalIndexType> dofsForSide = soln->getDofInterpreter()->getGlobalDofIndices(myCellID, uHat->ID(), sideOrdinal);
+          // sanity check: there should be exactly one dof
+          TEST_ASSERT(dofsForSide.size() == 1);
+          GlobalIndexType dofForSide = *dofsForSide.begin();
+          int LIDForDof = colMap.LID(dofForSide);
+          double normal = (sideOrdinal==0) ? -1.0 : 1.0; // normal is -1.0 for sideOrdinal 0; 1.0 for 1
+          double sideParity = soln->mesh()->parityForSide(myCellID, sideOrdinal);
+          double expectedValue = normal * sideParity;
+          expectedRowValues[LIDForDof] = expectedValue;
+          out << "set expected value for LID " << LIDForDof << " to " << expectedValue << endl;
+        }
+        
+        int entryCount;
+        feMatrix->NumMyRowEntries(LID, entryCount);
+        
+        // the row for LID in the feMatrix should be 0s, except for the u_hat dofs.
+        // for these, it should be the integral of that dof over the element (boundary)
+        int entriesExtracted;
+        feMatrix->ExtractMyRowCopy(LID, entryCount, entriesExtracted, &myEntries[0], &myLIDs[0]);
+        
+        //        cout << "entry for cell " << myCellID << ":\n";
+        for (int i=0; i<entriesExtracted; i++)
+        {
+          //          cout << "LID " << myLIDs[i] << ": " << myEntries[i] << endl;
+          int LID = myLIDs[i];
+          out << "LID = " << LID << endl;
+          double expectedValue = 0.0;
+          if (expectedRowValues.find(LID) != expectedRowValues.end())
+          {
+            expectedValue = expectedRowValues[LID];
+          }
+          TEST_FLOATING_EQUALITY(expectedValue, myEntries[i], tol);
+        }
+        
+        int solutionOrdinal = 0;
+        double rhsValue = (*(*load)(solutionOrdinal))[LID];
+        //        cout << "Value: " << rhsValue << endl;
+        
+        double expectedRHSValue = h; // integral of 1 over element
+        TEST_FLOATING_EQUALITY(expectedRHSValue, rhsValue, tol);
       }
     }
-    
-//    HDF5Exporter exporter(soln->mesh(),"stokes-kanschat");
-//    int numSubdivisions = 30; // coarse mesh -> more subdivisions
-//    exporter.exportSolution(soln, 0, numSubdivisions);
-
   }
   
-  
+//  TEUCHOS_UNIT_TEST( Constraint, StokesLocalConservation )
+//  {
+//    // just about any solution that is not exact will not by itself
+//    // be locally conservative.  So we use the Cockburn/Kanschat solution
+//    // to test our enforcement via element Lagrange constraints
+//    MPIWrapper::CommWorld()->Barrier();
+//    
+//    bool conformingTraces = true;
+//    int spaceDim = 2;
+//    vector<int> elementCounts = {2,2};
+//    int H1Order = 2;
+//    bool enforceConservation = true;
+//    SolutionPtr soln = kanschatStokesSolution(conformingTraces, spaceDim, elementCounts, H1Order, enforceConservation);
+//    
+//    bool exportMatrix = true;
+//    if (exportMatrix)
+//    {
+//      soln->setWriteMatrixToFile(true, "A.dat");
+//    }
+//
+//    soln->solve();
+//
+//    double mu = 1.0;
+//    StokesVGPFormulation form = StokesVGPFormulation::steadyFormulation(spaceDim, mu, conformingTraces);
+//    VarPtr u1_hat = form.u_hat(1), u2_hat = form.u_hat(2);
+//    FunctionPtr n = Function::normal();
+//    FunctionPtr u1hat_soln = Function::solution(u1_hat, soln);
+//    FunctionPtr u2hat_soln = Function::solution(u2_hat, soln);
+//    
+//    FunctionPtr uhat_soln = Function::vectorize(u1hat_soln, u2hat_soln);
+//    FunctionPtr flux = uhat_soln * n;
+//    
+//    double tol = 1e-12;
+//    auto myCellIDs = &soln->mesh()->cellIDsInPartition();
+//    for (GlobalIndexType cellID : *myCellIDs)
+//    {
+//      double cellFlux = flux->integrate(cellID, soln->mesh());
+//      if (abs(cellFlux) > tol)
+//      {
+//        success = false;
+//        out << "FAILURE: flux on cell " << cellID << " = " << cellFlux << endl;
+//      }
+//    }
+//    
+////    HDF5Exporter exporter(soln->mesh(),"stokes-kanschat");
+////    int numSubdivisions = 30; // coarse mesh -> more subdivisions
+////    exporter.exportSolution(soln, 0, numSubdivisions);
+//
+//  }
+//
 //  TEUCHOS_UNIT_TEST( Int, Assignment )
 //  {
 //    int i1 = 4;

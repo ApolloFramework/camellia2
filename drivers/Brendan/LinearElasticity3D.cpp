@@ -92,34 +92,34 @@ int main(int argc, char *argv[])
   }
 
   //////////////////////   DECLARE VARIABLES   ////////////////////////
-  VarFactory vf;
+  VarFactoryPtr vf = VarFactory::varFactory();
   // trials:
-  VarPtr u       = vf.fieldVar("u", VECTOR_L2);
-  VarPtr sigma11 = vf.fieldVar("\\sigma_{11}", L2);
-  VarPtr sigma12 = vf.fieldVar("\\sigma_{12}", L2);
-  VarPtr sigma13 = vf.fieldVar("\\sigma_{13}", L2);
-  VarPtr sigma22 = vf.fieldVar("\\sigma_{22}", L2);
-  VarPtr sigma23 = vf.fieldVar("\\sigma_{23}", L2);
-  VarPtr sigma33 = vf.fieldVar("\\sigma_{33}", L2);
+  VarPtr u       = vf->fieldVar("u", VECTOR_L2);
+  VarPtr sigma11 = vf->fieldVar("\\sigma_{11}", L2);
+  VarPtr sigma12 = vf->fieldVar("\\sigma_{12}", L2);
+  VarPtr sigma13 = vf->fieldVar("\\sigma_{13}", L2);
+  VarPtr sigma22 = vf->fieldVar("\\sigma_{22}", L2);
+  VarPtr sigma23 = vf->fieldVar("\\sigma_{23}", L2);
+  VarPtr sigma33 = vf->fieldVar("\\sigma_{33}", L2);
 
   // traces:
-  VarPtr u1hat = vf.traceVar("\\hat{u_1}");
-  VarPtr u2hat = vf.traceVar("\\hat{u_2}");
-  VarPtr u3hat = vf.traceVar("\\hat{u_3}");
-  VarPtr t1hat = vf.fluxVar("\\hat{t_1}");
-  VarPtr t2hat = vf.fluxVar("\\hat{t_2}");
-  VarPtr t3hat = vf.fluxVar("\\hat{t_3}");
+  VarPtr u1hat = vf->traceVar("\\hat{u_1}");
+  VarPtr u2hat = vf->traceVar("\\hat{u_2}");
+  VarPtr u3hat = vf->traceVar("\\hat{u_3}");
+  VarPtr t1hat = vf->fluxVar("\\hat{t_1}");
+  VarPtr t2hat = vf->fluxVar("\\hat{t_2}");
+  VarPtr t3hat = vf->fluxVar("\\hat{t_3}");
 
   // tests:
-  VarPtr tau11 = vf.testVar("\\tau_{11}", HGRAD);
-  VarPtr tau12 = vf.testVar("\\tau_{12}", HGRAD);
-  VarPtr tau13 = vf.testVar("\\tau_{13}", HGRAD);
-  VarPtr tau22 = vf.testVar("\\tau_{22}", HGRAD);
-  VarPtr tau23 = vf.testVar("\\tau_{23}", HGRAD);
-  VarPtr tau33 = vf.testVar("\\tau_{33}", HGRAD);
-  VarPtr v1    = vf.testVar("v_1", HGRAD);
-  VarPtr v2    = vf.testVar("v_2", HGRAD);
-  VarPtr v3    = vf.testVar("v_3", HGRAD);
+  VarPtr tau11 = vf->testVar("\\tau_{11}", HGRAD);
+  VarPtr tau12 = vf->testVar("\\tau_{12}", HGRAD);
+  VarPtr tau13 = vf->testVar("\\tau_{13}", HGRAD);
+  VarPtr tau22 = vf->testVar("\\tau_{22}", HGRAD);
+  VarPtr tau23 = vf->testVar("\\tau_{23}", HGRAD);
+  VarPtr tau33 = vf->testVar("\\tau_{33}", HGRAD);
+  VarPtr v1    = vf->testVar("v_1", HGRAD);
+  VarPtr v2    = vf->testVar("v_2", HGRAD);
+  VarPtr v3    = vf->testVar("v_3", HGRAD);
 
   ////////////////    MISCELLANEOUS LOCAL VARIABLES    ////////////////
 
@@ -333,7 +333,7 @@ int main(int argc, char *argv[])
   vertices.push_back(V6);
   vertices.push_back(V7);
 
-  vector<unsigned> hexVertexList;
+  vector<IndexType> hexVertexList;
   hexVertexList.push_back(0);
   hexVertexList.push_back(1);
   hexVertexList.push_back(2);
@@ -343,7 +343,7 @@ int main(int argc, char *argv[])
   hexVertexList.push_back(6);
   hexVertexList.push_back(7);
 
-  vector< vector<unsigned> > elementVertices;
+  vector< vector<IndexType> > elementVertices;
   elementVertices.push_back(hexVertexList);
 
   vector< CellTopoPtr > cellTopos;

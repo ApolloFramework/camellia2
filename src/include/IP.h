@@ -83,6 +83,10 @@ public:
   // added by Jesse
   TLinearTermPtr<Scalar> evaluate(const std::map< int, TFunctionPtr<Scalar>> &varFunctions, bool boundaryPart);
 
+  std::vector< TLinearTermPtr<Scalar> > getLinearTerms() const;
+  std::vector< TLinearTermPtr<Scalar> > getBoundaryTerms() const;
+  std::vector< TLinearTermPtr<Scalar> > getZeroMeanTerms() const;
+  
   virtual bool hasBoundaryTerms();
 
   int nonZeroEntryCount(DofOrderingPtr testOrdering);

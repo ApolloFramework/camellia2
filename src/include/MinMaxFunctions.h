@@ -32,6 +32,8 @@ public:
   void values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache);
   bool boundaryValueOnly();
 
+  std::vector< TFunctionPtr<double> > memberFunctions();
+  
   string displayString();
 };
 
@@ -48,6 +50,8 @@ public:
   void values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache);
   bool boundaryValueOnly();
 
+  std::vector< TFunctionPtr<double> > memberFunctions();
+  
   string displayString();
 };
 }

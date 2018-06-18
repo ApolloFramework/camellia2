@@ -39,6 +39,8 @@
 #include "RieszRep.h"
 #include "BasisFactory.h"
 #include "GnuPlotUtil.h"
+#include "MPIWrapper.h"
+#include "GnuPlotUtil.h"
 
 #include "CamelliaDebugUtility.h"
 
@@ -51,11 +53,13 @@ class DPGstarErrorIndicator : public ErrorIndicator
   SolutionPtr _solution;
   FunctionPtr _dualSolnResidualFunction;
   int _cubatureDegreeEnrichment;
+  std::map<GlobalIndexType, double> _jumpMap_total;
 public:
-  DPGstarErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
+  DPGstarErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, std::map<GlobalIndexType, double> jumpMap_total, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
   {
     _solution = soln;
     _dualSolnResidualFunction = dualSolnResidualFunction;
+    _jumpMap_total = jumpMap_total;
     _cubatureDegreeEnrichment = cubatureDegreeEnrichment;
   }
 
@@ -71,8 +75,10 @@ public:
     for (auto entry : *rankLocalEnergyError)
     {
       GlobalIndexType cellID = entry.first;
-      double dualresidual = sqrt(_dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment));
-      _localErrorMeasures[cellID] = dualresidual;
+      double dualresidual = _dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment);
+      _localErrorMeasures[cellID] = dualresidual + _jumpMap_total[cellID];
+      // dualresidual += _jumpMap_total[cellID];
+      // _localErrorMeasures[cellID] = sqrt(dualresidual);
     }
 
     // calculate max
@@ -91,12 +97,14 @@ class GoalOrientedErrorIndicator : public ErrorIndicator
 {
   SolutionPtr _solution;
   FunctionPtr _dualSolnResidualFunction;
+  std::map<GlobalIndexType, double> _jumpMap_total;
   int _cubatureDegreeEnrichment;
 public:
-  GoalOrientedErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
+  GoalOrientedErrorIndicator(SolutionPtr soln, FunctionPtr dualSolnResidualFunction, std::map<GlobalIndexType, double> jumpMap_total, int cubatureDegreeEnrichment) : ErrorIndicator(soln->mesh())
   {
     _solution = soln;
     _dualSolnResidualFunction = dualSolnResidualFunction;
+    _jumpMap_total = jumpMap_total;
     _cubatureDegreeEnrichment = cubatureDegreeEnrichment;
   }
 
@@ -113,7 +121,8 @@ public:
     {
       GlobalIndexType cellID = entry.first;
       double residual = energyErrorIsSquared ? sqrt(entry.second) : entry.second;
-      double dualresidual = sqrt(_dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment));
+      double dualresidual = _dualSolnResidualFunction->integrate(cellID, _solution->mesh(), _cubatureDegreeEnrichment);
+      dualresidual = sqrt(dualresidual + _jumpMap_total[cellID]);
       _localErrorMeasures[cellID] = residual*dualresidual;
     }
 
@@ -155,12 +164,15 @@ int main(int argc, char *argv[])
   string problemChoice = "SquareDomain";
   string formulationChoice = "ULTRAWEAK";
   int spaceDim = 2;
-  int numRefs = 1;
+  int numRefs = 3;
   int k = 2, delta_k = 2;
   string norm = "Graph";
   string errorIndicator = "Uniform";
   bool useConformingTraces = true;
   bool enrichTrial = false;
+  bool liftedBC = false;
+  bool jumpTermEdgeScaling = true;
+  int liftChoice = 2;
   string solverChoice = "KLU";
   bool exportSolution = false;
   string outputDir = ".";
@@ -172,10 +184,13 @@ int main(int argc, char *argv[])
   cmdp.setOption("polyOrder",&k,"polynomial order for field variables");
   cmdp.setOption("delta_k", &delta_k, "test space polynomial order enrichment");
   cmdp.setOption("numRefs",&numRefs,"number of refinements");
-  cmdp.setOption("norm", &norm, "norm");
-  cmdp.setOption("errorIndicator", &errorIndicator, "Energy,Uniform,GoalOriented");
+  cmdp.setOption("norm", &norm, "norm: Graph, Naive, qopt");
+  cmdp.setOption("errorIndicator", &errorIndicator, "Energy, Uniform, GoalOriented, DPGstar");
   cmdp.setOption("conformingTraces", "nonconformingTraces", &useConformingTraces, "use conforming traces");
   cmdp.setOption("enrichTrial", "classictrial", &enrichTrial, "use enriched u-variable");
+  cmdp.setOption("liftedBC", "naive BC", &liftedBC, "lifted BC");
+  cmdp.setOption("edgeScaling", "interiorScaling", &jumpTermEdgeScaling, "weight by edge length for jump terms");
+  cmdp.setOption("liftChoice",&liftChoice,"choice of lifting function");
   cmdp.setOption("solver", &solverChoice, "KLU, SuperLUDist, MUMPS");
   cmdp.setOption("exportSolution", "skipExport", &exportSolution, "export solution to HDF5");
   cmdp.setOption("outputDir", &outputDir, "output directory");
@@ -236,7 +251,8 @@ int main(int argc, char *argv[])
     double x0 = 0.0, y0 = 0.0;
     width = 1.0;
     height = 1.0;
-    int horizontalCells = 2, verticalCells = 2;
+    // int horizontalCells = 2, verticalCells = 2;
+    int horizontalCells = 1, verticalCells = 1;
     spatialMeshTopo =  MeshFactory::quadMeshTopology(width, height, horizontalCells, verticalCells,
                                                                      false, x0, y0);
   }
@@ -292,35 +308,61 @@ int main(int argc, char *argv[])
 
 
   ///////////////////////  DECLARE INNER PRODUCT ///////////////////////
+  // weights for custom quasi-optimal norm
+  map<int,double> trialWeights; // leave empty for unit weights (default)
+  map<int,double> testL2Weights;
+//    testL2Weights[v->ID()] = 1.0;
+//    testL2Weights[tau->ID()] = 1.0 / epsilon;
+  // trialWeights[u->ID()] = 1.0;
+  // trialWeights[sigma->ID()] = 1.0;
+  testL2Weights[v->ID()] = 0.0;
+  testL2Weights[tau->ID()] = 1.0;
+  // custom norm (again bc other way has a bug)
+  IPPtr qopt_ip = Teuchos::rcp(new IP());
+  qopt_ip->addTerm(v->grad()-tau);
+  qopt_ip->addTerm(tau->div());
+  qopt_ip->addTerm(0.1*v);
+  // qopt_ip->addTerm(tau);
+
   map<string, IPPtr> poissonIPs;
   poissonIPs["Graph"] = bf->graphNorm();
   poissonIPs["Naive"] = bf->naiveNorm(spaceDim);
+  // poissonIPs["qopt"] = qopt_ip;
+  poissonIPs["qopt"] = bf->graphNorm(0.1);
+  // poissonIPs["qopt"] = bf->graphNorm(trialWeights, testL2Weights);
   IPPtr ip = poissonIPs[norm];
+
+  // ip->printInteractions();
 
 
   //////////////////////  DECLARE EXACT SOLUTIONS  /////////////////////
   FunctionPtr u_exact, v_exact;
   FunctionPtr xx = x/width, yy = y/height;
+  u_exact = zero;
   // u_exact = one;
   // u_exact = x * x + 2 * x * y;
   // u_exact = x * x * x * y + 2 * x * y * y;
   // u_exact = sin_pix * sin_piy;
-  u_exact = xx * (1.0 - xx) * (xx/4.0 + (1.0 - 4.0*xx)*(1.0 - 4.0*xx) ) * yy * (1.0 - yy) * (yy/4.0 + (1.0 - 4.0*yy)*(1.0 - 4.0*yy) );
+  // u_exact = xx * (1.0 - xx) * (xx/4.0 + (1.0 - 4.0*xx)*(1.0 - 4.0*xx) ) * yy * (1.0 - yy) * (yy/4.0 + (1.0 - 4.0*yy)*(1.0 - 4.0*yy) );
 
   xx = (width-x)/width;
   yy = (height-y)/height;
   // v_exact = zero;
-  // v_exact = one;
+  v_exact = one;
   // v_exact = x * x + 2 * x * y;
   // v_exact = xx * (1.0 - xx) * (xx/4.0 + (1.0 - 4.0*xx)*(1.0 - 4.0*xx) ) * yy * (1.0 - yy) * (yy/4.0 + (1.0 - 4.0*yy)*(1.0 - 4.0*yy) );
   // v_exact = x * x * x * y + 2 * x * y * y;
+  // v_exact = x * (1.0 - x) * y * (1.0 - y);
   // v_exact = sin_pix * sin_piy;
-  v_exact = cos_pix * cos_piy;
+  // v_exact = sin_pix * sin_piy + one;
+  // v_exact = sin_pix * sin_piy + x*x;
+  // v_exact = cos_pix * cos_piy;
 
 
   ////////////////////////////  DECLARE RHS  ///////////////////////////
   FunctionPtr f;
   f = u_exact->dx()->dx() + u_exact->dy()->dy();
+  // RHSPtr rhs = form.rhs(one);
   RHSPtr rhs = form.rhs(f);
 
 
@@ -336,6 +378,10 @@ int main(int argc, char *argv[])
     bc->addDirichlet(u_hat, y_equals_zero, u_exact);
     bc->addDirichlet(u_hat, x_equals_one, u_exact);
     bc->addDirichlet(u_hat, y_equals_one, u_exact);
+    // bc->addDirichlet(sigma_n_hat, x_equals_zero, zero);
+    // bc->addDirichlet(sigma_n_hat, y_equals_zero, zero);
+    // bc->addDirichlet(sigma_n_hat, x_equals_one,  zero);
+    // bc->addDirichlet(sigma_n_hat, y_equals_one,  zero);
   }
   else
   {
@@ -350,26 +396,45 @@ int main(int argc, char *argv[])
 
   //////////////////////  DECLARE GOAL FUNCTIONAL //////////////////////
   LinearTermPtr g_functional;
-  FunctionPtr g_u, g_sigma_x, g_sigma_y, g_sigma_hat;
+  FunctionPtr g_u, g_sigma_x, g_sigma_y, g_sigma_hat, g_u_hat;
   g_u = v_exact->dx()->dx() + v_exact->dy()->dy(); // field type
   g_functional = g_u * u;
 
-  bool liftedBC = false;
-  if (liftedBC)
-  {
-    g_sigma_x = v_exact->dx(); // LIFTED Dirichlet boundary data
-    g_sigma_y = v_exact->dy(); // LIFTED Dirichlet boundary data
-    bool overrideTypeCheck = true;
-    g_functional->addTerm( - g_sigma_x * sigma->x(), overrideTypeCheck); // add flux type to field type
-    g_functional->addTerm( - g_sigma_y * sigma->y(), overrideTypeCheck); // add flux type to field type
-  }
-  else
-  {
+
+  // bool liftedBC = false;
+  FunctionPtr v_bdry = v_exact;
+  // FunctionPtr v_lift = v_exact;
+  // if (liftedBC)
+  // {
+  //   // LIFTED Dirichlet boundary data
+  //   if (liftChoice == 1)
+  //     v_lift = one;
+  //     // v_lift = x*x;
+  //   else if (liftChoice == 2)
+  //     v_lift = 1 - x * (1 - x) * y * (1 - y);
+  //   // else if (liftChoice == 3)
+  //   //   v_lift = 1 - x * (1 - x*x) * y * (1 - y*y);
+  //   // else if (liftChoice == 4)
+  //   //   v_lift = 1 - x * (1 - x) * y * (1 - y) * x * x * x * x;
+  //   else
+  //   {
+  //     cout << "ERROR: not a supported lift.\n";
+  //     return Teuchos::null;
+  //   }
+  //   bool overrideTypeCheck = true;
+  //   g_functional->addTerm( v_lift->dx() * sigma->x(), overrideTypeCheck); // add flux type to field type
+  //   g_functional->addTerm( v_lift->dy() * sigma->y(), overrideTypeCheck); // add flux type to field type
+  //   g_sigma_hat = zero;
+  // }
+  // else
+  // {
     FunctionPtr boundaryRestriction = Function::meshBoundaryCharacteristic();
     g_sigma_hat = v_exact * boundaryRestriction; // Dirichlet boundary data
+    g_u_hat = v_exact->grad()*n * boundaryRestriction; // Dirichlet boundary data
     bool overrideTypeCheck = true;
     g_functional->addTerm( g_sigma_hat * sigma_n_hat, overrideTypeCheck); // add flux type to field type
-  }
+    // g_functional->addTerm( g_u_hat * u_hat, overrideTypeCheck); // add flux type to field type
+  // }
 
   // g_u = one - Function::heaviside(1);
   // g_functional = g_u * u;
@@ -405,13 +470,23 @@ int main(int argc, char *argv[])
     dataFileLocation = outputDir+"/"+solnName.str()+".txt";  
 
   ofstream dataFile(dataFileLocation);
-  dataFile << "Ref\t "
-           << "Elements\t "
-           << "DOFs\t "
-           << "Energy\t "
-           << "Rate\t "
-           << "Solvetime\t "
-           << "Elapsed\t "
+  dataFile << setw(4)  << " Ref"
+           << setw(11) << "Elements"
+           << setw(10) << "DOFs"
+           // << setw(16) << "DPGresidual"
+           // << setw(9)  << "Rate"
+           // << setw(13) << "DPGerror"
+           // << setw(9) << "Rate"
+           // << setw(13) << "superconv"
+           // << setw(9) << "Rate"
+           << setw(16) << "DPG*residual"
+           << setw(9)  << "Rate"
+           << setw(13) << "DPG*error"
+           << setw(9) << "Rate"
+           << setw(13) << "superconv"
+           << setw(9) << "Rate"
+           // << setw(12) << "Solvetime"
+           // << setw(11) << "Elapsed"
            << endl;
 
   Teuchos::RCP<HDF5Exporter> exporter;
@@ -422,15 +497,28 @@ int main(int argc, char *argv[])
   functionExporter = Teuchos::rcp(new HDF5Exporter(mesh, exporterName));
 
   SolverPtr solver = solvers[solverChoice];
-  double energyErrorPrvs, solnErrorPrvs, solnErrorL2Prvs, dualSolnErrorPrvs, dualSolnErrorL2Prvs, dualSolnResidualPrvs, outputErrorPrvs, numGlobalDofsPrvs;
+  double energyErrorPrvs, solnErrorPrvs, solnErrorL2Prvs, dualSolnErrorPrvs, dualSolnErrorL2Prvs, dualSolnResidualPrvs, jump_v_Prvs, jump_tau_Prvs, outputErrorPrvs, numDofsPrvs;
   for (int refIndex=0; refIndex <= numRefs; refIndex++)
   {
     solverTime->start(true);
 
     soln->solve(solver);
-
     double solveTime = solverTime->stop();
-    double numGlobalDofs = mesh->numGlobalDofs();
+
+    Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndicesFC;
+    Intrepid::FieldContainer<double> bcGlobalValuesFC;
+      
+    mesh->boundary().bcsToImpose(bcGlobalIndicesFC,bcGlobalValuesFC,*soln->bc(), soln->getDofInterpreter().get());
+
+    set<GlobalIndexType> uniqueIDs;
+    for (int i=0; i<bcGlobalIndicesFC.size(); i++)
+    {
+      uniqueIDs.insert(bcGlobalIndicesFC[i]);
+    }
+    int numBCDOFs = uniqueIDs.size();
+
+    // cout << "numBCDOFS = " << numBCDOFs << endl;
+    double numDofs = mesh->numGlobalDofs() - mesh->numFieldDofs() - numBCDOFs;
 
 
     // compute error rep function / influence function
@@ -450,6 +538,11 @@ int main(int argc, char *argv[])
     psi_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), rieszResidual) );
     dualSoln_v =  Teuchos::rcp( new RepFunction<double>(form.v(), dualSoln) );
     dualSoln_tau =  Teuchos::rcp( new RepFunction<double>(form.tau(), dualSoln) );
+    // if (liftedBC)
+    // {
+    //   dualSoln_v = dualSoln_v + v_lift;
+    //   // dualSoln_tau = dualSoln_tau - v_lift->grad();
+    // }
 
     // compute error in DPG solution
     FunctionPtr soln_u = Function::solution(u, soln);
@@ -469,30 +562,80 @@ int main(int argc, char *argv[])
     FunctionPtr e_tau_x = v_exact->dx() - dualSoln_tau->x();
     FunctionPtr e_tau_y = v_exact->dy() - dualSoln_tau->y();
     FunctionPtr e_tau_div = v_exact->dx()->dx() + v_exact->dy()->dy() - dualSoln_tau->div();
-    FunctionPtr dualSolnErrorFunction = e_v*e_v + e_v_dx*e_v_dx + e_v_dy*e_v_dy + e_tau_x*e_tau_x + e_tau_y*e_tau_y + e_tau_div*e_tau_div;
-    double dualSolnError = sqrt(dualSolnErrorFunction->l1norm(mesh));
-    double dualSolnErrorL2 = e_v->l2norm(mesh);
+    FunctionPtr dualSolnErrorFunction = e_v_dx*e_v_dx + e_v_dy*e_v_dy + e_tau_x*e_tau_x + e_tau_y*e_tau_y + e_tau_div*e_tau_div;
+    // FunctionPtr dualSolnErrorFunction = e_v*e_v + e_v_dx*e_v_dx + e_v_dy*e_v_dy + e_tau_x*e_tau_x + e_tau_y*e_tau_y + e_tau_div*e_tau_div;
+    int cubatureDegreeEnrichment = delta_k+1;
+    double dualSolnError = sqrt(dualSolnErrorFunction->l1norm(mesh,cubatureDegreeEnrichment));
+    double dualSolnErrorL2 = e_v->l2norm(mesh,cubatureDegreeEnrichment);
 
     // compute residual in DPG* solution
     FunctionPtr res1 = dualSoln_tau->div() - g_u;
     FunctionPtr res2 = dualSoln_v->dx() - dualSoln_tau->x();  
     FunctionPtr res3 = dualSoln_v->dy() - dualSoln_tau->y();
-    FunctionPtr dualSolnResidualFunction = res1*res1 + res2*res2 + res3*res3;
+    FunctionPtr dualSolnResFxn = res1*res1 + res2*res2 + res3*res3;
 
     map<int, FunctionPtr > opDualSoln = bf()->applyAdjointOperatorDPGstar(dualSoln);
 
     FunctionPtr res1_2 = opDualSoln[u->ID()] - g_u;
-    FunctionPtr res2_2 = opDualSoln[sigma->ID()];  
+    FunctionPtr res2_2 = opDualSoln[sigma->ID()];
 
-    FunctionPtr dualSolnResFxn = res1_2*res1_2 + res2_2*res2_2;
-    // FunctionPtr dualSolnResidualFunction = dualSolnResFxn;
+    FunctionPtr dualSolnResidualFunction = res1_2*res1_2 + res2_2*res2_2;
+
+    bool weightBySideMeasure = false;
+    if (jumpTermEdgeScaling == true)
+      weightBySideMeasure = true;
+    int cubatureEnrichmentDegree = delta_k;
+    FunctionPtr v_minus_BC = dualSoln_v - g_sigma_hat;
+    // FunctionPtr Dt_v_minus_BC = dualSoln_v-> - g_sigma_hat;
+    FunctionPtr boundaryRestriction = Function::meshBoundaryCharacteristic();
+    FunctionPtr tauDotNml_minus_BC = dualSoln_tau * n;
+    tauDotNml_minus_BC = (1.0 - boundaryRestriction) * tauDotNml_minus_BC;
+    std::map<GlobalIndexType, double> jumpMap_v = v_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree);
+    std::map<GlobalIndexType, double> jumpMap_gradv;
+    if (weightBySideMeasure)
+    {
+      FunctionPtr gradv = dualSoln_v->dx()*n->y() - dualSoln_v->dy()*n->x();
+      FunctionPtr gradv_BC = v_bdry->dx()*n->y() - v_bdry->dy()*n->x();
+      gradv_BC = gradv_BC*boundaryRestriction;
+      FunctionPtr gradv_minus_BC = gradv - gradv_BC;
+      jumpMap_gradv = gradv_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree, Function::SUM);
+    }
+    std::map<GlobalIndexType, double> jumpMap_tau = tauDotNml_minus_BC->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureEnrichmentDegree, Function::SUM);
+
+    std::map<GlobalIndexType, double> jumpMap_total;
+    const set<GlobalIndexType> & myCellIDs = mesh->cellIDsInPartition();
+    double jump_v=0.0;
+    double jump_tau=0.0;
+    for (auto cellID: myCellIDs)
+    {
+      double jump_v_tmp, jump_tau_tmp;
+      if (weightBySideMeasure)
+      {
+        jump_v_tmp = jumpMap_v[cellID] + jumpMap_gradv[cellID];
+        jump_tau_tmp = jumpMap_tau[cellID];
+      }
+      else
+      {
+        double vol = mesh->getCellMeasure(cellID);
+        double h = pow(vol, 1.0 / spaceDim);
+        jump_v_tmp = pow(h, -1.0)*jumpMap_v[cellID];
+        jump_tau_tmp = h*jumpMap_tau[cellID];
+      }
+      jump_v += jump_v_tmp;
+      jump_tau += jump_tau_tmp;
+      jumpMap_total[cellID] = jump_v_tmp + jump_tau_tmp;
+    }
+    jump_v = MPIWrapper::sum(*mesh->Comm(), jump_v);
+    jump_tau = MPIWrapper::sum(*mesh->Comm(), jump_tau);
+
+    // double dualSolnResidual = sqrt(dualSolnResidualFunction->l1norm(mesh, cubatureDegreeEnrichment));
+    double dualSolnResidual = sqrt(dualSolnResidualFunction->l1norm(mesh, cubatureDegreeEnrichment) + jump_v + jump_tau);
+
+    jump_v = sqrt(jump_v);
+    jump_tau = sqrt(jump_tau);
 
     vector<FunctionPtr> functionsToExport = {psi_v, psi_tau, dualSoln_v, dualSoln_tau, dualSolnResidualFunction, dualSolnResFxn};
     vector<string> functionsToExportNames = {"psi_v", "psi_tau", "dual_v", "dual_tau", "dualSolnResidualFunction", "dualSolnResFxn"};
-
-
-    int cubatureDegreeEnrichment = delta_k;
-    double dualSolnResidual = sqrt(dualSolnResidualFunction->l1norm(mesh, cubatureDegreeEnrichment));
 
     // compute error in output (QOI)
     FunctionPtr outputError_function = g_u * (u_exact - soln_u);
@@ -505,16 +648,20 @@ int main(int argc, char *argv[])
     double dualSolnErrorRate = 0;
     double dualSolnErrorL2Rate = 0;
     double dualSolnResidualRate = 0;
+    double jump_v_Rate = 0;
+    double jump_tau_Rate = 0;
     double outputErrorRate = 0;
     if (refIndex != 0)
     {
-      double denom = log(numGlobalDofsPrvs/numGlobalDofs);
+      double denom = log(numDofsPrvs/numDofs);
       solnErrorRate =-spaceDim*log(solnErrorPrvs/solnError)/denom;
       solnErrorL2Rate =-spaceDim*log(solnErrorL2Prvs/solnErrorL2)/denom;
       energyRate =-spaceDim*log(energyErrorPrvs/energyError)/denom;
       dualSolnErrorRate =-spaceDim*log(dualSolnErrorPrvs/dualSolnError)/denom;
       dualSolnErrorL2Rate =-spaceDim*log(dualSolnErrorL2Prvs/dualSolnErrorL2)/denom;
       dualSolnResidualRate =-spaceDim*log(dualSolnResidualPrvs/dualSolnResidual)/denom;
+      jump_v_Rate =-spaceDim*log(jump_v_Prvs/jump_v)/denom;
+      jump_tau_Rate =-spaceDim*log(jump_tau_Prvs/jump_tau)/denom;
       outputErrorRate =-spaceDim*log(outputErrorPrvs/outputError)/denom;
     }
 
@@ -523,42 +670,66 @@ int main(int argc, char *argv[])
       cout << setprecision(8) 
         << " \n\nRefinement: " << refIndex
         << " \tElements: " << mesh->numActiveElements()
-        << " \tDOFs: " << mesh->numGlobalDofs()
+        << " \tDOFs: " << numDofs
         << setprecision(4)
         << " \tSolve Time: " << solveTime
         << " \tTotal Time: " << totalTimer->totalElapsedTime(true)
         << endl;
-      cout << setprecision(4) 
-        << " \nDPG Residual:        " << energyError
-        << " \tRate: " << energyRate
-        << " \nDPG Error (total):   " << solnError
-        << " \tRate: " << solnErrorRate
-        << " \nDPG Error (u-comp):  " << solnErrorL2
-        << " \tRate: " << solnErrorL2Rate
-        << endl;
+      // cout << setprecision(4) 
+      //   << " \nDPG Residual:        " << energyError
+      //   << " \tRate: " << energyRate
+      //   << " \nDPG Error (total):   " << solnError
+      //   << " \tRate: " << solnErrorRate
+      //   << " \nDPG Error (u-comp):  " << solnErrorL2
+      //   << " \tRate: " << solnErrorL2Rate
+      //   << endl;
       cout << setprecision(4) 
         << " \nDPG* Residual:       " << dualSolnResidual
         << " \tRate: " << dualSolnResidualRate
+        << " \nDPG* jump in v:      " << jump_v
+        << " \tRate: " << jump_v_Rate
+        << " \nDPG* jump in tau:    " << jump_tau
+        << " \tRate: " << jump_tau_Rate
         << " \nDPG* Error: (total): " << dualSolnError
         << " \tRate: " << dualSolnErrorRate
         << " \nDPG* Error (v-comp): " << dualSolnErrorL2
         << " \tRate: " << dualSolnErrorL2Rate
         << endl;
       cout << setprecision(4) 
-        << " \nGoal Error:          " << outputError
+        << " \nQOI Error:          " << outputError
         << " \tRate: " << outputErrorRate
         << endl;
       dataFile << setprecision(8)
-        << " " << refIndex
-        << " " << mesh->numActiveElements()
-        << " " << numGlobalDofs
+        << setw(4) << refIndex
+        << setw(3) << " "
+        << setw(6) << mesh->numActiveElements()
+        << setw(3) << " "
+        << setw(9) << numDofs
         << setprecision(4)
-        << " " << energyError
-        << " " << energyRate
-        << " " << solveTime
-        << " " << totalTimer->totalElapsedTime(true)
-        << " " << dualSolnError
-        << " " << dualSolnErrorRate
+        << setw(7) << " "
+        // << setw(9) << energyError
+        // << setw(9) << energyRate
+        // << setw(4) << " "
+        // << setw(9) << solnError
+        // << setw(9) << solnErrorRate
+        // << setw(4) << " "
+        // << setw(9) << solnErrorL2
+        // << setw(9) << solnErrorL2Rate
+        // << setw(7) << " "
+        << setw(9) << dualSolnResidual
+        << setw(9) << dualSolnResidualRate
+        << setw(4) << " "
+        << setw(9) << dualSolnError
+        << setw(9) << dualSolnErrorRate
+        << setw(4) << " "
+        << setw(9) << dualSolnErrorL2
+        << setw(9) << dualSolnErrorL2Rate
+        // << setw(4) << " "
+        // << setw(8) << solveTime
+        // << setw(3) << " "
+        // << setw(8) << totalTimer->totalElapsedTime(true)
+        // << " " << dualSolnError
+        // << " " << dualSolnErrorRate
         << endl;
     }
 
@@ -568,14 +739,24 @@ int main(int argc, char *argv[])
     dualSolnErrorPrvs = dualSolnError;
     dualSolnErrorL2Prvs = dualSolnErrorL2;
     dualSolnResidualPrvs = dualSolnResidual;
+    jump_v_Prvs = jump_v;
+    jump_tau_Prvs = jump_tau;
     outputErrorPrvs = outputError;
-    numGlobalDofsPrvs = numGlobalDofs;
+    numDofsPrvs = numDofs;
 
     if (exportSolution)
     {
       exporter->exportSolution(soln, refIndex);
       int numLinearPointsPlotting = max(k,15);
       functionExporter->exportFunction(functionsToExport, functionsToExportNames, refIndex, numLinearPointsPlotting);
+
+      // output mesh with GnuPlotUtil
+      ostringstream meshExportName;
+      meshExportName << outputDir << "/" << solnName.str() << "/" << "ref" << refIndex << "_mesh";
+      // int numPointsPerEdge = 3;
+      bool labelCells = false;
+      string meshColor = "black";
+      GnuPlotUtil::writeComputationalMeshSkeleton(meshExportName.str(), mesh, labelCells, meshColor);
     }
 
     if (refIndex != numRefs)
@@ -594,11 +775,18 @@ int main(int argc, char *argv[])
       }
       else if (errorIndicator == "GoalOriented")
       {
-        double refThreshold = 0.2;
-        int cubatureDegreeEnrichment = delta_k;
-        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new GoalOrientedErrorIndicator<double>(soln, dualSolnResidualFunction, cubatureDegreeEnrichment) );
+        double refThreshold = 0.25;
+        // int cubatureDegreeEnrichment = delta_k;
+        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new GoalOrientedErrorIndicator<double>(soln, dualSolnResidualFunction, jumpMap_total, cubatureDegreeEnrichment) );
         refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, refThreshold) );
-      }  
+      }
+      else if (errorIndicator == "DPGstar")
+      {
+        double refThreshold = 0.25;
+        // int cubatureDegreeEnrichment = delta_k;
+        ErrorIndicatorPtr errorIndicator = Teuchos::rcp( new DPGstarErrorIndicator<double>(soln, dualSolnResidualFunction, jumpMap_total, cubatureDegreeEnrichment) );
+        refStrategy = Teuchos::rcp( new TRefinementStrategy<double>(errorIndicator, refThreshold) );
+      } 
       else
       {
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "unrecognized refinement strategy");

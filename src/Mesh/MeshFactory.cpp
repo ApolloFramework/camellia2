@@ -517,7 +517,19 @@ MeshPtr MeshFactory::intervalMesh(TBFPtr<double> bf, double xLeft, double xRight
   return Teuchos::rcp( new Mesh(meshTopology, bf, H1Order, delta_k) );
 }
 
-MeshTopologyPtr MeshFactory::intervalMeshTopology(double xLeft, double xRight, int numElements)
+MeshTopologyPtr MeshFactory::intervalMeshTopology(double xLeft, double xRight, int numElements, bool usePeriodicBCs)
+{
+  std::vector<PeriodicBCPtr> periodicBCs;
+  if (usePeriodicBCs)
+  {
+    auto bc = PeriodicBC::xIdentification(xLeft, xRight);
+    periodicBCs.push_back(bc);
+  }
+  
+  return MeshFactory::intervalMeshTopology(xLeft, xRight, numElements, periodicBCs);
+}
+
+MeshTopologyPtr MeshFactory::intervalMeshTopology(double xLeft, double xRight, int numElements, vector<PeriodicBCPtr> periodicBCs)
 {
   int n = numElements;
   vector< vector<double> > vertices(n+1);
@@ -540,8 +552,8 @@ MeshTopologyPtr MeshFactory::intervalMeshTopology(double xLeft, double xRight, i
   CellTopoPtr topo = Camellia::CellTopology::line();
   vector< CellTopoPtr > cellTopos(numElements, topo);
   MeshGeometryPtr geometry = Teuchos::rcp( new MeshGeometry(vertices, elementVertices, cellTopos));
-
-  MeshTopologyPtr meshTopology = Teuchos::rcp( new MeshTopology(geometry) );
+  
+  MeshTopologyPtr meshTopology = Teuchos::rcp( new MeshTopology(geometry, periodicBCs) );
   return meshTopology;
 }
 
@@ -561,7 +573,8 @@ MeshPtr MeshFactory::rectilinearMesh(TBFPtr<double> bf, vector<double> dimension
                                 Teuchos::null, Comm) );
 }
 
-MeshTopologyPtr MeshFactory::rectilinearMeshTopology(vector<double> dimensions, vector<int> elementCounts, vector<double> x0)
+MeshTopologyPtr MeshFactory::rectilinearMeshTopology(vector<double> dimensions, vector<int> elementCounts, vector<double> x0,
+                                                     vector<PeriodicBCPtr> periodicBCs)
 {
   int spaceDim = dimensions.size();
 
@@ -583,12 +596,12 @@ MeshTopologyPtr MeshFactory::rectilinearMeshTopology(vector<double> dimensions, 
   {
     double xLeft = x0[0];
     double xRight = dimensions[0] + xLeft;
-    return MeshFactory::intervalMeshTopology(xLeft, xRight, elementCounts[0]);
+    return MeshFactory::intervalMeshTopology(xLeft, xRight, elementCounts[0], periodicBCs);
   }
 
   if (spaceDim == 2)
   {
-    return MeshFactory::quadMeshTopology(dimensions[0], dimensions[1], elementCounts[0], elementCounts[1], false, x0[0], x0[1]);
+    return MeshFactory::quadMeshTopology(dimensions[0], dimensions[1], elementCounts[0], elementCounts[1], false, x0[0], x0[1], periodicBCs);
   }
 
   if (spaceDim != 3)
@@ -703,7 +716,7 @@ MeshTopologyPtr MeshFactory::rectilinearMeshTopology(vector<double> dimensions, 
 
   MeshGeometryPtr geometry = Teuchos::rcp( new MeshGeometry(vertices, elementVertices, cellTopos));
 
-  MeshTopologyPtr meshTopology = Teuchos::rcp( new MeshTopology(geometry) );
+  MeshTopologyPtr meshTopology = Teuchos::rcp( new MeshTopology(geometry, periodicBCs) );
   return meshTopology;
 }
 

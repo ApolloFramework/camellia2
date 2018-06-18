@@ -34,16 +34,21 @@ template <typename Scalar>
 string QuotientFunction<Scalar>::displayString()
 {
   ostringstream ss;
-  ss << _f->displayString() << " / " << _scalarDivisor->displayString();
+  // use memberFunctions as a proxy for whether we should include parentheses (for sums and products, this does what we want)
+  bool includeParentheses = _scalarDivisor->memberFunctions().size() > 1;
+  if (includeParentheses)
+    ss << _f->displayString() << " / (" << _scalarDivisor->displayString() << ")";
+  else
+    ss << _f->displayString() << " / " << _scalarDivisor->displayString();
   return ss.str();
 }
 
 template <typename Scalar>
-void QuotientFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap)
 {
-  this->CHECK_VALUES_RANK(values);
-  _f->values(values,basisCache);
-  _scalarDivisor->scalarDivideFunctionValues(values, basisCache);
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_scalarDivisor, valueMap);
+  return f1 / f2;
 }
 
 template <typename Scalar>
@@ -88,6 +93,54 @@ TFunctionPtr<Scalar> QuotientFunction<Scalar>::dt()
   }
   // otherwise, apply quotient rule:
   return _f->dt() / _scalarDivisor - _f * _scalarDivisor->dt() / (_scalarDivisor * _scalarDivisor);
+}
+
+template <typename Scalar>
+TLinearTermPtr<Scalar> QuotientFunction<Scalar>::jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap)
+{
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_scalarDivisor, valueMap);
+  auto df1 = _f->jacobian(valueMap);
+  auto df2 = _scalarDivisor->jacobian(valueMap);
+  return (1.0 / f2) * df1 - (f1 / ( f2 * f2 )) * df2;
+}
+
+template <typename Scalar>
+std::vector<TFunctionPtr<Scalar>> QuotientFunction<Scalar>::memberFunctions()
+{
+  return {{_f, _scalarDivisor}};
+}
+
+template <typename Scalar>
+void QuotientFunction<Scalar>::values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache)
+{
+  this->CHECK_VALUES_RANK(values);
+  _f->values(values,basisCache);
+  _scalarDivisor->scalarDivideFunctionValues(values, basisCache);
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::t()
+{
+  return _f->t() / _scalarDivisor;
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::x()
+{
+  return _f->x() / _scalarDivisor;
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::y()
+{
+  return _f->y() / _scalarDivisor;
+}
+
+template <typename Scalar>
+TFunctionPtr<Scalar> QuotientFunction<Scalar>::z()
+{
+  return _f->z() / _scalarDivisor;
 }
 
 namespace Camellia

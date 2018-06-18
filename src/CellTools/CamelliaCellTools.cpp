@@ -10,16 +10,13 @@
 //
 
 #include "CamelliaCellTools.h"
+
 #include "BasisCache.h"
-
-#include "BasisFactory.h"
-#include "TensorBasis.h"
-
-#include "MeshTransformationFunction.h"
-
-#include "SerialDenseWrapper.h"
-
 #include "CellTopology.h"
+#include "BasisFactory.h"
+#include "MeshTransformationFunction.h"
+#include "SerialDenseWrapper.h"
+#include "TensorBasis.h"
 
 using namespace Intrepid;
 using namespace Camellia;

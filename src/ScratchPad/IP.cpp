@@ -355,6 +355,24 @@ void TIP<Scalar>::computeInnerProductVector(FieldContainer<Scalar> &ipVector,
 }
 
 template <typename Scalar>
+std::vector< TLinearTermPtr<Scalar> > TIP<Scalar>::getBoundaryTerms() const
+{
+  return _boundaryTerms;
+}
+
+template <typename Scalar>
+std::vector< TLinearTermPtr<Scalar> > TIP<Scalar>::getLinearTerms() const
+{
+  return _linearTerms;
+}
+
+template <typename Scalar>
+std::vector< TLinearTermPtr<Scalar> > TIP<Scalar>::getZeroMeanTerms() const
+{
+  return _zeroMeanTerms;
+}
+
+template <typename Scalar>
 bool TIP<Scalar>::hasBoundaryTerms()
 {
   if (_isLegacySubclass) return false;

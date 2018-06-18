@@ -182,6 +182,7 @@ int main(int argc, char *argv[])
   bool refineUniformly = false;
   bool printRefinementsOnRankZero = false;
   bool enhanceFieldsForH1TracesWhenConforming = false;
+  bool outputSolution = false;
   
   int azOutput = 0;
   
@@ -190,6 +191,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("numCells",&meshWidth,"mesh width");
   cmdp.setOption("polyOrder",&polyOrder,"polynomial order for field variable u");
   cmdp.setOption("delta_k", &delta_k, "test space polynomial order enrichment");
+  cmdp.setOption("outputSolution", "dontOutputSolution", &outputSolution, "Write solution at each refinement step");
   
   cmdp.setOption("eps",&eps,"width of the 'ramp' between 0 and 1 for lid BCs");
   cmdp.setOption("energyThreshold", &energyThreshold, "energy threshold (fraction of max element error) for refinements");
@@ -402,7 +404,10 @@ int main(int argc, char *argv[])
   exportName << "navierStokesCavityGMGSolution_Re" << Re << "_k" << polyOrder << "_deltak" << delta_k;
   
   HDF5Exporter exporter(mesh, exportName.str());
-  exporter.exportSolution(form.solution(),0);
+  if (outputSolution)
+  {
+    exporter.exportSolution(form.solution(),0);
+  }
   
   ostringstream energyExportName;
   energyExportName << exportName.str() << "_energyError";
@@ -422,7 +427,10 @@ int main(int argc, char *argv[])
 //  }
   
 //  energyErrorRieszRep->computeRieszRep(polyOrder);
-  energyExporter.exportFunction(errorFunctions, errorFunctionNames,0);
+  if (outputSolution)
+  {
+    energyExporter.exportFunction(errorFunctions, errorFunctionNames,0);
+  }
   
   do
   {
@@ -463,10 +471,13 @@ int main(int argc, char *argv[])
     
     nonlinearSolve();
     
-    exporter.exportSolution(form.solution(), refNumber);
+    if (outputSolution)
+    {
+      exporter.exportSolution(form.solution(), refNumber);
     
 //    energyErrorRieszRep->computeRieszRep(polyOrder);
-    energyExporter.exportFunction(errorFunctions, errorFunctionNames,refNumber);
+      energyExporter.exportFunction(errorFunctions, errorFunctionNames,refNumber);
+    }
     globalDofs = mesh->globalDofCount();
     activeElements = mesh->getTopology()->activeCellCount();
     

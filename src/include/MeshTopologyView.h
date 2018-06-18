@@ -40,6 +40,7 @@
 namespace Camellia {
   
   class MeshTransformationFunction;
+  class PeriodicBC;
 
   class MeshTopologyView
   {
@@ -140,8 +141,6 @@ namespace Camellia {
     
     virtual Teuchos::RCP<MeshTransformationFunction> transformationFunction() const;
     
-    virtual std::pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex) const;
-    
     virtual void setGlobalDofAssignment(GlobalDofAssignment* gda); // for cubature degree lookups
     
     virtual void verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID) const;
@@ -153,6 +152,8 @@ namespace Camellia {
     
     //! AllGather MeshTopology info, including only the cells indicated and their ancestors, and create a new non-distributed copy on each rank.
     virtual MeshTopologyPtr getGatheredCopy(const std::set<IndexType> &cellsToInclude) const;
+    
+    virtual const std::vector< Teuchos::RCP<PeriodicBC> > & getPeriodicBCs() const;
     
     void printAllEntitiesInBaseMeshTopology() const;
     

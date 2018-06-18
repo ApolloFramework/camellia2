@@ -26,12 +26,22 @@ class QuotientFunction : public TFunction<Scalar>
 public:
   QuotientFunction(TFunctionPtr<Scalar> f, TFunctionPtr<Scalar> scalarDivisor);
   void values(Intrepid::FieldContainer<Scalar> &values, BasisCachePtr basisCache);
+  TFunctionPtr<Scalar> x();
+  TFunctionPtr<Scalar> y();
+  TFunctionPtr<Scalar> z();
+  TFunctionPtr<Scalar> t();
+  
   virtual bool boundaryValueOnly();
   TFunctionPtr<Scalar> dx();
   TFunctionPtr<Scalar> dy();
   TFunctionPtr<Scalar> dz();
   TFunctionPtr<Scalar> dt();
   std::string displayString();
+  
+  TFunctionPtr<Scalar> evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap);
+  TLinearTermPtr<Scalar> jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap);
+  
+  std::vector<TFunctionPtr<Scalar>> memberFunctions();
 };
 }
 

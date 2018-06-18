@@ -4,25 +4,70 @@ Camellia: A Software Toolbox for Discontinuous Petrov-Galerkin (DPG) Methods
 
 by Nathan V. Roberts
 
-********************************
-Note 10-3-17:
-This README hasn't been completely updated in a while, but it probably remains a pretty good outline.  If you have difficulties building, please do drop me a line, at nvrober@sandia.gov.
+We have recently added support for building Camellia using Spack, a cross-platform package manager designed for HPC libraries.  This is likely the easiest way to build Camellia.  We provide instructions for building using Spack below.  We also include some instructions for manual builds, which provide more control.
 
-Also worth noting: there are some known-to-fail tests at the moment: some that test restart for a few problems, one that tests local conservation for Stokes, as well as some that are written to fail because the test itself is not yet implemented.
-*********************************
+Details about using Camellia can be found in the v1.0 Manual, available at
 
+	http://www.ipd.anl.gov/anlpubs/2016/11/130782.pdf
+
+******************************** Instructions for Spack Builds *********************************
+
+Spack has the following prerequisites:
+- Python 2 (2.6 or 2.7) or 3 (3.3 - 3.6)
+- A C/C++ compiler
+- The git and curl commands
+
+To install Spack, do the following:
+
+	git clone https://github.com/spack/spack.git
+
+For bash or zsh, in your .bashrc or .zshrc, add the following:
+
+	export SPACK_ROOT=/path/to/spack
+	. $SPACK_ROOT/share/spack/setup-env.sh
+
+For csh or tcsh, add the following to your .cshrc:
+
+	setenv SPACK_ROOT /path/to/spack
+	source $SPACK_ROOT/share/spack/setup-env.csh
+
+Start a new shell session, or execute the appropriate lines above manually (this places the spack executable in your path, among other things).  Then, installing Camellia should be as simple as running:
+
+	spack install camellia
+
+(If you want to maintain your own build of Camellia (as you might if you are a Camellia developer), then instead do:
+
+	spack install camellia --only dependencies
+
+If you want to maintain your own build, then the next step is to edit the CMake do-config.sh script found in build/spack-based in the Camellia distribution.)
+
+This will take some time, as it downloads and builds all the dependencies.  If you did a full install, the install location can be found by executing:
+
+	spack location -i camellia
+
+To confirm that the build was successful, run:
+
+	`spack location -i camellia`/bin/tests/runTests
+
+All tests should pass.
+
+Further details about Spack can be found at
+
+	https://spack.readthedocs.io/en/latest/getting_started.html
+
+******************************** Instructions for Manual Builds *********************************
 
 ******** PREREQUISITES ********
-Trilinos is required for all builds of Camellia.  A couple of sample do-configure scripts for Trilinos can be found in distribution directory, under build/trilinos-do-configure-samples.  These include the packages within Trilinos that Camellia requires.
+Trilinos is required for all builds of Camellia.  A couple of sample do-configure scripts for Trilinos can be found in the Camellia distribution directory, under build/trilinos-do-configure-samples.  These include the packages within Trilinos that Camellia requires.
 
-Building Trilinos (specifically Epetra) with HDF5 is not absolutely required, but allows some useful visualization and other output (which can be read in ParaView, e.g.).
+Building Trilinos (specifically Epetra) with HDF5 is not absolutely required, but without this nearly all Camellia's data I/O facilities (mesh and solution serialization, as well as visualization output) will fail with an exception.  This will also result in test failures for tests related to mesh and solution I/O.  Note that there is an incompatibility with HDF5 version 1.10; please use 1.8.x instead.
 
 For an MPI build, Camellia also requires some version of the MPI libraries.  Open MPI is what we use most of the time.  Additionally, Camellia supports MUMPS and SuperLU_Dist if both Camellia and Trilinos are built with these libraries.  MUMPS also requires SCALAPACK to be installed.
 
 Instructions for building several of these libraries follow.
 
 CMake install:
-On a Mac, our experience is that due to Apple’s requirements for code signatures it is simpler to install CMake from source than to use the prebuilt binary.
+On a Mac, our experience is that due to Apple’s requirements for code signatures it is simpler to install CMake from source than to use the prebuilt binary.  Homebrew works well for this.
 
 OpenMPI install:
 1. Download source from http://www.open-mpi.org/software/ompi/.
@@ -115,5 +160,3 @@ Instructions for a serial debug build:
 5. make
 6. make test
 7. make install
-
-As of this writing (4/9/15), all tests in DPGTests and runTests should pass, with the exception of two of the runTests tests, one of which tests new space-time features still under development; the other appears to be a bug in mesh saving/loading disk in the case of minimum-rule meshes with vertex-conforming traces.  Note that make test won't give you granular information about which tests are failing, and it also won't run DPGTests for you; DPGTests is our old collection of tests--new tests are being added to either runTests or runSlowTests, both of which make test *does* run.  Note also that make test will only run tests in serial; for full testing of an MPI build, one will want to use mpirun on unit_tests/runTests, slow_tests/runSlowTests, and drivers/DPGTests/DPGTests.  We generally run tests on 1 or 4 MPI nodes.

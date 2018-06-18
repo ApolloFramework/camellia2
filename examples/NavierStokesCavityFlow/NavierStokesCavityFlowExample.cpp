@@ -255,7 +255,8 @@ int main(int argc, char *argv[])
   do
   {
     refNumber++;
-    form.refine();
+    bool printToConsole = (rank == 0);
+    form.refine(printToConsole);
     
     // update nonlinear threshold according to last energyError:
     nonlinearThreshold = 1e-3 * energyError;

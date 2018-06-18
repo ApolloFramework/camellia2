@@ -75,6 +75,14 @@ TFunctionPtr<Scalar> ProductFunction<Scalar>::dt()
 }
 
 template <typename Scalar>
+TFunctionPtr<Scalar> ProductFunction<Scalar>::evaluateAt(const map<int, TFunctionPtr<Scalar> > &valueMap)
+{
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f1, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_f2, valueMap);
+  return f1 * f2;
+}
+
+template <typename Scalar>
 bool ProductFunction<Scalar>::isZero(BasisCachePtr basisCache)
 {
   return _f1->isZero(basisCache) || _f2->isZero(basisCache);
@@ -90,6 +98,16 @@ template <typename Scalar>
 TFunctionPtr<Scalar> ProductFunction<Scalar>::f2()
 {
   return _f2;
+}
+
+template <typename Scalar>
+TLinearTermPtr<Scalar> ProductFunction<Scalar>::jacobian(const map<int, TFunctionPtr<Scalar> > &valueMap)
+{
+  auto f1 = TFunction<Scalar>::evaluateFunctionAt(_f1, valueMap);
+  auto f2 = TFunction<Scalar>::evaluateFunctionAt(_f2, valueMap);
+  auto df1 = _f1->jacobian(valueMap);
+  auto df2 = _f2->jacobian(valueMap);
+  return f1 * df2 + df1 * f2;
 }
 
 template <typename Scalar>
@@ -187,6 +205,12 @@ template <typename Scalar>
 bool ProductFunction<Scalar>::boundaryValueOnly()
 {
   return _f1->boundaryValueOnly() || _f2->boundaryValueOnly();
+}
+
+template <typename Scalar>
+std::vector<TFunctionPtr<Scalar>> ProductFunction<Scalar>::memberFunctions()
+{
+  return {{_f1, _f2}};
 }
 
 template <typename Scalar>

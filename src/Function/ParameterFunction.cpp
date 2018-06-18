@@ -76,6 +76,11 @@ TFunctionPtr<double> ParameterFunction::div()
   return _fxn->div();
 }
 
+std::vector< TFunctionPtr<double> > ParameterFunction::memberFunctions()
+{
+  return {{_fxn}};
+}
+
 void ParameterFunction::values(FieldContainer<double> &values, BasisCachePtr basisCache)
 {
   _fxn->values(values, basisCache);
@@ -87,7 +92,14 @@ bool ParameterFunction::boundaryValueOnly()
 
 string ParameterFunction::displayString()
 {
-  return _fxn->displayString();
+  if (_name == "")
+  {
+    return _fxn->displayString();
+  }
+  else
+  {
+    return _name;
+  }
 }
 
 Teuchos::RCP<ParameterFunction> ParameterFunction::parameterFunction(double value)
@@ -97,4 +109,9 @@ Teuchos::RCP<ParameterFunction> ParameterFunction::parameterFunction(double valu
 Teuchos::RCP<ParameterFunction> ParameterFunction::parameterFunction(TFunctionPtr<double> fxn)
 {
   return Teuchos::rcp( new ParameterFunction(fxn) );
+}
+
+void ParameterFunction::setName(const std::string &name)
+{
+  _name = name;
 }

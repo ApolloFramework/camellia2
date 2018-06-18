@@ -45,7 +45,7 @@ int main(int argc, char *argv[])
   RHSPtr rhs = RHS::rhs(); // zero RHS
   IPPtr ip = poissonForm.bf()->graphNorm();
   BCPtr bc = BC::bc();
-  bc->addDirichlet(poissonForm.phi_hat(), SpatialFilter::allSpace(), Function::zero());
+  bc->addDirichlet(poissonForm.u_hat(), SpatialFilter::allSpace(), Function::zero());
   
   SolutionPtr solution = Solution::solution(poissonForm.bf(), mesh, bc, rhs, ip);
   solution->solve();

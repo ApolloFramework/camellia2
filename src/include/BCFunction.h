@@ -35,6 +35,8 @@ public:
   TFunctionPtr<Scalar> dy();
   TFunctionPtr<Scalar> dz();
 
+  std::vector< TFunctionPtr<Scalar> > memberFunctions();
+  
   static Teuchos::RCP<BCFunction<Scalar>> bcFunction(BCPtr bc, int varID);
 };
 }

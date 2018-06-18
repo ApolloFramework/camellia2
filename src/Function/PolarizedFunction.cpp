@@ -19,6 +19,12 @@ PolarizedFunction<Scalar>::PolarizedFunction( TFunctionPtr<Scalar> f_of_xAsR_yAs
 }
 
 template <typename Scalar>
+std::vector< TFunctionPtr<Scalar> > PolarizedFunction<Scalar>::memberFunctions()
+{
+  return {{_f}};
+}
+
+template <typename Scalar>
 Teuchos::RCP<PolarizedFunction<double>> PolarizedFunction<Scalar>::r()
 {
   static Teuchos::RCP<PolarizedFunction<Scalar>> _r = Teuchos::rcp( new PolarizedFunction<Scalar>( Teuchos::rcp( new Xn(1) ) ) );

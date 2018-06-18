@@ -66,13 +66,25 @@ namespace
   
   TEUCHOS_UNIT_TEST( DLS, PoissonDiagonalsAgree )
   {
+    {
+      auto comm = MPIWrapper::CommWorld();
+      int numProc = comm->NumProc();
+      if (numProc > 1)
+      {
+        // for reasons unknown, we hang if numProc > 1
+        cout << "skipping DLSTest PoissonDiagonalsAgree because numProc > 1\n";
+        success = false;
+        return;
+      }
+    }
+    
     DLSPtr dls;
     SolutionPtr standardSolution;
     setupSolve(standardSolution, dls);
     
-    TVectorPtr<double> dlsInverseSqrtDiag = dls->normalDiagInverseSqrt();
-    
     Epetra_CommPtr comm = standardSolution->mesh()->Comm();
+    
+    TVectorPtr<double> dlsInverseSqrtDiag = dls->normalDiagInverseSqrt();
     
     GlobalIndexType standardSolutionDofCount = standardSolution->getDofInterpreter()->globalDofCount();
     GlobalIndexType indexBase = 0;
@@ -145,6 +157,18 @@ namespace
     
 //    out << "PoissonMatricesAgree test unimplemented!  Setting success = false.\n";
 //    success = false;
+    
+    {
+      auto comm = MPIWrapper::CommWorld();
+      int numProc = comm->NumProc();
+      if (numProc > 1)
+      {
+        // for reasons unknown, we hang if numProc > 1
+        cout << "skipping DLSTest PoissonMatricesAgree because numProc > 1\n";
+        success = false;
+        return;
+      }
+    }
     
     double tol=1e-12;
     double floor=1e-13;
@@ -293,6 +317,19 @@ namespace
     // We want to modify this to just compute the load with the Cholesky factorization (L^* \) applied.
     //
 
+    {
+      auto comm = MPIWrapper::CommWorld();
+      int numProc = comm->NumProc();
+      if (numProc > 1)
+      {
+        // for reasons unknown, we hang if numProc > 1
+        cout << "skipping DLSTest because numProc > 1\n";
+        success = false;
+        return;
+      }
+    }
+    
+    
     DLSPtr dls;
     SolutionPtr standardSolution;
     // skip BCs to simplify this test (so that no RHS dofs will be eliminated)

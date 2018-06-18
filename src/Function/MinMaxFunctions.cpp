@@ -30,6 +30,11 @@ string MinFunction::displayString()
   return ss.str();
 }
 
+std::vector< TFunctionPtr<double> > MinFunction::memberFunctions()
+{
+  return {{_f1,_f2}};
+}
+
 void MinFunction::values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache)
 {
   this->CHECK_VALUES_RANK(values);
@@ -86,6 +91,11 @@ string MaxFunction::displayString()
   ostringstream ss;
   ss << "\\max( " << _f1->displayString() << " , " << _f2->displayString() << " )";
   return ss.str();
+}
+
+std::vector< TFunctionPtr<double> > MaxFunction::memberFunctions()
+{
+  return {{_f1,_f2}};
 }
 
 void MaxFunction::values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache)

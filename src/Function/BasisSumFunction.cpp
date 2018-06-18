@@ -46,61 +46,69 @@ void BasisSumFunction::values(FieldContainer<double> &values, BasisCachePtr basi
     // we implicitly assume that the points given lie inside the physical cell nodes for _overridingBasisCache
     // Note that this transformation does not take curvilinearity into account.
 
-    const FieldContainer<double>* physicalCellNodes = &basisCache->getPhysicalCellNodes();
-    int numCells = physicalCellNodes->dimension(0);
-    int numNodes = physicalCellNodes->dimension(1);
-    int spaceDim = physicalCellNodes->dimension(2);
-    FieldContainer<double> relativeReferenceCellNodes(numCells, numNodes, spaceDim);
-    CellTopoPtr domainTopo = _basis->domainTopology();
     CellTopoPtr cellTopo = basisCache->cellTopology();
-    FieldContainer<double> cellCenter(cellTopo->getDimension());
-
-    FieldContainer<double> refCellNodes(cellTopo->getNodeCount(),cellTopo->getDimension());
-    CamelliaCellTools::refCellNodesForTopology(refCellNodes, cellTopo);
-
-    int nodeCount = cellTopo->getNodeCount();
-    for (int node=0; node < nodeCount; node++)
+    if (cellTopo->getDimension() > 0)
     {
-      for (int d=0; d<cellTopo->getDimension(); d++)
-      {
-        cellCenter(d) += refCellNodes(node,d) / nodeCount;
-      }
-    }
+      const FieldContainer<double>* physicalCellNodes = &basisCache->getPhysicalCellNodes();
+      int numCells = physicalCellNodes->dimension(0);
+      int numNodes = physicalCellNodes->dimension(1);
+      int spaceDim = physicalCellNodes->dimension(2);
+      FieldContainer<double> relativeReferenceCellNodes(numCells, numNodes, spaceDim);
+      CellTopoPtr domainTopo = _basis->domainTopology();
+      
+      FieldContainer<double> cellCenter(cellTopo->getDimension());
 
-    // Resize initial guess depending on the rank of the physical points array
-    FieldContainer<double> initGuess;
+      FieldContainer<double> refCellNodes(cellTopo->getNodeCount(),cellTopo->getDimension());
+      CamelliaCellTools::refCellNodesForTopology(refCellNodes, cellTopo);
 
-    // Default: map (C,P,D) array of physical pt. sets to (C,P,D) array. Requires (C,P,D) initial guess.
-    initGuess.resize(numCells, numNodes, spaceDim);
-    // Set initial guess:
-    for(int c = 0; c < numCells; c++)
-    {
-      for(int p = 0; p < numNodes; p++)
+      int nodeCount = cellTopo->getNodeCount();
+      for (int node=0; node < nodeCount; node++)
       {
-        for(int d = 0; d < spaceDim; d++)
+        for (int d=0; d<cellTopo->getDimension(); d++)
         {
-          initGuess(c, p, d) = cellCenter(d);
-        }// d
-      }// p
-    }// c
-
-    CamelliaCellTools::mapToReferenceFrameInitGuess(relativeReferenceCellNodes, initGuess, *physicalCellNodes, _overridingBasisCache);
-
-    FieldContainer<double> oneCellRelativeReferenceNodes(1,numNodes,spaceDim);
-    for (int n=0; n<numNodes; n++)
-    {
-      for (int d=0; d<spaceDim; d++)
-      {
-        oneCellRelativeReferenceNodes(0,n,d) = relativeReferenceCellNodes(0,n,d);
+          cellCenter(d) += refCellNodes(node,d) / nodeCount;
+        }
       }
+
+      // Resize initial guess depending on the rank of the physical points array
+      FieldContainer<double> initGuess;
+
+      // Default: map (C,P,D) array of physical pt. sets to (C,P,D) array. Requires (C,P,D) initial guess.
+      initGuess.resize(numCells, numNodes, spaceDim);
+      // Set initial guess:
+      for(int c = 0; c < numCells; c++)
+      {
+        for(int p = 0; p < numNodes; p++)
+        {
+          for(int d = 0; d < spaceDim; d++)
+          {
+            initGuess(c, p, d) = cellCenter(d);
+          }// d
+        }// p
+      }// c
+
+      CamelliaCellTools::mapToReferenceFrameInitGuess(relativeReferenceCellNodes, initGuess, *physicalCellNodes, _overridingBasisCache);
+
+      FieldContainer<double> oneCellRelativeReferenceNodes(1,numNodes,spaceDim);
+      for (int n=0; n<numNodes; n++)
+      {
+        for (int d=0; d<spaceDim; d++)
+        {
+          oneCellRelativeReferenceNodes(0,n,d) = relativeReferenceCellNodes(0,n,d);
+        }
+      }
+      bool cachesAgreeOnSideness = basisCache->isSideCache() == _overridingBasisCache->isSideCache();
+      FieldContainer<double> relativeReferencePoints = cachesAgreeOnSideness ? basisCache->getRefCellPoints() : basisCache->getSideRefCellPointsInVolumeCoordinates();
+      FieldContainer<double> refPoints(1,relativeReferencePoints.dimension(0),relativeReferencePoints.dimension(1));
+      CamelliaCellTools::mapToPhysicalFrame(refPoints, relativeReferencePoints, oneCellRelativeReferenceNodes, basisCache->cellTopology());
+      refPoints.resize(refPoints.dimension(1),refPoints.dimension(2)); // strip cell dimension
+      _overridingBasisCache->setRefCellPoints(refPoints, basisCache->getCubatureWeights());
+      basisCache = _overridingBasisCache;
     }
-    bool cachesAgreeOnSideness = basisCache->isSideCache() == _overridingBasisCache->isSideCache();
-    FieldContainer<double> relativeReferencePoints = cachesAgreeOnSideness ? basisCache->getRefCellPoints() : basisCache->getSideRefCellPointsInVolumeCoordinates();
-    FieldContainer<double> refPoints(1,relativeReferencePoints.dimension(0),relativeReferencePoints.dimension(1));
-    CamelliaCellTools::mapToPhysicalFrame(refPoints, relativeReferencePoints, oneCellRelativeReferenceNodes, basisCache->cellTopology());
-    refPoints.resize(refPoints.dimension(1),refPoints.dimension(2)); // strip cell dimension
-    _overridingBasisCache->setRefCellPoints(refPoints, basisCache->getCubatureWeights());
-    basisCache = _overridingBasisCache;
+    else // if (cellTopo->getDimension() == 0)
+    {
+      _overridingBasisCache->setRefCellPoints(basisCache->getRefCellPoints(), basisCache->getCubatureWeights());
+    }
   }
 
   int numDofs = _basis->getCardinality();

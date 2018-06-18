@@ -14,6 +14,10 @@
 #include <CamelliaCellTools.h>
 #include "CellTopology.h"
 #include "Function.h"
+#include "MeshFactory.h"
+#include "PoissonFormulation.h"
+#include "RieszRep.h"
+#include "Solution.h"
 
 using namespace Camellia;
 using namespace Intrepid;
@@ -303,6 +307,216 @@ void testSpaceTimeNormal(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out, bool
     CellTopoPtr hex = CellTopology::hexahedron();
     CellTopoPtr cellTopo = CellTopology::lineTensorTopology(hex);
     testHFunction(cellTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( Function, L2NormOfJumps_RepFunction )
+  {
+    // In this test, we set up a 2x2 mesh with unit RepFunction values on the lower-left and upper-right cells,
+    // and zero solutions in the others.  The lower-left cell has ID 0; the upper-right, 3.
+    // With this setup, the solution jumps should be 1.0 everywhere on the interior of the mesh.  The interior
+    // mesh skeleton has total length of 4.0, so that the squared L^2 norm of the jumps is 4.0...
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    int H1Order = 1;
+    vector<int> elemCounts = {2,2};
+    set<int> unitCellIDs = {0,3};
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {2.0,2.0}, elemCounts, H1Order);
+    
+    LinearTermPtr residual; // leave as a null pointer for now; we shouldn't actually use this...
+    IPPtr ip = form.bf()->graphNorm(); // we actually shouldn't use this either
+    RieszRepPtr rieszRep = Teuchos::rcp(new RieszRep(mesh, ip, residual));
+    
+    auto myCellIDs = mesh->cellIDsInPartition();
+    
+    for (int cellID : myCellIDs)
+    {
+      auto testOrdering = mesh->getElementType(cellID)->testOrderPtr;
+      Intrepid::FieldContainer<double> rieszCoefficients(testOrdering->totalDofs());
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      if (hasUnitSolution) rieszCoefficients.initialize(1.0);
+      else                 rieszCoefficients.initialize(0.0); // this will give all variables a constant 1.0 value
+      
+      rieszRep->setCoefficientsForCell(cellID, rieszCoefficients);
+    }
+    
+    // v has scalar nodal H^1 basis, for which the unit coefficients definitely give us a unit function
+    // (I'm not sure that that's true for the H(div) basis we use for tau.)
+    FunctionPtr repFunction = RieszRep::repFunction(form.v(), rieszRep);
+    
+    // we expect the jumps to be 1 everywhere on the interior; each interior side has unit length,
+    // and each cell has two interior sides, so that we have a total cell contribution of 2.0 on
+    // the cells that are not set to unity, and a contribution of 4.0 on those that are
+    map<GlobalIndexType,double> squaredL2NormOfJumpOnCell;
+    for (auto cellID : myCellIDs)
+    {
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      
+      double squaredL2ValueExpected;
+      
+      if (hasUnitSolution) squaredL2ValueExpected = 4.0;
+      else                 squaredL2ValueExpected = 2.0;
+      
+      squaredL2NormOfJumpOnCell[cellID] = squaredL2ValueExpected;
+    }
+    bool weightBySideMeasure = false;
+    int cubatureDegreeEnrichment = 0;
+    map<GlobalIndexType, double> cellL2Norms = repFunction->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+    
+    for (auto entry : cellL2Norms)
+    {
+      auto cellID = entry.first;
+      double l2OfJumpActual = entry.second;
+      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, squaredL2NormOfJumpOnCell[cellID], 1e-14, out, success);
+    }
+  }
+  
+  TEUCHOS_UNIT_TEST( Function, L2NormOfJumps_SolutionFunction )
+  {
+    // In this test, we set up a 2x2 mesh with unit solution values on the lower-left and upper-right cells,
+    // and zero solutions in the others.  The lower-left cell has ID 0; the upper-right, 3.
+    // With this setup, the solution jumps should be 1.0 everywhere on the interior of the mesh.  The interior
+    // mesh skeleton has total length of 4.0, so that the squared L^2 norm of the jumps is 4.0...
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    int H1Order = 1;
+    vector<int> elemCounts = {2,2};
+    set<int> unitCellIDs = {0,3};
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {2.0,2.0}, elemCounts, H1Order);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    
+    LinearTermPtr dummyGoal = 1.0 * form.u(); // just something to let there be two solutions...
+    solution->setGoalOrientedRHS(dummyGoal);
+    
+    solution->initializeLHSVector();
+    
+    auto myCellIDs = mesh->cellIDsInPartition();
+    
+    int solutionOrdinal = 1; // use the second solution for our actual test
+    for (GlobalIndexType cellID : myCellIDs)
+    {
+      auto trialOrdering = mesh->getElementType(cellID)->trialOrderPtr;
+      Intrepid::FieldContainer<double> solnCoefficients(trialOrdering->totalDofs());
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      if (hasUnitSolution) solnCoefficients.initialize(1.0);
+      else                 solnCoefficients.initialize(0.0); // this will give all variables a constant 1.0 value
+      
+      solution->setSolnCoeffsForCellID(solnCoefficients, cellID, solutionOrdinal);
+      
+      // to emulate a solve context, there should be solution values for both solutions;
+      // we just put 0 values for the other solution
+      int otherSolutionOrdinal = 1 - solutionOrdinal;
+      solnCoefficients.initialize(0.0);
+      solution->setSolnCoeffsForCellID(solnCoefficients, cellID, otherSolutionOrdinal);
+    }
+    
+    bool weightByParity = false;
+    FunctionPtr u_goal = Function::solution(form.u(), solution, weightByParity, solutionOrdinal);
+    
+    // we expect the jumps to be 1 everywhere on the interior; each interior side has unit length,
+    // and each cell has two interior sides, so that we have a total cell contribution of 2.0 on
+    // the cells that are not set to unity, and a contribution of 4.0 on those that are
+    map<GlobalIndexType,double> squaredL2NormOfJumpOnCell;
+    for (auto cellID : myCellIDs)
+    {
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      
+      double squaredL2ValueExpected;
+      
+      if (hasUnitSolution) squaredL2ValueExpected = 4.0;
+      else                 squaredL2ValueExpected = 2.0;
+      
+      squaredL2NormOfJumpOnCell[cellID] = squaredL2ValueExpected;
+    }
+    bool weightBySideMeasure = false;
+    int cubatureDegreeEnrichment = 0;
+    map<GlobalIndexType, double> cellL2Norms = u_goal->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+    
+    for (auto entry : cellL2Norms)
+    {
+      auto cellID = entry.first;
+      double l2OfJumpActual = entry.second;
+      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, squaredL2NormOfJumpOnCell[cellID], 1e-14, out, success);
+    }
+  }
+  
+  TEUCHOS_UNIT_TEST( Function, L2NormOfJumps_SolutionFunction_EdgeWeighted )
+  {
+    // In this test, we set up a 2x2 mesh with unit solution values on the lower-left and upper-right cells,
+    // and zero solutions in the others.  The lower-left cell has ID 0; the upper-right, 3.
+    // With this setup, the solution jumps should be 1.0 everywhere on the interior of the mesh.
+    // Each element has two interior edges of length 0.5, so the edge-weighted L^2 norm of the jump is
+    //  2 * 0.5 * 0.5.
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    int H1Order = 1;
+    vector<int> elemCounts = {2,2};
+    set<int> unitCellIDs = {0,3};
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0,1.0}, elemCounts, H1Order);
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    
+    LinearTermPtr dummyGoal = 1.0 * form.u(); // just something to let there be two solutions...
+    solution->setGoalOrientedRHS(dummyGoal);
+    
+    solution->initializeLHSVector();
+    
+    auto myCellIDs = mesh->cellIDsInPartition();
+    
+    int solutionOrdinal = 1; // use the second solution for our actual test
+    for (int cellID : myCellIDs)
+    {
+      auto trialOrdering = mesh->getElementType(cellID)->trialOrderPtr;
+      Intrepid::FieldContainer<double> solnCoefficients(trialOrdering->totalDofs());
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      if (hasUnitSolution) solnCoefficients.initialize(1.0);
+      else                 solnCoefficients.initialize(0.0); // this will give all variables a constant 1.0 value
+      
+      solution->setSolnCoeffsForCellID(solnCoefficients, cellID, solutionOrdinal);
+      
+      // to emulate a solve context, there should be solution values for both solutions;
+      // we just put 0 values for the other solution
+      int otherSolutionOrdinal = 1 - solutionOrdinal;
+      solnCoefficients.initialize(0.0);
+      solution->setSolnCoeffsForCellID(solnCoefficients, cellID, otherSolutionOrdinal);
+    }
+    
+    bool weightByParity = false;
+    FunctionPtr u_goal = Function::solution(form.u(), solution, weightByParity, solutionOrdinal);
+    
+    // we expect the jumps to be 1 everywhere on the interior; each interior side has length 0.5,
+    // and each cell has two interior sides, so that we have a total cell contribution of (2 * 0.5 * 0.5) = 0.5
+    // on the cells that are not set to unity, and a contribution of (4 * 0.5 * 0.5) = 1.0 on those that are
+    map<GlobalIndexType,double> squaredL2NormOfJumpOnCell;
+    for (auto cellID : myCellIDs)
+    {
+      bool hasUnitSolution = unitCellIDs.find(cellID) != unitCellIDs.end();
+      
+      double squaredL2ValueExpected;
+      
+      if (hasUnitSolution) squaredL2ValueExpected = 1.0;
+      else                 squaredL2ValueExpected = 0.5;
+      
+      squaredL2NormOfJumpOnCell[cellID] = squaredL2ValueExpected;
+    }
+    bool weightBySideMeasure = true;
+    int cubatureDegreeEnrichment = 0;
+    map<GlobalIndexType, double> cellL2Norms = u_goal->squaredL2NormOfJumps(mesh, weightBySideMeasure, cubatureDegreeEnrichment);
+    
+    for (auto entry : cellL2Norms)
+    {
+      auto cellID = entry.first;
+      double l2OfJumpActual = entry.second;
+      TEUCHOS_TEST_FLOATING_EQUALITY(l2OfJumpActual, squaredL2NormOfJumpOnCell[cellID], 1e-14, out, success);
+    }
+    
   }
   
 TEUCHOS_UNIT_TEST( Function, MinAndMaxFunctions )

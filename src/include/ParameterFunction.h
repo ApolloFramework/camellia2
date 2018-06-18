@@ -22,6 +22,7 @@ namespace Camellia
 class ParameterFunction : public TFunction<double>
 {
   TFunctionPtr<double> _fxn;
+  std::string _name = ""; // if name is specified, this will be used by displayString() instead of _fxn->displayString()...
 public:
   ParameterFunction(double value);
   ParameterFunction(TFunctionPtr<double> value);
@@ -46,7 +47,11 @@ public:
   void values(Intrepid::FieldContainer<double> &values, BasisCachePtr basisCache);
   bool boundaryValueOnly();
 
+  std::vector< TFunctionPtr<double> > memberFunctions();
+  
   string displayString();
+  
+  void setName(const std::string &name);
 
   static Teuchos::RCP<ParameterFunction> parameterFunction(double value);
   static Teuchos::RCP<ParameterFunction> parameterFunction(TFunctionPtr<double> fxn);
