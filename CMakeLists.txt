@@ -7,8 +7,15 @@ set(PROJECT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 set(CMENGINE_VERSION "${PROJECT_VERSION}")
 
 # Required version
-cmake_minimum_required(VERSION 2.8.4)
+cmake_minimum_required(VERSION 3.1)
 cmake_policy(SET CMP0004 OLD)
+
+set (CMAKE_CXX_STANDARD 11)
+
+# Fix behavior of CMAKE_CXX_STANDARD when targeting macOS.
+if (POLICY CMP0025)
+  cmake_policy(SET CMP0025 NEW)
+endif ()
 
 include(${CMAKE_SOURCE_DIR}/../scimake/SciInit.cmake)
 
@@ -71,9 +78,9 @@ endif ()
 #set(H5_USE_16_API 1)
 #if (BOOST_FOUND)
   if (ENABLE_PARALLEL)
-   set(TRILINOS_BUILD trilinos-par)
+   set(TRILINOS_BUILD trilinos-parcommio)
   else ()
-   set(TRILINOS_BUILD trilinos-ser)
+   set(TRILINOS_BUILD trilinos-sercommio)
   endif ()
   set(USE_TRILINOS_CONFIG_CMAKE 1)
   find_package(SciTrilinos REQUIRED) # Finds lapack and blas
@@ -94,15 +101,6 @@ endif ()
   
 #endif ()
 
-#cmake_minimum_required(VERSION 3.1)
-#
-#set (CMAKE_CXX_STANDARD 11)
-#
-# Fix behavior of CMAKE_CXX_STANDARD when targeting macOS.
-#if (POLICY CMP0025)
-#  cmake_policy(SET CMP0025 NEW)
-#endif ()
-
 # Set TARGET_SUPPORTS_SHARED_LIBS -- otherwise problems building shared libs on Macs (at least)
 SET_PROPERTY(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)
 
@@ -114,11 +112,6 @@ IF(INCLUDE_DRIVERS_IN_ALL)
 ELSE()
   SET(EXCLUDE_DRIVERS_FROM_ALL "EXCLUDE_FROM_ALL")
 ENDIF(INCLUDE_DRIVERS_IN_ALL)
-
-#IF(APPLE)
-#   SET(CMAKE_SHARED_MODULE_CREATE_C_FLAGS
-#       "${CMAKE_SHARED_MODULE_CREATE_C_FLAGS} -flat_namespace -undefined suppress")
-#ENDIF(APPLE)
 
 # Set Camellia directories
 set(CAMELLIA_SOURCE_DIR src)
@@ -136,16 +129,35 @@ if(SCALAPACK_LIB)
   link_libraries(${SCALAPACK_LIB})
 endif()
 
-IF(NOT BUILD_SHARED_LIBS)
-  MESSAGE("Setting BUILD_SHARED_LIBS to ${Trilinos_BUILD_SHARED_LIBS}")
-  SET(BUILD_SHARED_LIBS ${Trilinos_BUILD_SHARED_LIBS})
-ENDIF()
+# Camellia comments this out
+SET(BUILD_SHARED_LIBS OFF)
+MESSAGE("Setting BUILD_SHARED_LIBS to ${BUILD_SHARED_LIBS}")
+#IF(NOT BUILD_SHARED_LIBS)
+#  MESSAGE("Setting BUILD_SHARED_LIBS to ${Trilinos_BUILD_SHARED_LIBS}")
+#  SET(BUILD_SHARED_LIBS ${Trilinos_BUILD_SHARED_LIBS})
+#ENDIF()
 
 # Find all library source files
 FILE(GLOB_RECURSE LIB_SOURCES "${CAMELLIA_SOURCE_DIR}/*.cpp" "${CAMELLIA_SOURCE_DIR}/include/*.h")
 set(HEADERS 
   ${CAMELLIA_SOURCE_DIR}/include
 )
+
+#Clean up the Trilinos Libraries by removing duplicates
+#This is need to avoid CMAKE linking errors
+#due to excessively long link lists with Spack
+
+list(REVERSE Trilinos_TPL_LIBRARIES)
+list(REMOVE_DUPLICATES Trilinos_TPL_LIBRARIES)
+list(REVERSE Trilinos_TPL_LIBRARIES)
+
+list(REVERSE Trilinos_LIBRARIES)
+list(REMOVE_DUPLICATES Trilinos_LIBRARIES)
+list(REVERSE Trilinos_LIBRARIES)
+
+list(REVERSE Trilinos_TPL_INCLUDE_DIRS)
+list(REMOVE_DUPLICATES Trilinos_TPL_INCLUDE_DIRS)
+list(REVERSE Trilinos_TPL_INCLUDE_DIRS)
 
 include_directories(
   ${Trilinos_TPL_INCLUDE_DIRS}
@@ -154,6 +166,24 @@ include_directories(
   ${Mumps_INCLUDE_DIRS}
   ${CAMELLIA_SOURCE_DIR}/include
   TPL/choice
+)
+
+link_directories(
+  ${Trilinos_LIBRARY_DIRS}
+  ${Trilinos_TPL_LIBRARY_DIRS}
+)
+
+link_libraries(
+  ${Moab_LIBRARIES}
+  ${Trilinos_LIBRARIES}
+  ${Trilinos_TPL_LIBRARIES}
+  ${Trilinos_LINALG_LIBRARIES}
+  ${ADDITIONAL_LIBRARIES}
+#  # Xdmd
+#  # hdf5_cpp
+#  #  dmumps
+#  #  mumps_common
+#  #  pord
 )
 
 add_library(Camellia ${LIB_SOURCES} ${HEADERS})
@@ -197,3 +227,6 @@ add_subdirectory(unit_tests)
 # Finish up
 set(INSTALL_CONFIG_HEADERS FALSE)
 include(${CMAKE_SOURCE_DIR}/../scimake/SciFinalize.cmake)
+
+
+
