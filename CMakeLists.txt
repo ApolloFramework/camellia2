@@ -17,7 +17,8 @@ if (POLICY CMP0025)
   cmake_policy(SET CMP0025 NEW)
 endif ()
 
-include(${CMAKE_SOURCE_DIR}/../scimake/SciInit.cmake)
+#include(${CMAKE_SOURCE_DIR}/../scimake/SciInit.cmake)
+include(${APOLLO_ROOT}/scimake/SciInit.cmake)
 
 set(CXX ${CMAKE_CXX_COMPILER})
 set(BUILD_FLAGS_VAR  CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE})
