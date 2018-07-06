@@ -227,7 +227,7 @@ add_subdirectory(unit_tests)
 
 # Finish up
 set(INSTALL_CONFIG_HEADERS FALSE)
-include(${CMAKE_SOURCE_DIR}/../scimake/SciFinalize.cmake)
+include($ENV{APOLLO_ROOT}/scimake/SciFinalize.cmake)
 
 
 
