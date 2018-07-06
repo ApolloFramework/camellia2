@@ -201,6 +201,7 @@ link_libraries(
 #  #  dmumps
 #  #  mumps_common
 #  #  pord
+  ${Fortran_IMPLICIT_LIBRARIES}
 )
 
 FILE(GLOB ALL_HEADER_FILES "${HEADERS}/*.h" "${HEADERS}/*.hpp")
