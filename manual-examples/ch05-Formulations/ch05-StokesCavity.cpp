@@ -79,8 +79,10 @@ int main(int argc, char *argv[])
   exporter.exportSolution(soln, refNumber, numSubdivisions);
   
   streamSoln->solve();
-  streamExport.exportFunction({phiSoln}, {"phi"},
-                              refNumber, numSubdivisions);
+  //SEK: Do not really understand the write interface here
+  streamExport.exportFunction(phiSoln, "phi")
+  // streamExport.exportFunction({phiSoln}, {"phi"},
+  //                             refNumber, numSubdivisions);
   
   double threshold = 0.2; // relative energy error threshold
   auto refStrategy = form.getRefinementStrategy();
@@ -94,8 +96,10 @@ int main(int argc, char *argv[])
     form.solve();
     exporter.exportSolution(soln, refNumber, numSubdivisions);
     streamSoln->solve();
-    streamExport.exportFunction({phiSoln}, {"phi"},
-                                refNumber, numSubdivisions);
+    //SEK: Do not really understand the write interface here
+    streamExport.exportFunction(phiSoln, "phi")
+    // streamExport.exportFunction({phiSoln}, {"phi"},
+    //                             refNumber, numSubdivisions);
   }
   // report final energy error:
   double energyError = soln->energyErrorTotal();
