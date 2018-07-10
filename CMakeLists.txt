@@ -201,6 +201,7 @@ link_libraries(
 #  #  dmumps
 #  #  mumps_common
 #  #  pord
+  ${Fortran_IMPLICIT_LIBRARIES}
 )
 
 FILE(GLOB ALL_HEADER_FILES "${HEADERS}/*.h" "${HEADERS}/*.hpp")
@@ -227,7 +228,7 @@ add_subdirectory(unit_tests)
 
 # Finish up
 set(INSTALL_CONFIG_HEADERS FALSE)
-include(${CMAKE_SOURCE_DIR}/../scimake/SciFinalize.cmake)
+include($ENV{APOLLO_ROOT}/scimake/SciFinalize.cmake)
 
 
 
