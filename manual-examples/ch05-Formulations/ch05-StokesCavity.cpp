@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
   
   streamSoln->solve();
   //SEK: Do not really understand the write interface here
-  streamExport.exportFunction(phiSoln, "phi")
+  streamExport.exportFunction(phiSoln, "phi");
   // streamExport.exportFunction({phiSoln}, {"phi"},
   //                             refNumber, numSubdivisions);
   
@@ -97,7 +97,7 @@ int main(int argc, char *argv[])
     exporter.exportSolution(soln, refNumber, numSubdivisions);
     streamSoln->solve();
     //SEK: Do not really understand the write interface here
-    streamExport.exportFunction(phiSoln, "phi")
+    streamExport.exportFunction(phiSoln, "phi");
     // streamExport.exportFunction({phiSoln}, {"phi"},
     //                             refNumber, numSubdivisions);
   }
