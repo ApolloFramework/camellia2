@@ -169,38 +169,15 @@ include_directories(
   TPL/choice
 )
 
-link_directories(
-  ${Trilinos_LIBRARY_DIRS}
-  ${Trilinos_TPL_LIBRARY_DIRS}
-)
-
-link_libraries(
-  ${Moab_LIBRARIES}
-  ${Trilinos_LIBRARIES}
-  ${Trilinos_TPL_LIBRARIES}
-  ${Trilinos_LINALG_LIBRARIES}
-  ${ADDITIONAL_LIBRARIES}
-#  # Xdmd
-#  # hdf5_cpp
-#  #  dmumps
-#  #  mumps_common
-#  #  pord
-)
-
 add_library(Camellia ${LIB_SOURCES} ${HEADERS})
 
-link_libraries(
+target_link_libraries(
  Camellia
   ${Moab_LIBRARIES}
   ${Trilinos_LIBRARIES}
   ${Trilinos_TPL_LIBRARIES}
   ${Trilinos_LINALG_LIBRARIES}
   ${ADDITIONAL_LIBRARIES}
-#  # Xdmd
-#  # hdf5_cpp
-#  #  dmumps
-#  #  mumps_common
-#  #  pord
   ${Fortran_IMPLICIT_LIBRARIES}
 )
 
@@ -229,6 +206,3 @@ add_subdirectory(unit_tests)
 # Finish up
 set(INSTALL_CONFIG_HEADERS FALSE)
 include($ENV{APOLLO_ROOT}/scimake/SciFinalize.cmake)
-
-
-
