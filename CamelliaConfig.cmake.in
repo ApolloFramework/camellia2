@@ -1,0 +1,7 @@
+@PACKAGE_INIT@ 
+
+#set_and_check ( Camellia_INCLUDE_DIRS "@PACKAGE_Camellia_INCLUDE_DIRS@")
+
+include ( "${CMAKE_CURRENT_LIST_DIR}/CamelliaVersion.cmake" )
+include ( "${CMAKE_CURRENT_LIST_DIR}/CamelliaTargets.cmake" )
+
