@@ -50,26 +50,26 @@ MESSAGE("Setting BUILD_SHARED_LIBS to ${BUILD_SHARED_LIBS}")
 #----------------------------------------------------------
 #   Dependencies
 #----------------------------------------------------------
-  if (ENABLE_PARALLEL)
-   set(TRILINOS_BUILD trilinos-par)
-  else ()
-   set(TRILINOS_BUILD trilinos-ser)
-  endif ()
-  set(USE_TRILINOS_CONFIG_CMAKE 1)
-  find_package(SciTrilinos REQUIRED) # Finds lapack and blas
-  if ("${Trilinos_USE_VENDOR_LINALG}" STREQUAL "mkl")
-    message(STATUS "Adding -mkl to cxx flags")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mkl=cluster")
-    set(Trilinos_LINALG_LIBRARIES)
-  endif()
+if (ENABLE_PARALLEL)
+ set(TRILINOS_BUILD trilinos-par)
+else ()
+ set(TRILINOS_BUILD trilinos-ser)
+endif ()
+set(USE_TRILINOS_CONFIG_CMAKE 1)
+find_package(SciTrilinos REQUIRED) # Finds lapack and blas
+if ("${Trilinos_USE_VENDOR_LINALG}" STREQUAL "mkl")
+  message(STATUS "Adding -mkl to cxx flags")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mkl=cluster")
+  set(Trilinos_LINALG_LIBRARIES)
+endif()
 
-  if (ENABLE_PARALLEL)
-    set(MOAB_COMPONENTS MOAB iMesh)
-  else ()
-    set(MOAB_COMPONENTS MOAB iMesh)
-  endif ()
-  find_package(SciMoab REQUIRED)
-  ADD_DEFINITIONS(-DHAVE_MOAB)
+if (ENABLE_PARALLEL)
+  set(MOAB_COMPONENTS MOAB iMesh)
+else ()
+  set(MOAB_COMPONENTS MOAB iMesh)
+endif ()
+find_package(SciMoab REQUIRED)
+ADD_DEFINITIONS(-DHAVE_MOAB)
 
 #Clean up the Trilinos Libraries by removing duplicates
 #This is need to avoid CMAKE linking errors
@@ -139,7 +139,7 @@ target_link_libraries(
 )
 
 FILE(GLOB ALL_HEADER_FILES "${HEADERS}/*.h" "${HEADERS}/*.hpp")
-install (TARGETS Camellia DESTINATION lib)
+install (TARGETS Camellia DESTINATION lib EXPORT camellia-lib)
 install (FILES ${ALL_HEADER_FILES} DESTINATION include/Camellia)
 
 #----------------------------------------------------------
@@ -173,6 +173,27 @@ add_subdirectory(manual-examples ${EXCLUDE_EXAMPLES_FROM_ALL})
 add_subdirectory(unit_tests)
 #add_subdirectory(slow_tests)
 
-# Finish up
+#----------------------------------------------------------
+# Finish up -- include cmake files to make downstream packages
+# using CMake configure easily
+#----------------------------------------------------------
+include(CMakePackageConfigHelpers)
+set(INCLUDE_INSTALL_DIR include)
+
+configure_package_config_file(CamelliaConfig.cmake.in
+      ${CMAKE_CURRENT_BINARY_DIR}/CamelliaConfig.cmake
+      INSTALL_DESTINATION lib/Camellia/cmake
+      PATH_VARS INCLUDE_INSTALL_DIR)
+write_basic_package_version_file(
+      ${CMAKE_CURRENT_BINARY_DIR}/CamelliaConfigVersion.cmake
+      VERSION ${PROJECT_VERSION}
+      COMPATIBILITY SameMajorVersion )
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/CamelliaConfig.cmake
+              ${CMAKE_CURRENT_BINARY_DIR}/CamelliaConfigVersion.cmake
+              DESTINATION lib/Camellia/cmake )
+install (EXPORT camellia-lib 
+         DESTINATION lib/Camellia/cmake 
+         FILE "CamelliaTargets.cmake" )
+
 set(INSTALL_CONFIG_HEADERS FALSE)
 include(${SCIMAKE_DIR}/SciFinalize.cmake)
