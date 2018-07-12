@@ -249,13 +249,15 @@ add_subdirectory(unit_tests)
 #----------------------------------------------------------
 include(CMakePackageConfigHelpers)
 set(INCLUDE_INSTALL_DIR include)
+set(INCLUDE_INSTALL_DIR include)
+set(Camellia_INCLUDE_DIRS ${INCLUDE_INSTALL_DIR})
 
 configure_package_config_file(CamelliaConfig.cmake.in
       ${CMAKE_CURRENT_BINARY_DIR}/CamelliaConfig.cmake
       INSTALL_DESTINATION lib/Camellia/cmake
       PATH_VARS INCLUDE_INSTALL_DIR)
 write_basic_package_version_file(
-      ${CMAKE_CURRENT_BINARY_DIR}/CamelliaConfigVersion.cmake
+      ${CMAKE_CURRENT_BINARY_DIR}/CamelliaVersion.cmake
       VERSION ${PROJECT_VERSION}
       COMPATIBILITY SameMajorVersion )
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/CamelliaConfig.cmake
