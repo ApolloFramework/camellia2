@@ -175,12 +175,13 @@ if (OMP_INCLUDE)
   include_directories(${OMP_INCLUDE})
 endif()
 
-include_directories(
+set(Camellia_TPL_INCLUDE_DIRS
   ${Trilinos_TPL_INCLUDE_DIRS}
   ${Trilinos_INCLUDE_DIRS}
   ${Moab_INCLUDE_DIRS}
   ${Mumps_INCLUDE_DIRS}
 )
+include_directories(${Camellia_TPL_INCLUDE_DIRS})
 
 #----------------------------------------------------------
 # Library
@@ -209,8 +210,15 @@ target_link_libraries(
 )
 
 FILE(GLOB ALL_HEADER_FILES "${HEADERS}/*.h" "${HEADERS}/*.hpp")
-install (TARGETS Camellia DESTINATION lib EXPORT camellia-lib)
 install (FILES ${ALL_HEADER_FILES} DESTINATION include/Camellia)
+
+install (TARGETS Camellia 
+         EXPORT camellia-lib
+         LIBRARY DESTINATION lib
+         ARCHIVE DESTINATION lib
+         RUNTIME DESTINATION bin
+         INCLUDES DESTINATION include
+         )
 
 #----------------------------------------------------------
 # Drivers, examples, etc.
