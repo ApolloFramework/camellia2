@@ -269,7 +269,7 @@ write_basic_package_version_file(
       VERSION ${PROJECT_VERSION}
       COMPATIBILITY SameMajorVersion )
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/CamelliaConfig.cmake
-              ${CMAKE_CURRENT_BINARY_DIR}/CamelliaConfigVersion.cmake
+              ${CMAKE_CURRENT_BINARY_DIR}/CamelliaVersion.cmake
               DESTINATION lib/Camellia/cmake )
 install (EXPORT camellia-lib 
          DESTINATION lib/Camellia/cmake 
