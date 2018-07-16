@@ -182,6 +182,38 @@ add_subdirectory(unit_tests)
 #add_subdirectory(slow_tests)
 
 #----------------------------------------------------------
+#  Documentation
+#----------------------------------------------------------
+# Find/Setup Doxygen
+option(ENABLE_DOCS "Build the documents with doxygen or not" OFF)
+IF(ENABLE_DOCS)
+  find_package(SciDoxygen)
+  if (DOXYGEN_FOUND)
+     message("DOXYGEN_EXECUTABLE found.")
+     message("DOXYGEN_EXECUTABLE = ${DOXYGEN_EXECUTABLE}")
+  endif ()
+  # Put docs into build dir
+  set(DOXYGEN_DOCSDIR ${CMAKE_BINARY_DIR}/docs)
+
+  configure_file(camellia.dox.in camellia.dox)
+
+  # Convenience
+  add_custom_target(docs)
+  add_dependencies(docs apidocs)
+  add_custom_target(install-docs)
+  add_dependencies(install-docs install-apidocs)
+
+  # Doxygen documentation
+  ##
+
+  add_custom_target(apidocs
+          command ${DOXYGEN_EXECUTABLE} ${CMAKE_BINARY_DIR}/camellia.dox)
+  add_custom_target(install-apidocs COMMAND $(CMAKE_COMMAND) -P ${BLDDIR}/cmake_install.cmake)
+  add_dependencies(install-apidocs apidocs)
+ENDIF()
+
+
+#----------------------------------------------------------
 # Finish up -- include cmake files to make downstream packages
 # using CMake configure easily
 #----------------------------------------------------------
