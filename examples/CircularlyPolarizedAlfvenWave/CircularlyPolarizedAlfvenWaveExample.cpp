@@ -372,25 +372,17 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   {
     // for Ideal MHD, even in 1D, u is a vector, as is B
     form->setInitialCondition(rhoInitial, vInitial, EInitial, BInitial);
-//    if (spaceTime)
-//    {
-//      // have had some issues using the discontinuous initial guess for all time in Sod problem at least
-//      // let's try something much more modest: just unit values for rho, E, B, zero for u
-//      FunctionPtr one    = Function::constant(1.0);
-//      FunctionPtr rhoOne = one;
-//      FunctionPtr EOne   = one;
-//      FunctionPtr BGuess;
-//      if (!runSodInstead)
-//      {
-//        BGuess   = Function::vectorize(Bx, one, one);
-//      }
-//      else
-//      {
-//        BGuess   = Function::vectorize(zero, zero, zero);
-//      }
-//      auto initialGuess = form->exactSolutionFieldMap(rhoOne, velocityVector, EOne, BGuess);
-//      form->setInitialState(initialGuess);
-//    }
+    if (spaceTime)
+    {
+      // have had some issues using the discontinuous initial guess for all time in Sod problem at least
+      // let's try something much more modest: just unit values for rho, E, B, zero for u
+      FunctionPtr one    = Function::constant(1.0);
+      FunctionPtr rhoOne = one;
+      FunctionPtr EOne   = one;
+      FunctionPtr BGuess = Function::vectorize(BxInitial, one, one);
+      auto initialGuess = form->exactSolutionFieldMap(rhoOne, vInitial, EOne, BGuess);
+      form->setInitialState(initialGuess);
+    }
   }
   
   FunctionPtr BySoln = Function::solution(form->B(2), form->solution());
@@ -641,6 +633,15 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
         }
       }
       
+      if (alpha == -1.0)
+      {
+        if (rank == 0)
+        {
+          cout << "Nonlinear iteration failed -- unable to reach admissible solution via line search.  Exiting...\n";
+        }
+        return -1;
+      }
+      
       stepNumber++;
       solutionHistoryExporter.exportSolution(form->solution(), double(stepNumber));  // use stepNumber as the "time" value for export...
       solutionIncrementHistoryExporter.exportSolution(form->solutionIncrement(), double(stepNumber));
@@ -660,7 +661,13 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     printConservationReport();
     
     if (rank == 0) std::cout << "========== t = " << t << ", time step number " << timeStepNumber+1 << " ==========\n";
-    if (timeStepNumber != numTimeSteps - 1)
+    if (timeStepNumber == numTimeSteps - 2)
+    {
+      // one time step left: set dt to get to the appropriate final time
+      double lastDt = finalTime - t;
+      form->setTimeStep(lastDt);
+    }
+    else if (timeStepNumber != numTimeSteps - 1)
     {
       form->solutionPreviousTimeStep()->setSolution(form->solution());
     }
@@ -715,6 +722,8 @@ int main(int argc, char *argv[])
   bool useSpaceTime = false;
   int temporalPolyOrder =  1;
   int temporalMeshWidth = -1;  // if useSpaceTime gets set to true and temporalMeshWidth is left unset, we'll use meshWidth = (finalTime / dt / temporalPolyOrder)
+  std::string linearization = "Newton";
+  bool useConservationVariables = true;
   
   double x_a   = -0.5;
   double x_b   = 0.5;
@@ -729,6 +738,8 @@ int main(int argc, char *argv[])
     {"experimental", EXPERIMENTAL_CONSERVATIVE_NORM}
   };
   
+  int type;
+  
   std::string normChoiceString = "transientGraph";
   
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
@@ -738,12 +749,14 @@ int main(int argc, char *argv[])
   cmdp.setOption("spaceDim",  &spaceDim);
   cmdp.setOption("dt", &dt);
   cmdp.setOption("deltaP", &delta_k);
+  cmdp.setOption("linearization", &linearization);
   cmdp.setOption("nonlinearTol", &nonlinearTolerance);
   cmdp.setOption("enforceConservation", "dontEnforceConservation", &enforceConservationUsingLagrangeMultipliers);
   cmdp.setOption("useCondensedSolve", "useStandardSolve", &useCondensedSolve);
   cmdp.setOption("spaceTime","backwardEuler", &useSpaceTime);
   cmdp.setOption("temporalPolyOrder", &temporalPolyOrder);
   cmdp.setOption("temporalMeshWidth", &temporalMeshWidth);
+  cmdp.setOption("useConservationVariables", "usePrimitiveVariables", &useConservationVariables);
   
   cmdp.setOption("norm", &normChoiceString);
   
@@ -764,6 +777,8 @@ int main(int argc, char *argv[])
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported norm choice");
   }
+  
+  bool usePicard = (linearization == "Picard");
   
   bool periodicBCs = true;
   MeshTopologyPtr meshTopo;
@@ -825,9 +840,17 @@ int main(int argc, char *argv[])
     auto spaceTimeMeshTopo = MeshFactory::spaceTimeMeshTopology(meshTopo, t0, t1, temporalMeshWidth);
     form = IdealMHDFormulation::spaceTimeFormulation(spaceDim, spaceTimeMeshTopo, polyOrder, temporalPolyOrder, delta_k, gamma);
   }
-  else
+  else if (!usePicard && useConservationVariables)
   {
     form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k, gamma);
+  }
+  else if (!useConservationVariables)
+  {
+    form = IdealMHDFormulation::timeSteppingPrimitiveVariableFormulation(spaceDim, meshTopo, polyOrder, delta_k, gamma);
+  }
+  else
+  {
+    form = IdealMHDFormulation::timeSteppingPicardFormulation(spaceDim, meshTopo, polyOrder, delta_k, gamma);
   }
 
   return runSolver(form, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,

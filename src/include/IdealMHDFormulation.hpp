@@ -45,6 +45,7 @@ namespace Camellia
     int _solveCode;
     
     FunctionPtr _L2IncrementFunction, _L2SolutionFunction;
+    double _l2NormOfIncrement = -1.0; // computed during solveAndAccumulate()
     
     // Bx Parameter Function (used for 1D only)
     Teuchos::RCP<ParameterFunction> _Bx;
@@ -77,6 +78,9 @@ namespace Camellia
     static const std::string S_E;
     static const std::string S_B1, S_B2, S_B3;
     
+    static const std::string S_u1, S_u2, S_u3;
+    static const std::string S_T;
+    
     static const std::string S_tc;
     static const std::string S_tm1, S_tm2, S_tm3;
     static const std::string S_te;
@@ -92,6 +96,8 @@ namespace Camellia
     static const std::string S_m[3];
     static const std::string S_B[3];
     
+    static const std::string S_u[3];
+    
     static const std::string S_tm[3];
     static const std::string S_tB[3];
     
@@ -105,7 +111,7 @@ namespace Camellia
       VarPtr testVar;
       FunctionPtr flux;
       VarPtr traceVar;
-      VarPtr timeTerm; // term that is differentiated in time
+      FunctionPtr timeTerm; // term that is differentiated in time
       FunctionPtr f_rhs;
     };
     
@@ -116,6 +122,11 @@ namespace Camellia
     FunctionPtr exactSolutionFlux(VarPtr testVar, FunctionPtr rho, FunctionPtr u, FunctionPtr E, FunctionPtr B, bool includeParity);
     
     std::map<int, FunctionPtr> _backgroundFlowMap, _solnPreviousTimeMap, _solnIncrementMap;
+    
+    bool _usePicardIteration; // if true, implies that _solnIncrement should be interpreted as current Picard, not actually an increment
+    bool _usePrimitiveVariables;
+    
+    int _maxLineSearchSteps = 20;
   public:
     IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters);
     
@@ -215,6 +226,12 @@ namespace Camellia
     
     // ! set current time step used for transient solve
     void setTimeStep(double dt);
+    
+    // ! set maximum number of line search steps to use in solveAndAccumulate().  In each step, we check
+    // ! whether the solution is admissible; if it is not, we cut the weight in half.  Set maxLineSearchSteps
+    // ! to 0 to not do line search at all.  If/when the admissibility test fails, we simply return -1 as the
+    // ! step weight.
+    void setMaxLineSearchSteps(int maxLineSearchSteps);
   
     // ! Returns the solution (at current time)
     SolutionPtr solution();
@@ -248,6 +265,10 @@ namespace Camellia
     VarPtr m(int i);        // momentum
     VarPtr E();             // total energy
     VarPtr B(int i);        // magnetic field
+    
+    // primitive fields
+    VarPtr u(int i);        // velocity
+    VarPtr T();             // temperature
     
     // traces:
     VarPtr tc();
@@ -365,8 +386,12 @@ namespace Camellia
     // static utility functions:
     static Teuchos::RCP<IdealMHDFormulation> spaceTimeFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k, double gamma=2.0);
     
-    // static utility functions:
     static Teuchos::RCP<IdealMHDFormulation> timeSteppingFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k, double gamma=2.0);
+    
+    static Teuchos::RCP<IdealMHDFormulation> timeSteppingPrimitiveVariableFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k, double gamma=2.0);
+    
+    // ! implements a Picard iteration, in which velocity multiplicands in the linearized form lag the current Picard step.  solveAndAccumulate() then does not accumulate as such, but instead replaces the previous Picard step solution with the current one, assuming that the positivity check passes (otherwise an error code of -1 is returned).
+    static Teuchos::RCP<IdealMHDFormulation> timeSteppingPicardFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k, double gamma=2.0);
   }; // class IdealMHDFormulation
 } // namespace Camellia
 

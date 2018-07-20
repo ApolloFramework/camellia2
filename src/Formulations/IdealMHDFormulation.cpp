@@ -34,6 +34,12 @@ const string IdealMHDFormulation::S_B1 = "B1";
 const string IdealMHDFormulation::S_B2 = "B2";
 const string IdealMHDFormulation::S_B3 = "B3";
 
+// primitive variable strings
+const string IdealMHDFormulation::S_u1  = "u1";
+const string IdealMHDFormulation::S_u2  = "u2";
+const string IdealMHDFormulation::S_u3  = "u3";
+const string IdealMHDFormulation::S_T   = "T";
+
 const string IdealMHDFormulation::S_tc = "tc";
 const string IdealMHDFormulation::S_tm1 = "tm1";
 const string IdealMHDFormulation::S_tm2 = "tm2";
@@ -56,6 +62,7 @@ const string IdealMHDFormulation::S_vGauss = "vGauss";
 
 const string IdealMHDFormulation::S_m[3]    = {S_m1, S_m2, S_m3};
 const string IdealMHDFormulation::S_B[3]    = {S_B1, S_B2, S_B3};
+const string IdealMHDFormulation::S_u[3]    = {S_u1, S_u2, S_u3};
 const string IdealMHDFormulation::S_tm[3]   = {S_tm1, S_tm2, S_tm3};
 const string IdealMHDFormulation::S_tB[3]   = {S_tB1, S_tB2, S_tB3};
 const string IdealMHDFormulation::S_vm[3]   = {S_vm1, S_vm2, S_vm3};
@@ -106,6 +113,43 @@ Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::timeSteppingFormulation(i
   return Teuchos::rcp(new IdealMHDFormulation(meshTopo, parameters));
 }
 
+Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::timeSteppingPicardFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k, double gamma)
+{
+  Teuchos::ParameterList parameters;
+  
+  parameters.set("spaceDim", spaceDim);
+  parameters.set("useTimeStepping", true);
+  parameters.set("useSpaceTime", false);
+  parameters.set("linearization", "Picard"); // Newton is default
+  
+  parameters.set("t0",0.0);
+  
+  parameters.set("spatialPolyOrder", spatialPolyOrder);
+  parameters.set("delta_k", delta_k);
+  parameters.set("gamma", gamma);
+  
+  return Teuchos::rcp(new IdealMHDFormulation(meshTopo, parameters));
+}
+
+Teuchos::RCP<IdealMHDFormulation> IdealMHDFormulation::timeSteppingPrimitiveVariableFormulation(int spaceDim, MeshTopologyPtr meshTopo, int spatialPolyOrder, int delta_k, double gamma)
+{
+  Teuchos::ParameterList parameters;
+  
+  parameters.set("spaceDim", spaceDim);
+  parameters.set("useTimeStepping", true);
+  parameters.set("useSpaceTime", false);
+  
+  parameters.set("t0",0.0);
+  
+  parameters.set("spatialPolyOrder", spatialPolyOrder);
+  parameters.set("delta_k", delta_k);
+  parameters.set("gamma", gamma);
+  
+  parameters.set("variableSet", "primitive"); // as opposed to conservation variables, the default
+  
+  return Teuchos::rcp(new IdealMHDFormulation(meshTopo, parameters));
+}
+
 IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters)
 {
   _ctorParameters = parameters;
@@ -115,6 +159,17 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   _spaceDim = spaceDim;
   const int trueSpaceDim = 3; // as opposed to _spaceDim, which indicates the number of dimensions that can have non-zero derivatives (also the dimension of the mesh)
 
+  std::string linearizationType = parameters.get<std::string>("linearization", "Newton"); // Picard or Newton
+  bool picardIteration = (linearizationType == "Picard");
+  _usePicardIteration = picardIteration;
+  if (_usePicardIteration)
+  {
+    std::cout << "WARNING: Picard iteration is still in development, and is known not to work right now.  It is unclear whether the issue is algorithmic or a bug in the implementation.\n";
+  }
+  
+  std::string variableSet = parameters.get<std::string>("variableSet", "conservation"); // primitive or conservation
+  _usePrimitiveVariables = (variableSet == "primitive");
+  
   _fc = ParameterFunction::parameterFunction(0.0);
   _fe = ParameterFunction::parameterFunction(0.0);
   _fm = vector<Teuchos::RCP<ParameterFunction> >(trueSpaceDim);
@@ -165,11 +220,15 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   _timeStepping = useTimeStepping;
   _spaceTime = useSpaceTime;
   
-  // field variables
+  // field variables -- conservation form
   VarPtr rhoVar;
   vector<VarPtr> mVar(trueSpaceDim);
   VarPtr EVar;
   vector<VarPtr> BVar(trueSpaceDim); // In 1D, first component will be null
+  
+  // field variables -- primitive form
+  vector<VarPtr> uVar(trueSpaceDim);
+  VarPtr TVar;
   
   // trace variables
   VarPtr tc;
@@ -189,9 +248,21 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   
   rhoVar = _vf->fieldVar(S_rho);
   
-  for (int d=0; d<trueSpaceDim; d++)
+  if (_usePrimitiveVariables)
   {
-    mVar[d] = _vf->fieldVar(S_m[d]);
+    for (int d=0; d<trueSpaceDim; d++)
+    {
+      uVar[d] = _vf->fieldVar(S_u[d]);
+    }
+    TVar = _vf->fieldVar(S_T);
+  }
+  else
+  {
+    for (int d=0; d<trueSpaceDim; d++)
+    {
+      mVar[d] = _vf->fieldVar(S_m[d]);
+    }
+    EVar = _vf->fieldVar(S_E);
   }
   
   if (_spaceDim > 1)
@@ -221,8 +292,6 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
     B_comps[2] = VarFunction<double>::abstractFunction(BVar[2]);
   }
   B = Function::vectorize(B_comps);
-  
-  EVar = _vf->fieldVar(S_E);
   
   // FunctionPtr n = Function::normal();
   FunctionPtr n_x = TFunction<double>::normal(); // spatial normal
@@ -270,33 +339,163 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
       _trialVariablePolyOrderAdjustments[var->ID()] = adjustment;
     }
   }
+  vector<int> H1Order;
+  if (_spaceTime)
+  {
+    H1Order = {spatialPolyOrder+1,temporalPolyOrder+1}; // not dead certain that temporalPolyOrder+1 is the best choice; it depends on whether the indicated poly order means L^2 as it does in space, or whether it means H^1...
+  }
+  else
+  {
+    H1Order = {spatialPolyOrder+1};
+  }
+  
+  BCPtr bc = BC::bc();
+  _bf = Teuchos::rcp( new BF(_vf) );
+  _steadyBF = Teuchos::rcp( new BF(_vf) );
+  _rhs = RHS::rhs();
+  
+  MeshPtr mesh;
+  if (savedSolutionAndMeshPrefix == "")
+  {
+    mesh = Teuchos::rcp( new Mesh(meshTopo, _bf, H1Order, delta_k, _trialVariablePolyOrderAdjustments) ) ;
+    _backgroundFlow = Solution::solution(_bf, mesh, bc);
+    _solnIncrement = Solution::solution(_bf, mesh, bc);
+    _solnPrevTime = Solution::solution(_bf, mesh, bc);
+  }
+  else
+  {
+    mesh = MeshFactory::loadFromHDF5(_bf, savedSolutionAndMeshPrefix+".mesh");
+    _backgroundFlow = Solution::solution(_bf, mesh, bc);
+    _solnIncrement = Solution::solution(_bf, mesh, bc);
+    _solnPrevTime = Solution::solution(_bf, mesh, bc);
+    _backgroundFlow->loadFromHDF5(savedSolutionAndMeshPrefix+".soln");
+    _solnIncrement->loadFromHDF5(savedSolutionAndMeshPrefix+"_increment.soln");
+    _solnPrevTime->loadFromHDF5(savedSolutionAndMeshPrefix+"_prevtime.soln");
+  }
+  
+  std::string backgroundFlowIdentifierExponent = "";
+  std::string previousTimeIdentifierExponent = "";
+  if (_timeStepping)
+  {
+    backgroundFlowIdentifierExponent = "k";
+    previousTimeIdentifierExponent = "k-1";
+  }
+  // to avoid needing a bunch of casts below, do a cast once here:
+  FunctionPtr dt = (FunctionPtr)_dt;
+  
+  bool weightFluxesByParity = true; // TODO: decide whether true or false is more appropriate (so far, we haven't used the DPG fluxes that are stored here...)
+  for (auto varEntry : trialVars)
+  {
+    VarPtr var = varEntry.second;
+    _backgroundFlowMap  [var->ID()] = Function::solution(var, _backgroundFlow, weightFluxesByParity, backgroundFlowIdentifierExponent);
+    _solnPreviousTimeMap[var->ID()] = Function::solution(var, _solnPrevTime,   weightFluxesByParity, previousTimeIdentifierExponent);
+    _solnIncrementMap   [var->ID()] = Function::solution(var, _solnIncrement,  weightFluxesByParity, "");
+  }
   
   // Let's try writing the flux terms in terms of Functions
   // We write these in terms of u, m, P*, B, E
+  FunctionPtr rho, m, E, I, u, T, p;
   {
     int trueSpaceDim = 3; // as opposed to our mesh space dim, _spaceDim.
-    vector<FunctionPtr> m_comps;
-    for (int d=0; d<trueSpaceDim; d++)
+    auto Cv = this->Cv();
+    auto gamma = this->gamma();
+    
+    rho = VarFunction<double>::abstractFunction(rhoVar);
+    
+    if (_usePrimitiveVariables)
     {
-      auto m_comp = VarFunction<double>::abstractFunction(mVar[d]);
-      m_comps.push_back(m_comp);
+      vector<FunctionPtr> u_comps;
+      for (int d=0; d<trueSpaceDim; d++)
+      {
+        auto u_comp = VarFunction<double>::abstractFunction(uVar[d]);
+        u_comps.push_back(u_comp);
+      }
+      u   = Function::vectorize(u_comps);
+      m   = rho * u;
+    }
+    else
+    {
+      vector<FunctionPtr> m_comps;
+      for (int d=0; d<trueSpaceDim; d++)
+      {
+        auto m_comp = VarFunction<double>::abstractFunction(mVar[d]);
+        m_comps.push_back(m_comp);
+      }
+      m   = Function::vectorize(m_comps);
+      u   = m / rho;
     }
     
-    FunctionPtr E   = VarFunction<double>::abstractFunction(EVar);
-    FunctionPtr m   = Function::vectorize(m_comps);
-    FunctionPtr rho = VarFunction<double>::abstractFunction(rhoVar);
-    FunctionPtr u   = m / rho;
-    // (gas) pressure is (gamma - 1) * (E - 0.5 * m * u)
-    FunctionPtr p   = (gamma() - 1.0) * (E - 0.5 * dot(trueSpaceDim,m,u));
-    // P* is p + 0.5 * (B * B)
-//    cout << "B: " << B->displayString() << endl;
-    FunctionPtr p_star = p + 0.5 * dot(trueSpaceDim, B, B);
-    FunctionPtr I   = identityMatrix<double>(trueSpaceDim);
+    auto mDotu = dot(trueSpaceDim, m, u);
+    auto BDotB = dot(trueSpaceDim, B, B);
+    
+    if (_usePrimitiveVariables)
+    {
+      T   = VarFunction<double>::abstractFunction(TVar);
+      E   = Cv * rho * T + 0.5 * mDotu + 0.5 * BDotB;
+      double R = (gamma - 1.) * Cv;
+      p   = R * rho * T;
+    }
+    else
+    {
+      E   = VarFunction<double>::abstractFunction(EVar);
+      T   = (1.0/Cv) / rho  * (E - 0.5 * mDotu - 0.5 * BDotB);
+      p   = (gamma - 1.0)   * (E - 0.5 * mDotu - 0.5 * BDotB);
+    }
+    
+    _abstractTemperature = T;
+    _abstractPressure = p;
+    _abstractVelocity = u;
+    _abstractMomentum = m;
+    _abstractEnergy = E;
+    _abstractDensity = rho;
+    _abstractMagnetism = B;
+
+    I   = identityMatrix<double>(trueSpaceDim);
     
     _massFlux     = m;
-    _momentumFlux = outerProduct(trueSpaceDim, u, m) + p_star * I - outerProduct(trueSpaceDim, B, B);
-    _energyFlux   = (E + p_star) * u - B * dot(trueSpaceDim,B,u);
-    _magneticFlux = outerProduct(trueSpaceDim, u, B) - outerProduct(trueSpaceDim, B, u);
+    if (!picardIteration)
+    {
+      
+      // P* is p + 0.5 * (B * B)
+      //    cout << "B: " << B->displayString() << endl;
+      FunctionPtr BdotB   = dot(trueSpaceDim, B, B);
+      FunctionPtr BouterB = outerProduct(trueSpaceDim, B, B);
+      FunctionPtr Bdotu   = dot(trueSpaceDim,B,u);
+      FunctionPtr p_star = p + 0.5 * BdotB;
+      
+      _momentumFlux = outerProduct(trueSpaceDim, u, m) + p_star * I - BouterB;
+      _energyFlux   = (E + p_star) * u - B * Bdotu;
+      _magneticFlux = outerProduct(trueSpaceDim, u, B) - outerProduct(trueSpaceDim, B, u);
+    }
+    else
+    {
+      // For Picard iteration, we'll want to use u in terms of background flow
+      FunctionPtr uBackgroundFlow, BBackgroundFlow, rhoBackgroundFlow;
+      {
+        uBackgroundFlow = u->evaluateAt(_backgroundFlowMap);
+        BBackgroundFlow = B->evaluateAt(_backgroundFlowMap);
+        rhoBackgroundFlow = rho->evaluateAt(_backgroundFlowMap);
+      }
+      FunctionPtr u   = uBackgroundFlow;
+      
+      //    cout << "B: " << B->displayString() << endl;
+      FunctionPtr BdotB   = dot(trueSpaceDim, BBackgroundFlow, B);
+      
+      // (gas) pressure is (gamma - 1) * (E - 0.5 * m * u - 0.5 * B * B)
+      FunctionPtr p   = (gamma - 1.0) * (E - 0.5 * dot(trueSpaceDim,m,u) - 0.5 * BdotB);
+      
+      FunctionPtr BouterB = 0.5 * (outerProduct(trueSpaceDim, BBackgroundFlow, B) + outerProduct(trueSpaceDim, B, BBackgroundFlow)); // make symmetric
+      FunctionPtr Bdotu   = 0.5 * (dot(trueSpaceDim,BBackgroundFlow,u) + dot(trueSpaceDim,BBackgroundFlow, m / rhoBackgroundFlow)); // make sorta symmetric
+      
+      // P* is p + 0.5 * (B * B)
+      FunctionPtr p_star = p + 0.5 * BdotB;
+      
+      FunctionPtr I   = identityMatrix<double>(trueSpaceDim);
+      
+      _momentumFlux = outerProduct(trueSpaceDim, u, m) + p_star * I - BouterB;
+      _energyFlux   = (E + p_star) * u - B * Bdotu;
+      _magneticFlux = outerProduct(trueSpaceDim, u, B) - outerProduct(trueSpaceDim, B, u);
+    }
     if (spaceDim == 2)
     {
       _gaussFlux    = Function::vectorize(B->spatialComponent(1), B->spatialComponent(2)); // in 2D, the d/dz part falls away by definition -- but VectorizedFunction gets upset if we have the Bz component there anyway...
@@ -325,106 +524,41 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
       _magneticFlux = Function::vectorize(_magneticFlux->spatialComponent(x_comp),  _magneticFlux->spatialComponent(y_comp));
     }
     
-    auto mDotm = dot(trueSpaceDim, m, m);
-    auto Cv = this->Cv();
-    auto gamma = this->gamma();
-    _abstractTemperature = (1.0/Cv) / rho  * (E  - 0.5 * mDotm  / rho);
-    _abstractPressure = (gamma - 1) * (E - 0.5 * mDotm / rho);
-    _abstractVelocity = m / rho;
-    _abstractMomentum = m;
-    _abstractEnergy = E;
-    _abstractDensity = rho;
-    _abstractMagnetism = B;
-    
 //    cout << "massFlux: " << _massFlux->displayString() << endl;
 //    cout << "energyFlux: " << _energyFlux->displayString() << endl;
 //    cout << "momentumFlux: " << _momentumFlux->displayString() << endl;
 //    cout << "magneticFlux: " << _magneticFlux->displayString() << endl;
   }
   
-  _bf = Teuchos::rcp( new BF(_vf) );
-  _steadyBF = Teuchos::rcp( new BF(_vf) );
-  _rhs = RHS::rhs();
-  
-  vector<int> H1Order;
-  if (_spaceTime)
-  {
-    H1Order = {spatialPolyOrder+1,temporalPolyOrder+1}; // not dead certain that temporalPolyOrder+1 is the best choice; it depends on whether the indicated poly order means L^2 as it does in space, or whether it means H^1...
-  }
-  else
-  {
-    H1Order = {spatialPolyOrder+1};
-  }
-  
-  BCPtr bc = BC::bc();
-  
-  MeshPtr mesh;
-  if (savedSolutionAndMeshPrefix == "")
-  {
-    mesh = Teuchos::rcp( new Mesh(meshTopo, _bf, H1Order, delta_k, _trialVariablePolyOrderAdjustments) ) ;
-    _backgroundFlow = Solution::solution(_bf, mesh, bc);
-    _solnIncrement = Solution::solution(_bf, mesh, bc);
-    _solnPrevTime = Solution::solution(_bf, mesh, bc);
-  }
-  else
-  {
-    mesh = MeshFactory::loadFromHDF5(_bf, savedSolutionAndMeshPrefix+".mesh");
-    _backgroundFlow = Solution::solution(_bf, mesh, bc);
-    _solnIncrement = Solution::solution(_bf, mesh, bc);
-    _solnPrevTime = Solution::solution(_bf, mesh, bc);
-    _backgroundFlow->loadFromHDF5(savedSolutionAndMeshPrefix+".soln");
-    _solnIncrement->loadFromHDF5(savedSolutionAndMeshPrefix+"_increment.soln");
-    _solnPrevTime->loadFromHDF5(savedSolutionAndMeshPrefix+"_prevtime.soln");
-  }
-  
-  _fluxEquations[vc->ID()] = {vc,_massFlux,tc,rhoVar,_fc};
+  _fluxEquations[vc->ID()] = {vc,_massFlux,tc,rho,_fc};
   for (int d=0; d<trueSpaceDim; d++)
   {
     auto momentumColumn = (_spaceDim > 1) ? column(_spaceDim,_momentumFlux,d+1) : _momentumFlux->spatialComponent(d+1);
-    {
-      // A small tweak for 1D: cancel out the (B_x, B_x) component in the m_1 equation -- this is a constant.
-      // It's likely just fine without this tweak: the placement of fluxPrevious on the RHS should take care of it.
-      // Still, it's a slightly unusual thing to have a constant in the flux definition, and the fact that we are taking
-      // the divergence means that mathematically getting rid of the constant is equivalent.
-      if ((_spaceDim == 1) && (d==0))
-      {
-        momentumColumn = momentumColumn + B->x() * B->x();
-      }
-    }
-    _fluxEquations[vm[d]->ID()] = {vm[d],momentumColumn,tm[d],mVar[d],_fm[d]};
+//    {
+//      // A small tweak for 1D: cancel out the (B_x, B_x) component in the m_1 equation -- this is a constant.
+//      // It's likely just fine without this tweak: the placement of fluxPrevious on the RHS should take care of it.
+//      // Still, it's a slightly unusual thing to have a constant in the flux definition, and the fact that we are taking
+//      // the divergence means that mathematically getting rid of the constant is equivalent.
+//      if ((_spaceDim == 1) && (d==0))
+//      {
+//        momentumColumn = momentumColumn + B->x() * B->x();
+//      }
+//    }
+    _fluxEquations[vm[d]->ID()] = {vm[d],momentumColumn,tm[d],m->spatialComponent(d+1),_fm[d]};
     
 //    cout << "for variable " << mVar[d]->name() << ", flux is " << momentumColumn->displayString() << endl;
     if ((d > 0) || (_spaceDim != 1))
     {
       auto magneticColumn = (_spaceDim > 1) ? column(_spaceDim,_magneticFlux,d+1) : _magneticFlux->spatialComponent(d+1);
-      _fluxEquations[vB[d]->ID()] = {vB[d],magneticColumn,tB[d],BVar[d],_fB[d]};
+      _fluxEquations[vB[d]->ID()] = {vB[d],magneticColumn,tB[d],B->spatialComponent(d+1),_fB[d]};
     }
   }
-  _fluxEquations[ve->ID()] = {ve,_energyFlux,te,EVar,_fe};
+  _fluxEquations[ve->ID()] = {ve,_energyFlux,te,E,_fe};
   if (_spaceDim > 1)
   {
     // enforce Gauss' Law
-    VarPtr timeTerm = Teuchos::null;
+    FunctionPtr timeTerm = Teuchos::null;
     _fluxEquations[vGauss->ID()] = {vGauss,_gaussFlux,tGauss,timeTerm,Function::zero()};
-  }
-  
-  std::string backgroundFlowIdentifierExponent = "";
-  std::string previousTimeIdentifierExponent = "";
-  if (_timeStepping)
-  {
-    backgroundFlowIdentifierExponent = "k";
-    previousTimeIdentifierExponent = "k-1";
-  }
-  // to avoid needing a bunch of casts below, do a cast once here:
-  FunctionPtr dt = (FunctionPtr)_dt;
-  
-  bool weightFluxesByParity = true; // TODO: decide whether true or false is more appropriate (so far, we haven't used the DPG fluxes that are stored here...)
-  for (auto varEntry : trialVars)
-  {
-    VarPtr var = varEntry.second;
-    _backgroundFlowMap  [var->ID()] = Function::solution(var, _backgroundFlow, weightFluxesByParity, backgroundFlowIdentifierExponent);
-    _solnPreviousTimeMap[var->ID()] = Function::solution(var, _solnPrevTime,   weightFluxesByParity, previousTimeIdentifierExponent);
-    _solnIncrementMap   [var->ID()] = Function::solution(var, _solnIncrement,  weightFluxesByParity, "");
   }
   
   for (auto eqnEntry : _fluxEquations)
@@ -445,35 +579,49 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
 //    }
     if (timeTerm != Teuchos::null) // time term is null for Gauss' Law
     {
-      auto timeTerm_prev      = _backgroundFlowMap.find(timeTerm->ID())->second;
-      auto timeTerm_prev_time = _solnPreviousTimeMap.find(timeTerm->ID())->second;
+      auto timeTermBackground   = timeTerm->evaluateAt(_backgroundFlowMap);
+      auto timeTermPrevTime     = timeTerm->evaluateAt(_solnPreviousTimeMap);
+      auto timeTermIncrement    = timeTerm->jacobian(_backgroundFlowMap);
       if (_spaceTime)
       {
-        _bf ->addTerm(-timeTerm,      testVar->dt());
-        _rhs->addTerm(timeTerm_prev * testVar->dt());
+        _bf ->addTerm(-timeTermIncrement,  testVar->dt());
+        _rhs->addTerm(timeTermBackground * testVar->dt());
       }
       else if (_timeStepping)
       {
-        _bf ->addTerm(  timeTerm / dt, testVar);
-        _rhs->addTerm(- (timeTerm_prev - timeTerm_prev_time) / dt  * testVar);
+        _bf ->addTerm(  timeTermIncrement / dt, testVar);
+        if (!_usePicardIteration)
+        {
+          _rhs->addTerm(- (timeTermBackground - timeTermPrevTime) / dt  * testVar);
+        }
+        else
+        {
+          _rhs->addTerm( timeTermPrevTime / dt  * testVar);
+        }
       }
     }
-    auto fluxPrevious = flux->evaluateAt(_backgroundFlowMap);
-    auto fluxJacobian = flux->jacobian(_backgroundFlowMap);
+    auto fluxPrevious = flux->evaluateAt(_backgroundFlowMap); // unused for Picard
+    auto fluxJacobian = flux->jacobian(_backgroundFlowMap);   // should be just the flux (dropping Bx * Bx bit, which has zero Jacobian, in 1D)
     Camellia::EOperator gradOp = (_spaceDim > 1) ? OP_GRAD : OP_DX;
     
     _bf->      addTerm(-fluxJacobian, testVar->applyOp(gradOp)); // negative from integration by parts
     _steadyBF->addTerm(-fluxJacobian, testVar->applyOp(gradOp));
-    _rhs     ->addTerm(fluxPrevious * testVar->applyOp(gradOp));
+    if (!picardIteration) // Picard doesn't evaluate the previous on RHS
+    {
+      _rhs     ->addTerm(fluxPrevious * testVar->applyOp(gradOp));
+    }
     
     _bf->      addTerm(traceVar, testVar);
     _steadyBF->addTerm(traceVar, testVar);
     _rhs     ->addTerm(f_rhs * testVar);
   }
   
-  // DEBUGGING
-//  cout << "bf: " << _bf->displayString() << endl;
-//  cout << "rhs: " << _rhs->linearTerm()->displayString() << endl;
+  if (picardIteration)
+  {
+    // DEBUGGING
+    cout << "bf: " << _bf->displayString() << endl;
+    cout << "rhs: " << _rhs->linearTerm()->displayString() << endl;
+  }
   
   vector<VarPtr> missingTestVars = _bf->missingTestVars();
   vector<VarPtr> missingTrialVars = _bf->missingTrialVars();
@@ -513,10 +661,15 @@ IdealMHDFormulation::IdealMHDFormulation(MeshTopologyPtr meshTopo, Teuchos::Para
   _L2SolutionFunction = Function::zero();
   for (auto fieldVar : fieldVars)
   {
-    auto fieldIncrement = Function::solution(fieldVar, _solnIncrement);
+    auto fieldSolution   =  _backgroundFlowMap[fieldVar->ID()];
+    _L2SolutionFunction  = _L2SolutionFunction + fieldSolution * fieldSolution;
+    auto fieldIncrement  = _solnIncrementMap[fieldVar->ID()];
+    // for Picard, the real increment is actually the difference between _solnIncrement and _backgroundFlow
+    if (picardIteration)
+    {
+      fieldIncrement       = fieldIncrement - fieldSolution;
+    }
     _L2IncrementFunction = _L2IncrementFunction + fieldIncrement * fieldIncrement;
-    auto fieldSolution = Function::solution(fieldVar, _backgroundFlow);
-    _L2SolutionFunction = _L2SolutionFunction + fieldSolution * fieldSolution;
   }
   
   _solver = Solver::getDirectSolver();
@@ -638,7 +791,7 @@ double IdealMHDFormulation::Cp()
 
 VarPtr IdealMHDFormulation::E()
 {
-  return _vf->fieldVar(S_E);
+  return _vf->trialVar(S_E);
 }
 
 // ! For an exact solution (rho, u, E, B), returns the corresponding forcing in the momentum equation
@@ -794,14 +947,34 @@ std::map<int, FunctionPtr> IdealMHDFormulation::exactSolutionFieldMapFromConserv
   
   map<int, FunctionPtr> exactMap;
   const int trueSpaceDim = 3;
+  
   exactMap[this->rho()->ID()] = rho;
-  exactMap[this->E()->ID()] = E;
-  for (int d=1; d<=trueSpaceDim; d++)
+  
+  if (_usePrimitiveVariables)
   {
-    exactMap[this->m(d)->ID()] = m->spatialComponent(d);
-    if ((d > 1) || (_spaceDim > 1))
+    auto u = m / rho;
+    auto mDotu = dot(trueSpaceDim, m, u);
+    
+    exactMap[this->T()->ID()] = (1.0/_Cv) / rho  * (E  - 0.5 * mDotu);
+    for (int d=1; d<=trueSpaceDim; d++)
     {
-      exactMap[this->B(d)->ID()] = B->spatialComponent(d);
+      exactMap[this->u(d)->ID()] = u->spatialComponent(d);
+      if ((d > 1) || (_spaceDim > 1))
+      {
+        exactMap[this->B(d)->ID()] = B->spatialComponent(d);
+      }
+    }
+  }
+  else
+  {
+    exactMap[this->E()->ID()] = E;
+    for (int d=1; d<=trueSpaceDim; d++)
+    {
+      exactMap[this->m(d)->ID()] = m->spatialComponent(d);
+      if ((d > 1) || (_spaceDim > 1))
+      {
+        exactMap[this->B(d)->ID()] = B->spatialComponent(d);
+      }
     }
   }
   return exactMap;
@@ -846,7 +1019,7 @@ FunctionPtr IdealMHDFormulation::exactSolutionFlux(VarPtr testVar, FunctionPtr r
   if (_spaceTime)
   {
     FunctionPtr n_t = TFunction<double>::normalSpaceTime()->t();
-    auto timeTermExact = VarFunction<double>::abstractFunction(timeTerm)->evaluateAt(exactMap);
+    auto timeTermExact = timeTerm->evaluateAt(exactMap);
     exactFlux = exactFlux + timeTermExact * n_t;
   }
   if (includeParity)
@@ -910,8 +1083,7 @@ double IdealMHDFormulation::L2NormSolution()
 
 double IdealMHDFormulation::L2NormSolutionIncrement()
 {
-  double l2_squared = _L2IncrementFunction->integrate(_solnIncrement->mesh());
-  return sqrt(l2_squared);
+  return _l2NormOfIncrement;
 }
 
 FunctionPtr IdealMHDFormulation::getMomentumFluxComponent(FunctionPtr momentumFlux, int i)
@@ -925,7 +1097,7 @@ VarPtr IdealMHDFormulation::m(int i)
 {
   CHECK_VALID_COMPONENT(i);
   
-  return _vf->fieldVar(S_m[i-1]);
+  return _vf->trialVar(S_m[i-1]);
 }
  
 double IdealMHDFormulation::R()
@@ -999,6 +1171,11 @@ void IdealMHDFormulation::setInitialState(const std::map<int, FunctionPtr> &init
   }
 }
 
+void IdealMHDFormulation::setMaxLineSearchSteps(int maxLineSearchSteps)
+{
+  _maxLineSearchSteps = maxLineSearchSteps;
+}
+
 // ! set current time step used for transient solve
 void IdealMHDFormulation::setTimeStep(double dt)
 {
@@ -1010,208 +1187,357 @@ double IdealMHDFormulation::solveAndAccumulate()
 //  cout << "_solnIncrement->bf(): " << _solnIncrement->bf()->displayString() << endl;
   
   _solveCode = _solnIncrement->solve(_solver);
+  double l2_squared = _L2IncrementFunction->integrate(_solnIncrement->mesh());
+  _l2NormOfIncrement = sqrt(l2_squared);
+  
   int rank = _solnIncrement->mesh()->Comm()->MyPID();
   
-  set<int> nonlinearVariables = {{rho()->ID(), E()->ID()}};
-  set<int> linearVariables = {{tc()->ID(), te()->ID()}};
+  set<int> nonlinearVariables, linearVariables;
   
-  const int trueSpaceDim = 3;
-  for (int d1=0; d1<trueSpaceDim; d1++)
+  if (_usePicardIteration)
   {
-    nonlinearVariables.insert(m(d1+1)->ID());
-    linearVariables.insert(tm(d1+1)->ID());
-    if ((d1>0) || (_spaceDim > 1))
+    // then all variables are linear variables, in terms of accumulation
+    auto trialIDs = _vf->trialIDs();
+    linearVariables.insert(trialIDs.begin(),trialIDs.end());
+  }
+  else
+  {
+    if (_usePrimitiveVariables)
     {
-      nonlinearVariables.insert(B(d1+1)->ID());
-      linearVariables.insert(tB(d1+1)->ID());
+      nonlinearVariables = {{rho()->ID(), T()->ID()}};
+      linearVariables = {{tc()->ID(), te()->ID()}};
+      
+      const int trueSpaceDim = 3;
+      for (int d1=0; d1<trueSpaceDim; d1++)
+      {
+        nonlinearVariables.insert(u(d1+1)->ID());
+        linearVariables.insert(tm(d1+1)->ID());
+        if ((d1>0) || (_spaceDim > 1))
+        {
+          nonlinearVariables.insert(B(d1+1)->ID());
+          linearVariables.insert(tB(d1+1)->ID());
+        }
+      }
+    }
+    else
+    {
+      nonlinearVariables = {{rho()->ID(), E()->ID()}};
+      linearVariables = {{tc()->ID(), te()->ID()}};
+      
+      const int trueSpaceDim = 3;
+      for (int d1=0; d1<trueSpaceDim; d1++)
+      {
+        nonlinearVariables.insert(m(d1+1)->ID());
+        linearVariables.insert(tm(d1+1)->ID());
+        if ((d1>0) || (_spaceDim > 1))
+        {
+          nonlinearVariables.insert(B(d1+1)->ID());
+          linearVariables.insert(tB(d1+1)->ID());
+        }
+      }
     }
   }
   
-  bool useFancyNewPositivityCheck = false; // it's pretty nice-looking code, but I'm concerned there might be a bug...
-
   double alpha = 1.0;
-  if (useFancyNewPositivityCheck)
+  bool admissibleSolutionFound = false;
+  
+  if (_usePicardIteration)
   {
+    // for Picard, line search becomes a search for an alpha value such that
+    //     alpha * _solnIncrement + (1-alpha) * _backgroundFlow
+    // is admissible
+    
     ParameterFunctionPtr alphaParameter = ParameterFunction::parameterFunction(alpha);
-    alphaParameter->setName("alpha");
+    FunctionPtr alphaFxn = alphaParameter;
+    FunctionPtr oneMinusAlpha = 1.0 - alphaFxn;
     
-    map<int,FunctionPtr> updatedFieldMap;
-    for (auto entry : _solnPreviousTimeMap)
+    auto newSolnMap = _solnIncrementMap;
+    for (auto entry : _solnIncrementMap)
     {
-      auto uID = entry.first;
-      auto uPrev = entry.second;
-      FunctionPtr uIncr = _solnIncrementMap.find(uID)->second;
-      FunctionPtr uUpdated = uPrev + FunctionPtr(alphaParameter) * uIncr;
-      updatedFieldMap[uID] = uUpdated;
+      newSolnMap[entry.first] = entry.second * alphaFxn + _backgroundFlowMap[entry.first] * oneMinusAlpha;
     }
-
-    auto rhoUpdated = updatedFieldMap.find(this->rho()->ID())->second;
-    auto TUpdated   = _abstractTemperature->evaluateAt(updatedFieldMap);
     
-  //  cout << "TUpdated: " << TUpdated->displayString() << endl;
-  //  cout << "rhoUpdated: " << rhoUpdated->displayString() << endl;
+    FunctionPtr rhoNew = _abstractDensity->evaluateAt(newSolnMap);
+    FunctionPtr ENew   = _abstractEnergy->evaluateAt(newSolnMap);
+    FunctionPtr TNew   = _abstractTemperature->evaluateAt(newSolnMap);
     
-    // we may need to do something else to ensure positive changes in entropy;
-    // if we just add ds to the list of positive functions, we stall on the first Newton step...
-    vector<FunctionPtr> positiveFunctions = {rhoUpdated, TUpdated};
-  //  {
-  //    // DEBUGGING:
-  //    cout << "WARNING: temporarily (DEBUGGING) turning off positivity enforcement.\n";
-  //    positiveFunctions = {};
-  //  }
-    double minDistanceFromZero = 0.000000001; // "positive" values should not get *too* small...
+    vector<FunctionPtr> positiveFunctions = {rhoNew, TNew};
+    vector<string> positiveFunctionNames = {"rho", "T"};
+    double minDistanceFromZero = 0.0; // "positive" values should not get *too* small...
     int posEnrich = 5;
     
     // lambda for positivity checking
     auto isPositive = [&] () -> bool
     {
-      for (auto f : positiveFunctions)
+      for (int i=0; i<positiveFunctions.size(); i++)
       {
+        auto f = positiveFunctions[i];
+        auto fName = positiveFunctionNames[i];
         FunctionPtr f_smaller = f - minDistanceFromZero;
-        bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
-        if (!isPositive)
-        {
-  //        cout << "function " << f->displayString() << " is not positive for alpha = " << alphaParameter->getValue()->displayString() << endl;
-          return false;
-        }
-      }
-      return true;
-    };
-    
-    bool useLineSearch = true;
-    
-    if (useLineSearch)
-    {
-      double lineSearchFactor = .5;
-      int iter = 0; int maxIter = 20;
-      while (!isPositive() && iter < maxIter)
-      {
-        alpha = alpha*lineSearchFactor;
-        alphaParameter->setValue(alpha);
-        iter++;
-      }
-    }
-  }
-  else // not the fancy new, but the well-worn old, positivity check
-  {
-    ParameterFunctionPtr alphaParameter = ParameterFunction::parameterFunction(alpha);
-    
-    FunctionPtr rhoPrevious  = Function::solution(rho(),_backgroundFlow);
-    FunctionPtr rhoIncrement = Function::solution(rho(),_solnIncrement);
-    FunctionPtr rhoUpdated   = rhoPrevious + FunctionPtr(alphaParameter) * rhoIncrement;
-    
-    FunctionPtr EPrevious    = Function::solution(E(),_backgroundFlow);
-    FunctionPtr EIncrement   = Function::solution(E(),_solnIncrement);
-    FunctionPtr EUpdated     = EPrevious + FunctionPtr(alphaParameter) * EIncrement;
-    
-    vector<FunctionPtr> mPrevious(_spaceDim), mIncrement(_spaceDim), mUpdated(_spaceDim);
-    FunctionPtr mDotmPrevious = Function::zero();
-    FunctionPtr mDotmUpdated = Function::zero();
-    for (int d=0; d<_spaceDim; d++)
-    {
-      mPrevious[d] = Function::solution(m(d+1),_backgroundFlow);
-      mIncrement[d] = Function::solution(m(d+1),_solnIncrement);
-      mUpdated[d] = mPrevious[d] + FunctionPtr(alphaParameter) * mIncrement[d];
-      mDotmPrevious = mDotmPrevious + mPrevious[d] * mPrevious[d];
-      mDotmUpdated  = mDotmUpdated  + mUpdated [d] * mUpdated [d];
-    }
-    
-    double Cv = this->Cv();
-    FunctionPtr TUpdated  = (1.0/Cv) / rhoUpdated  * (EUpdated  - 0.5 * mDotmUpdated  / rhoUpdated);
-    FunctionPtr TPrevious = (1.0/Cv) / rhoPrevious * (EPrevious - 0.5 * mDotmPrevious / rhoPrevious);
-    
-    // pointwise change in Entropy should also be positive
-    // s2 - s1 = c_p ln (T2/T1) - R ln (p2/p1)
-    
-    FunctionPtr ds;
-    {
-      // pressure = rho * R * T
-      double R  = this->R();
-      double Cp = this->Cp();
-      FunctionPtr pPrevious = R * rhoPrevious * TPrevious;
-      FunctionPtr pUpdated  = R * rhoUpdated  * TUpdated;
-      
-      auto ln = [&] (FunctionPtr arg) -> FunctionPtr
-      {
-        return Teuchos::rcp(new Ln<double>(arg));
-      };
-      
-      ds = Cp * ln(TUpdated / TPrevious) - R * ln(pUpdated / pPrevious);
-    }
-    
-    // we may need to do something else to ensure positive changes in entropy;
-    // if we just add ds to the list of positive functions, we stall on the first Newton step...
-    vector<FunctionPtr> positiveFunctions = {rhoUpdated, TUpdated};
-    double minDistanceFromZero = 0.001; // "positive" values should not get *too* small...
-    int posEnrich = 5;
-    
-//    {
-//      cout << "DEBUGGING: turning off Temperature positivity check.\n";
-//      positiveFunctions = {rhoUpdated};
-//    }
-    
-    
-    
-    // lambda for positivity checking
-    auto isPositive = [&] () -> bool
-    {
-      for (auto f : positiveFunctions)
-      {
-        FunctionPtr f_smaller = f - minDistanceFromZero;
-        bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
-        if (!isPositive)
-        {
-          auto mesh = _solnIncrement->mesh();
-          double minValue = f->minimumValue(mesh, posEnrich);
-          if (rank == 0)
-          {
-            cout << "During positivity check, " << f->displayString() << " failed with minimum value of " << minValue << endl;
-          }
-          return false;
-        }
-      }
-      return true;
-    };
-    
-    {
-      // DEBUGGING: check that the positive functions are positive with a zero alpha weight
-      double savedAlpha = alpha;
-      alphaParameter->setValue(0.0);
-      for (auto f : positiveFunctions)
-      {
+        //        bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
         auto mesh = _solnIncrement->mesh();
         double minValue = f->minimumValue(mesh, posEnrich);
-        if (minValue < 0.0)
+        bool isPositive = (minValue - minDistanceFromZero) >= 0.0;
+        if (!isPositive)
         {
-          if (rank == 0)
-          {
-            cout << "ERROR: Prior to adding solution increment, 'positive' " << f->displayString() << " has minimum value of " << minValue << endl;
-          }
+          double minValue = f->minimumValue(mesh, posEnrich);
+//          if (rank == 0)
+//          {
+//            cout << "During positivity check, " << fName << " check failed with minimum value of " << minValue << endl;
+//          }
+          return false;
         }
       }
-      alphaParameter->setValue(savedAlpha);
-    }
-  
+      return true;
+    };
     
-    bool useLineSearch = true;
-    
-    if (useLineSearch)
+    double lineSearchFactor = .5;
+    int iter = 0;
+    while (!isPositive() && iter < _maxLineSearchSteps)
     {
-      double lineSearchFactor = .5;
-      int iter = 0; int maxIter = 20;
-      while (!isPositive() && iter < maxIter)
+      alpha = alpha*lineSearchFactor;
+      alphaParameter->setValue(alpha);
+      iter++;
+    }
+    
+    admissibleSolutionFound = isPositive();
+  }
+  else // standard Newton iteration (not Picard)
+  {
+    bool useFancyNewPositivityCheck = true; // it's pretty nice-looking code, but I'm concerned there might be a bug...
+    if (useFancyNewPositivityCheck)
+    {
+      ParameterFunctionPtr alphaParameter = ParameterFunction::parameterFunction(alpha);
+      alphaParameter->setName("alpha");
+      
+      map<int,FunctionPtr> updatedFieldMap;
+      for (auto entry : _solnPreviousTimeMap)
       {
-        alpha = alpha*lineSearchFactor;
-        alphaParameter->setValue(alpha);
-        iter++;
+        auto uID = entry.first;
+        auto uPrev = entry.second;
+        FunctionPtr uIncr = _solnIncrementMap.find(uID)->second;
+        FunctionPtr uUpdated = uPrev + FunctionPtr(alphaParameter) * uIncr;
+        updatedFieldMap[uID] = uUpdated;
+      }
+
+      auto rhoUpdated = updatedFieldMap.find(this->rho()->ID())->second;
+      auto TUpdated   = _abstractTemperature->evaluateAt(updatedFieldMap);
+      
+      auto PUpdated  = _abstractPressure->evaluateAt(updatedFieldMap);
+      
+      auto EUpdated  = _abstractEnergy->evaluateAt(updatedFieldMap);
+      auto BUpdated  = _abstractMagnetism->evaluateAt(updatedFieldMap);
+      
+    //  cout << "TUpdated: " << TUpdated->displayString() << endl;
+    //  cout << "rhoUpdated: " << rhoUpdated->displayString() << endl;
+      
+      // we may need to do something else to ensure positive changes in entropy;
+      // if we just add ds to the list of positive functions, we stall on the first Newton step...
+      vector<FunctionPtr> positiveFunctions = {rhoUpdated, TUpdated};
+      vector<string> positiveFunctionNames = {"rho", "T"};
+      double minDistanceFromZero = 0.0; // "positive" values should not get *too* small...
+      int posEnrich = 5;
+      
+      // lambda for positivity checking
+      auto isPositive = [&] () -> bool
+      {
+        for (int i=0; i<positiveFunctions.size(); i++)
+        {
+          auto f = positiveFunctions[i];
+          auto fName = positiveFunctionNames[i];
+          FunctionPtr f_smaller = f - minDistanceFromZero;
+          //        bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
+          auto mesh = _solnIncrement->mesh();
+          double minValue = f->minimumValue(mesh, posEnrich);
+          bool isPositive = (minValue - minDistanceFromZero) >= 0.0;
+          if (!isPositive)
+          {
+            double minValue = f->minimumValue(mesh, posEnrich);
+            double minPressureValue = PUpdated->minimumValue(mesh, posEnrich);
+            double maxPressureValue = PUpdated->maximumValue(mesh, posEnrich);
+            double minTValue = TUpdated->minimumValue(mesh, posEnrich);
+            double maxTValue = TUpdated->maximumValue(mesh, posEnrich);
+            double minRhoValue = rhoUpdated->minimumValue(mesh, posEnrich);
+            double maxRhoValue = rhoUpdated->maximumValue(mesh, posEnrich);
+            double minEValue   = EUpdated->minimumValue(mesh, posEnrich);
+            double maxEValue   = EUpdated->maximumValue(mesh, posEnrich);
+            double minBxValue  = BUpdated->spatialComponent(1)->minimumValue(mesh, posEnrich);
+            double maxBxValue  = BUpdated->spatialComponent(1)->maximumValue(mesh, posEnrich);
+            double minByValue  = BUpdated->spatialComponent(2)->minimumValue(mesh, posEnrich);
+            double maxByValue  = BUpdated->spatialComponent(2)->maximumValue(mesh, posEnrich);
+            double minBzValue  = BUpdated->spatialComponent(3)->minimumValue(mesh, posEnrich);
+            double maxBzValue  = BUpdated->spatialComponent(3)->maximumValue(mesh, posEnrich);
+            if (rank == 0)
+            {
+              cout << "During positivity check, " << fName << " check failed with minimum value of " << minValue << endl;
+              cout << "Pressure value range: (" << minPressureValue << ", " << maxPressureValue << ")\n";
+              cout << "T value range:        (" << minTValue << ", " << maxTValue << ")\n";
+              cout << "rho value range:      (" << minRhoValue << ", " << maxRhoValue << ")\n";
+              cout << "E  value range:       (" << minEValue   << ", " << maxEValue   << ")\n";
+              cout << "Bx value range:       (" << minBxValue  << ", " << maxBxValue  << ")\n";
+              cout << "By value range:       (" << minByValue  << ", " << maxByValue  << ")\n";
+              cout << "Bz value range:       (" << minBzValue  << ", " << maxBzValue  << ")\n";
+            }
+            return false;
+          }
+        }
+        return true;
+      };
+      
+      bool useLineSearch = true;
+      
+      if (useLineSearch)
+      {
+        double lineSearchFactor = .5;
+        int iter = 0;
+        while (!isPositive() && iter < _maxLineSearchSteps)
+        {
+          alpha = alpha*lineSearchFactor;
+          alphaParameter->setValue(alpha);
+          iter++;
+        }
+      }
+      if (isPositive())
+      {
+        admissibleSolutionFound = true;
+      }
+    }
+    else // not the fancy new, but the well-worn old, positivity check
+    {
+      ParameterFunctionPtr alphaParameter = ParameterFunction::parameterFunction(alpha);
+      
+      FunctionPtr rhoPrevious  = Function::solution(rho(),_backgroundFlow);
+      FunctionPtr rhoIncrement = Function::solution(rho(),_solnIncrement);
+      FunctionPtr rhoUpdated   = rhoPrevious + FunctionPtr(alphaParameter) * rhoIncrement;
+      
+      FunctionPtr EPrevious    = Function::solution(E(),_backgroundFlow);
+      FunctionPtr EIncrement   = Function::solution(E(),_solnIncrement);
+      FunctionPtr EUpdated     = EPrevious + FunctionPtr(alphaParameter) * EIncrement;
+      
+      vector<FunctionPtr> mPrevious(_spaceDim), mIncrement(_spaceDim), mUpdated(_spaceDim);
+      FunctionPtr mDotmPrevious = Function::zero();
+      FunctionPtr mDotmUpdated = Function::zero();
+      for (int d=0; d<_spaceDim; d++)
+      {
+        mPrevious[d] = Function::solution(m(d+1),_backgroundFlow);
+        mIncrement[d] = Function::solution(m(d+1),_solnIncrement);
+        mUpdated[d] = mPrevious[d] + FunctionPtr(alphaParameter) * mIncrement[d];
+        mDotmPrevious = mDotmPrevious + mPrevious[d] * mPrevious[d];
+        mDotmUpdated  = mDotmUpdated  + mUpdated [d] * mUpdated [d];
+      }
+      
+      double Cv = this->Cv();
+      FunctionPtr TUpdated  = (1.0/Cv) / rhoUpdated  * (EUpdated  - 0.5 * mDotmUpdated  / rhoUpdated);
+      FunctionPtr TPrevious = (1.0/Cv) / rhoPrevious * (EPrevious - 0.5 * mDotmPrevious / rhoPrevious);
+      
+      // pointwise change in Entropy should also be positive
+      // s2 - s1 = c_p ln (T2/T1) - R ln (p2/p1)
+      
+      FunctionPtr ds;
+      {
+        // pressure = rho * R * T
+        double R  = this->R();
+        double Cp = this->Cp();
+        FunctionPtr pPrevious = R * rhoPrevious * TPrevious;
+        FunctionPtr pUpdated  = R * rhoUpdated  * TUpdated;
+        
+        auto ln = [&] (FunctionPtr arg) -> FunctionPtr
+        {
+          return Teuchos::rcp(new Ln<double>(arg));
+        };
+        
+        ds = Cp * ln(TUpdated / TPrevious) - R * ln(pUpdated / pPrevious);
+      }
+      
+      // we may need to do something else to ensure positive changes in entropy;
+      // if we just add ds to the list of positive functions, we stall on the first Newton step...
+      vector<FunctionPtr> positiveFunctions = {rhoUpdated, TUpdated};
+      vector<string> positiveFunctionNames = {"rho", "T"};
+      double minDistanceFromZero = 0.0; // "positive" values should not get *too* small...
+      int posEnrich = 5;
+      
+      // lambda for positivity checking
+      auto isPositive = [&] () -> bool
+      {
+        for (int i=0; i<positiveFunctions.size(); i++)
+        {
+          auto f = positiveFunctions[i];
+          auto fName = positiveFunctionNames[i];
+          FunctionPtr f_smaller = f - minDistanceFromZero;
+          //        bool isPositive = f_smaller->isPositive(_solnIncrement->mesh(),posEnrich); // does MPI communication
+          auto mesh = _solnIncrement->mesh();
+          double minValue = f->minimumValue(mesh, posEnrich);
+          bool isPositive = (minValue - minDistanceFromZero) >= 0.0;
+          if (!isPositive)
+          {
+            double minValue = f->minimumValue(mesh, posEnrich);
+//            if (rank == 0)
+//            {
+//              cout << "During positivity check, " << fName << " check failed with minimum value of " << minValue << endl;
+//            }
+            return false;
+          }
+        }
+        return true;
+      };
+      
+  //    {
+  //      // DEBUGGING: check that the positive functions are positive with a zero alpha weight
+  //      double savedAlpha = alpha;
+  //      alphaParameter->setValue(0.0);
+  //      for (auto f : positiveFunctions)
+  //      {
+  //        auto mesh = _solnIncrement->mesh();
+  //        double minValue = f->minimumValue(mesh, posEnrich);
+  //        if (minValue < 0.0)
+  //        {
+  //          if (rank == 0)
+  //          {
+  //            cout << "ERROR: Prior to adding solution increment, 'positive' " << f->displayString() << " has minimum value of " << minValue << endl;
+  //          }
+  //        }
+  //      }
+  //      alphaParameter->setValue(savedAlpha);
+  //    }
+    
+      bool useLineSearch = true;
+      
+      if (useLineSearch)
+      {
+        double lineSearchFactor = .5;
+        int iter = 0;
+        while (!isPositive() && iter < _maxLineSearchSteps)
+        {
+          alpha = alpha*lineSearchFactor;
+          alphaParameter->setValue(alpha);
+          iter++;
+        }
+      }
+      if (isPositive())
+      {
+        admissibleSolutionFound = true;
       }
     }
   }
   
-  _backgroundFlow->addReplaceSolution(_solnIncrement, alpha, nonlinearVariables, linearVariables);
-  _nonlinearIterationCount++;
-  
-  return alpha;
+  if (admissibleSolutionFound)
+  {
+    if (!_usePicardIteration)
+    {
+      _backgroundFlow->addReplaceSolution(_solnIncrement, alpha, nonlinearVariables, linearVariables);
+    }
+    else
+    {
+      // this will do a convex sum of background flow and soln increment in linearVariables.  nonlinearVariables is empty.
+      _backgroundFlow->addReplaceSolution(_solnIncrement, alpha, 1.0 - alpha, linearVariables, nonlinearVariables);
+    }
+    _nonlinearIterationCount++;
+    return alpha;
+  }
+  else
+  {
+    return -1;
+  }
 }
 
 // ! Returns the solution (at current time)
@@ -1251,6 +1577,16 @@ const std::map<int, FunctionPtr> & IdealMHDFormulation::solutionPreviousTimeStep
 BFPtr IdealMHDFormulation::steadyBF()
 {
   return _steadyBF;
+}
+
+VarPtr IdealMHDFormulation::u(int i)
+{
+  return _vf->trialVar(S_u[i-1]);
+}
+
+VarPtr IdealMHDFormulation::T()
+{
+  return _vf->trialVar(S_T);
 }
 
 VarPtr IdealMHDFormulation::tB(int i)

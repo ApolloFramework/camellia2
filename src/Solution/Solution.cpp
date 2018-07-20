@@ -330,15 +330,92 @@ void TSolution<Scalar>::addSolution(Teuchos::RCP< TSolution<Scalar> > otherSoln,
 template <typename Scalar>
 void TSolution<Scalar>::addReplaceSolution(Teuchos::RCP< TSolution<Scalar> > otherSoln, double weight, set<int> varsToAdd, set<int> varsToReplace, bool allowEmptyCells)
 {
+  double myWeight = 1.0; // how to weight current solution when doing the adding...
+  this->addReplaceSolution(otherSoln, weight, myWeight, varsToAdd, varsToReplace, allowEmptyCells);
+//  // In many situations, we can't legitimately add two condensed solution _lhsVectors together and back out the other (field) dofs.
+//  // E.g., consider a nonlinear problem in which the bilinear form (and therefore stiffness matrix) depends on background data.
+//  // Even a linear problem with two solutions with different RHS data would require us to accumulate the local load vectors.
+//  // For this reason, we don't attempt to add the two _lhsVectors together.  Instead, we add their respective cell-local
+//  // (expanded, basically) coefficients together, and then glean the condensed representation from that using the private
+//  // setGlobalSolutionFromCellLocalCoefficients() method.
+//
+//  const set<GlobalIndexType> & myCellIDs = _mesh->cellIDsInPartition();
+//
+//  int myLHSCount    = this->numSolutions();
+//  int otherLHSCount = otherSoln->numSolutions();
+//
+//  TEUCHOS_TEST_FOR_EXCEPTION(myLHSCount != otherLHSCount, std::invalid_argument, "Added solutions must have the same number of components.  Right now, this means that they must agree in whether they have a goal-oriented RHS or not.")
+//
+//  for (int solutionOrdinal=0; solutionOrdinal < myLHSCount; solutionOrdinal++)
+//  {
+//    for (GlobalIndexType cellID : myCellIDs)
+//    {
+//      Intrepid::FieldContainer<Scalar> myCoefficients;
+//      if (_solutionForCellID[solutionOrdinal].find(cellID) != _solutionForCellID[solutionOrdinal].end())
+//      {
+//        myCoefficients = _solutionForCellID[solutionOrdinal][cellID];
+//      }
+//      else
+//      {
+//        myCoefficients.resize(_mesh->getElementType(cellID)->trialOrderPtr->totalDofs());
+//      }
+//
+//      bool warnAboutOffRankImports = true;
+//      Intrepid::FieldContainer<Scalar> otherCoefficients = otherSoln->allCoefficientsForCellID(cellID, warnAboutOffRankImports, solutionOrdinal);
+//
+//      DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
+//      for (set<int>::iterator varIDIt = varsToAdd.begin(); varIDIt != varsToAdd.end(); varIDIt++)
+//      {
+//        int varID = *varIDIt;
+//        const vector<int>* sidesForVar = &trialOrder->getSidesForVarID(varID);
+//        for (vector<int>::const_iterator sideIt = sidesForVar->begin(); sideIt != sidesForVar->end(); sideIt++)
+//        {
+//          int sideOrdinal = *sideIt;
+//          vector<int> dofIndices = trialOrder->getDofIndices(varID, sideOrdinal);
+//          for (vector<int>::iterator dofIndexIt = dofIndices.begin(); dofIndexIt != dofIndices.end(); dofIndexIt++)
+//          {
+//            int dofIndex = *dofIndexIt;
+//            myCoefficients[dofIndex] += weight * otherCoefficients[dofIndex];
+//          }
+//        }
+//      }
+//      for (set<int>::iterator varIDIt = varsToReplace.begin(); varIDIt != varsToReplace.end(); varIDIt++)
+//      {
+//        int varID = *varIDIt;
+//        const vector<int>* sidesForVar = &trialOrder->getSidesForVarID(varID);
+//        for (vector<int>::const_iterator sideIt = sidesForVar->begin(); sideIt != sidesForVar->end(); sideIt++)
+//        {
+//          int sideOrdinal = *sideIt;
+//          vector<int> dofIndices = trialOrder->getDofIndices(varID, sideOrdinal);
+//          for (vector<int>::iterator dofIndexIt = dofIndices.begin(); dofIndexIt != dofIndices.end(); dofIndexIt++)
+//          {
+//            int dofIndex = *dofIndexIt;
+//            myCoefficients[dofIndex] = otherCoefficients[dofIndex];
+//          }
+//        }
+//      }
+//
+//      _solutionForCellID[solutionOrdinal][cellID] = myCoefficients;
+//    }
+//  }
+//
+//  setGlobalSolutionFromCellLocalCoefficients();
+//
+//  clearComputedResiduals();
+}
+
+template <typename Scalar>
+void TSolution<Scalar>::addReplaceSolution(Teuchos::RCP< TSolution<Scalar> > otherSoln, double addedVarWeight, double myWeight, set<int> varsToAdd, set<int> varsToReplace, bool allowEmptyCells)
+{
   // In many situations, we can't legitimately add two condensed solution _lhsVectors together and back out the other (field) dofs.
   // E.g., consider a nonlinear problem in which the bilinear form (and therefore stiffness matrix) depends on background data.
   // Even a linear problem with two solutions with different RHS data would require us to accumulate the local load vectors.
   // For this reason, we don't attempt to add the two _lhsVectors together.  Instead, we add their respective cell-local
   // (expanded, basically) coefficients together, and then glean the condensed representation from that using the private
   // setGlobalSolutionFromCellLocalCoefficients() method.
-
+  
   const set<GlobalIndexType> & myCellIDs = _mesh->cellIDsInPartition();
-
+  
   int myLHSCount    = this->numSolutions();
   int otherLHSCount = otherSoln->numSolutions();
   
@@ -357,23 +434,20 @@ void TSolution<Scalar>::addReplaceSolution(Teuchos::RCP< TSolution<Scalar> > oth
       {
         myCoefficients.resize(_mesh->getElementType(cellID)->trialOrderPtr->totalDofs());
       }
-
+      
       bool warnAboutOffRankImports = true;
       Intrepid::FieldContainer<Scalar> otherCoefficients = otherSoln->allCoefficientsForCellID(cellID, warnAboutOffRankImports, solutionOrdinal);
-
+      
       DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
-      for (set<int>::iterator varIDIt = varsToAdd.begin(); varIDIt != varsToAdd.end(); varIDIt++)
+      for ( int varID : varsToAdd )
       {
-        int varID = *varIDIt;
-        const vector<int>* sidesForVar = &trialOrder->getSidesForVarID(varID);
-        for (vector<int>::const_iterator sideIt = sidesForVar->begin(); sideIt != sidesForVar->end(); sideIt++)
+        const vector<int> & sidesForVar = trialOrder->getSidesForVarID(varID);
+        for (int sideOrdinal : sidesForVar)
         {
-          int sideOrdinal = *sideIt;
           vector<int> dofIndices = trialOrder->getDofIndices(varID, sideOrdinal);
-          for (vector<int>::iterator dofIndexIt = dofIndices.begin(); dofIndexIt != dofIndices.end(); dofIndexIt++)
+          for (int dofIndex : dofIndices)
           {
-            int dofIndex = *dofIndexIt;
-            myCoefficients[dofIndex] += weight * otherCoefficients[dofIndex];
+            myCoefficients[dofIndex] = myWeight * myCoefficients[dofIndex] + addedVarWeight * otherCoefficients[dofIndex];
           }
         }
       }
@@ -392,15 +466,16 @@ void TSolution<Scalar>::addReplaceSolution(Teuchos::RCP< TSolution<Scalar> > oth
           }
         }
       }
-
+      
       _solutionForCellID[solutionOrdinal][cellID] = myCoefficients;
     }
   }
-
+  
   setGlobalSolutionFromCellLocalCoefficients();
-
+  
   clearComputedResiduals();
 }
+
 
 template <typename Scalar>
 bool TSolution<Scalar>::cellHasCoefficientsAssigned(GlobalIndexType cellID, int solutionOrdinal)

@@ -20,6 +20,12 @@
 
 using namespace Camellia;
 
+#define CHECK_FPE
+
+#ifdef CHECK_FPE
+#include <xmmintrin.h>
+#endif
+
 void addConservationConstraint(Teuchos::RCP<IdealMHDFormulation> form)
 {
   int rank = MPIWrapper::CommWorld()->MyPID();
@@ -35,9 +41,9 @@ void addConservationConstraint(Teuchos::RCP<IdealMHDFormulation> form)
   // vc constraint:
   VarPtr vc = form->vc();
   map<int, FunctionPtr> vcEqualsOne = {{vc->ID(), Function::constant(1.0)}};
-  LinearTermPtr vcTrialFunctional = bf->trialFunctional(vcEqualsOne) * dt;
-  FunctionPtr   vcRHSFunction     = rhs->linearTerm()->evaluate(vcEqualsOne) * dt; // multiply both by dt in effort to improve conditioning...
-  constraints->addConstraint(vcTrialFunctional == vcRHSFunction);
+  LinearTermPtr vcTrialFunctional = bf->trialFunctional(vcEqualsOne);
+  FunctionPtr   vcRHSFunction     = rhs->linearTerm()->evaluate(vcEqualsOne);
+  constraints->addConstraint( dt * vcTrialFunctional == dt * vcRHSFunction);
   if (rank == 0) cout << "Added element constraint " << vcTrialFunctional->displayString() << " == " << vcRHSFunction->displayString() << endl;
 
   const int spaceDim = 1;
@@ -47,20 +53,31 @@ void addConservationConstraint(Teuchos::RCP<IdealMHDFormulation> form)
     // test with 1
     VarPtr vm = form->vm(d+1);
     map<int, FunctionPtr> vmEqualsOne = {{vm->ID(), Function::constant(1.0)}};
-    LinearTermPtr trialFunctional = bf->trialFunctional(vmEqualsOne) * dt; // multiply both by dt in effort to improve conditioning...
-    FunctionPtr rhsFxn = rhs->linearTerm()->evaluate(vmEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
-    constraints->addConstraint(trialFunctional == rhsFxn);
+    LinearTermPtr trialFunctional = bf->trialFunctional(vmEqualsOne);
+    FunctionPtr rhsFxn = rhs->linearTerm()->evaluate(vmEqualsOne);
+    constraints->addConstraint( dt * trialFunctional == dt * rhsFxn);
 
     if (rank == 0) cout << "Added element constraint " << trialFunctional->displayString() << " == " << rhsFxn->displayString() << endl;
   }
   // ve constraint:
   VarPtr ve = form->ve();
   map<int, FunctionPtr> veEqualsOne = {{ve->ID(), Function::constant(1.0)}};
-  LinearTermPtr veTrialFunctional = bf->trialFunctional(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
-  FunctionPtr   veRHSFunction     = rhs->linearTerm()->evaluate(veEqualsOne) * dt;  // multiply both by dt in effort to improve conditioning...
-  constraints->addConstraint(veTrialFunctional == veRHSFunction);
+  LinearTermPtr veTrialFunctional = bf->trialFunctional(veEqualsOne);
+  FunctionPtr   veRHSFunction     = rhs->linearTerm()->evaluate(veEqualsOne);
+  constraints->addConstraint( dt * veTrialFunctional == dt * veRHSFunction);
   if (rank == 0) cout << "Added element constraint " << veTrialFunctional->displayString() << " == " << veRHSFunction->displayString() << endl;
 
+  // vB constraints (2 of them; we don't solve for Bx):
+  for (int d=1; d<3; d++)
+  {
+    VarPtr vB = form->vB(d+1);
+    map<int, FunctionPtr> vBEqualsOne = {{vB->ID(), Function::constant(1.0)}};
+    LinearTermPtr vBTrialFunctional = bf->trialFunctional(vBEqualsOne);
+    FunctionPtr   vBRHSFunction     = rhs->linearTerm()->evaluate(vBEqualsOne);
+    constraints->addConstraint(dt * vBTrialFunctional == dt * vBRHSFunction);
+    if (rank == 0) cout << "Added element constraint " << vBTrialFunctional->displayString() << " == " << vBRHSFunction->displayString() << endl;
+  }
+  
   // although enforcement only happens in solnIncrement, the constraints change numbering of dofs, so we need to set constraints in each Solution object
   solnIncrement->setLagrangeConstraints(constraints);
   soln->setLagrangeConstraints(constraints);
@@ -238,7 +255,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   }
   int numTimeSteps = spaceTime ? 1 : finalTime / dt; // run simulation to t = 0.08
   
-  const double By_FACTOR = .01; // Should be 1.0.  Trying something else to see if we can solve an easier problem.
+  const double By_FACTOR = 1.0; //.01; // Should be 1.0.  Trying something else to see if we can solve an easier problem.
   
   if (rank == 0)
   {
@@ -295,11 +312,8 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     By_b = 0.0;
   }
   
-  double T_a   = p_a / (rho_a * (gamma - 1.) * c_v);
-  double T_b   = p_b / (rho_b * (gamma - 1.) * c_v);
-  
-  double E_a   = c_v * rho_a * T_a; // + 0.5 * u dot u [ == 0]
-  double E_b   = c_v * rho_b * T_b; // + 0.5 * u dot u [ == 0]
+  double E_a   = p_a / (gamma - 1.) + 0.5 * (Bx_a * Bx_a + By_a * By_a + Bz_a * Bz_a); // + 0.5 * u dot u [ == 0]
+  double E_b   = p_b / (gamma - 1.) + 0.5 * (Bx_b * Bx_b + By_b * By_b + Bz_b * Bz_b); // + 0.5 * u dot u [ == 0]
   
   double R  = form->R();
   double Cv = form->Cv();
@@ -372,6 +386,14 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   
   auto & prevSolnMap = form->solutionPreviousTimeStepFieldMap();
   auto & solnMap     = form->solutionFieldMap();
+  auto & solnIncrMap = form->solutionIncrementFieldMap();
+  std::map<int, FunctionPtr> updatedSolnMap;
+  for (auto entry : solnMap)
+  {
+    auto ID = entry.first;
+    updatedSolnMap[ID] = solnMap.find(ID)->second + solnIncrMap.find(ID)->second;
+  }
+  
   auto pAbstract = form->abstractPressure();
   auto TAbstract = form->abstractTemperature();
   auto uAbstract = form->abstractVelocity()->x();
@@ -379,6 +401,7 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   auto wAbstract = form->abstractVelocity()->z();
   auto mAbstract = form->abstractMomentum();
   auto EAbstract = form->abstractEnergy();
+  auto BAbstract = form->abstractMagnetism();
   
   // define the pressure so we can plot in our solution export
   FunctionPtr p_prev = pAbstract->evaluateAt(prevSolnMap);
@@ -486,78 +509,158 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   };
   
   // elementwise local momentum conservation:
+  auto dt_dynamic = form->getTimeStep();
   FunctionPtr rho_soln = Function::solution(form->rho(), form->solution());
   FunctionPtr rho_prev = Function::solution(form->rho(), form->solutionPreviousTimeStep());
-  FunctionPtr rhoTimeStep = (rho_soln - rho_prev) / dt;
+  FunctionPtr rho_incr = Function::solution(form->rho(), form->solutionIncrement());
+  FunctionPtr rhoTimeStep = (rho_soln - rho_prev) / dt_dynamic;
+  FunctionPtr rhoTimeStepIncrement = rho_incr / dt_dynamic;
   FunctionPtr rhoFlux = Function::solution(form->tc(), form->solution(), true); // true: include sideParity weights
+  FunctionPtr rhoFluxIncrement = Function::solution(form->tc(), form->solutionIncrement(), true); // true: include sideParity weights
   
   FunctionPtr momentum_soln = mAbstract->x()->evaluateAt(solnMap);
   FunctionPtr momentum_prev = mAbstract->x()->evaluateAt(prevSolnMap);
-  FunctionPtr momentumTimeStep = (momentum_soln - momentum_prev) / dt;
+  FunctionPtr momentum_incr = mAbstract->x()->evaluateAt(solnIncrMap);
+  FunctionPtr momentumTimeStep = (momentum_soln - momentum_prev) / dt_dynamic;
+  FunctionPtr momentumTimeStepIncrement = momentum_incr / dt_dynamic;
   FunctionPtr momentumFlux = Function::solution(form->tm(1), form->solution(), true); // true: include sideParity weights
+  FunctionPtr momentumFluxIncrement = Function::solution(form->tm(1), form->solutionIncrement(), true); // true: include sideParity weights
   
   FunctionPtr energy_soln = EAbstract->evaluateAt(solnMap);
   FunctionPtr energy_prev = EAbstract->evaluateAt(prevSolnMap);
-  FunctionPtr energyTimeStep = (energy_soln - energy_prev) / dt;
+  FunctionPtr energy_incr = EAbstract->evaluateAt(solnIncrMap);
+  FunctionPtr energyTimeStep = (energy_soln - energy_prev) / dt_dynamic;
+  FunctionPtr energyTimeStepIncrement = energy_incr / dt_dynamic;
   FunctionPtr energyFlux = Function::solution(form->te(), form->solution(), true); // include sideParity weights
-
+  FunctionPtr energyFluxIncrement = Function::solution(form->te(), form->solutionIncrement(), true); // true: include sideParity weights
+  
   vector<FunctionPtr> conservationFluxes = {rhoFlux,     momentumFlux,     energyFlux};
   vector<FunctionPtr> timeDifferences    = {rhoTimeStep, momentumTimeStep, energyTimeStep};
   
+  vector<FunctionPtr> conservationFluxesIncrement = {rhoFluxIncrement,  momentumFluxIncrement,     energyFluxIncrement};
+  vector<FunctionPtr> timeDifferencesIncrement = {rhoTimeStepIncrement, momentumTimeStepIncrement, energyTimeStepIncrement};
+  
+  for (int d=1; d<3; d++)
+  {
+    FunctionPtr magnetism_soln = BAbstract->evaluateAt(solnMap)->spatialComponent(d+1);
+    FunctionPtr magnetism_prev = BAbstract->evaluateAt(prevSolnMap)->spatialComponent(d+1);
+    FunctionPtr magnetism_incr = BAbstract->evaluateAt(solnIncrMap)->spatialComponent(d+1);
+    FunctionPtr magnetismTimeStep = (magnetism_soln - magnetism_prev) / dt_dynamic;
+    FunctionPtr magnetismTimeStepIncrement = magnetism_incr / dt_dynamic;
+    FunctionPtr magneticFlux = Function::solution(form->tB(d+1), form->solution(), true);
+    FunctionPtr magneticFluxIncrement = Function::solution(form->tB(d+1), form->solutionIncrement(), true);
+    conservationFluxes.push_back(magneticFlux);
+    timeDifferences.push_back(magnetismTimeStep);
+    
+    conservationFluxesIncrement.push_back(magneticFluxIncrement);
+    timeDifferencesIncrement.push_back(magnetismTimeStepIncrement);
+  }
+  
   int numConserved = conservationFluxes.size();
+  
+  int solnOrdinal = 0;
+  
+  // this returns one number, across all the conservation equations,
+  // which reflects what we *would* have if we accumulated: soln += solnIncrement
+  auto maxLocalConservationFailureInPutativeSolution = [&]() -> double
+  {
+    double maxFailure = 0.0;
+    auto & myCellIDs = mesh->cellIDsInPartition();
+    for (int conservedOrdinal=0; conservedOrdinal<numConserved; conservedOrdinal++)
+    {
+//      cout << "conserved ordinal = " << conservedOrdinal << endl;
+      auto timeDifference = timeDifferences[conservedOrdinal];
+      auto timeDifferenceIncrement = timeDifferencesIncrement[conservedOrdinal];
+//      cout << "timeDifference function: " << timeDifference->displayString() << endl;
+//      cout << "timeDifferenceIncrement function: " << timeDifferenceIncrement->displayString() << endl;
+      for (auto cellID : myCellIDs)
+      {
+        double timeDifferenceIntegral = timeDifference->integrate(cellID, mesh) + timeDifferenceIncrement->integrate(cellID, mesh);
+        double fluxIntegral = conservationFluxesIncrement[conservedOrdinal]->integrate(cellID, mesh);
+        double cellIntegral = timeDifferenceIntegral + fluxIntegral;
+        if (abs(cellIntegral) > maxFailure)
+        {
+          maxFailure = abs(cellIntegral);
+        }
+      }
+    }
+    double globalMaxFailure;
+    mesh->Comm()->MaxAll(&maxFailure, &globalMaxFailure, 1);
+    return globalMaxFailure;
+  };
+  
+  int positivityCheckEnrichment = 5; // this is what IdealMHDFormulation uses internally, too…
+  auto minPressurePutativeSolution = [&]() -> double
+  {
+    auto pressureFxn = pAbstract->evaluateAt(updatedSolnMap);
+    double minPressure = pressureFxn->minimumValue(mesh, positivityCheckEnrichment);
+    return minPressure;
+  };
+  
+  auto minTemperaturePutativeSolution = [&]() -> double
+  {
+    auto tempFxn = TAbstract->evaluateAt(updatedSolnMap);
+    double minTemp = tempFxn->minimumValue(mesh, positivityCheckEnrichment);
+    return minTemp;
+  };
   
   auto printLocalConservationReport = [&]() -> void
   {
     auto & myCellIDs = mesh->cellIDsInPartition();
     int cellOrdinal = 0;
     vector<double> maxConservationFailures(numConserved);
+    vector<GlobalIndexType> maxConservationFailureCellIDs(numConserved);
+    auto solnVector = solnIncrement->getLHSVector();
     for (int conservedOrdinal=0; conservedOrdinal<numConserved; conservedOrdinal++)
     {
-      double maxConservationFailure = 0.0;
+      double maxConservationFailure = -1.0;
+      GlobalIndexType maxConservationFailureCellID = GlobalIndexType(-1);
       for (auto cellID : myCellIDs)
       {
 //        cout << "timeDifferences function: " << timeDifferences[conservedOrdinal]->displayString() << endl;
         double timeDifferenceIntegral = timeDifferences[conservedOrdinal]->integrate(cellID, mesh);
         double fluxIntegral = conservationFluxes[conservedOrdinal]->integrate(cellID, mesh);
         double cellIntegral = timeDifferenceIntegral + fluxIntegral;
-        maxConservationFailure = std::max(abs(cellIntegral), maxConservationFailure);
+        if (abs(cellIntegral) > maxConservationFailure)
+        {
+          maxConservationFailure = abs(cellIntegral);
+          maxConservationFailureCellID = cellID;
+        }
+        if (enforceConservationUsingLagrangeMultipliers)
+        {
+          auto lagrangeGID = solnIncrement->elementLagrangeIndex(cellID, conservedOrdinal);
+          auto lagrangeLID = solnVector->Map().LID(lagrangeGID);
+          double lagrangeSoln = (*solnVector)[solnOrdinal][lagrangeLID];
+          cout << "Lagrange soln for cell " << cellID << ", constraint " << conservedOrdinal << ": " << lagrangeSoln << endl;
+        }
         cellOrdinal++;
       }
       maxConservationFailures[conservedOrdinal] = maxConservationFailure;
+      maxConservationFailureCellIDs[conservedOrdinal] = maxConservationFailureCellID;
     }
     vector<double> globalMaxConservationFailures(numConserved);
     mesh->Comm()->MaxAll(&maxConservationFailures[0], &globalMaxConservationFailures[0], numConserved);
     if (rank == 0) {
-      cout << "Max cellwise (rho,m,E) conservation failures: ";
+      cout << "Max cellwise (rho,m,E,B) conservation failures: ";
       for (double failure : globalMaxConservationFailures)
       {
         cout << failure << "\t";
       }
       cout << endl;
+      // for now, we only worry about getting the cellIDs to correspond in the single-rank case...
+      cout << "Max failures on rank 0 occurred at cellIDs: ";
+      for (GlobalIndexType cellID : maxConservationFailureCellIDs)
+      {
+        cout << cellID << "\t";
+      }
+      cout << endl;
     }
+    
 //    for (int cellOrdinal=0; cellOrdinal<myCellCount; cellOrdinal++)
 //    {
 //      cout << "cell ordinal " << cellOrdinal << ", conservation failure: " << cellIntegrals[cellOrdinal] << endl;
 //    }
   };
-  
-//  {
-//    // DEBUGGING
-//    BFPtr bf = form->bf();
-//    auto debugBF = Teuchos::rcp( new BF(bf->varFactory()) );
-//    FunctionPtr dt = form->getTimeStep();
-//    VarPtr m2 = form->m(2);
-//    VarPtr vm2 = form->vm(2);
-//    debugBF->addTerm((1/dt) * m2, vm2);
-//    BasisCachePtr cell0Cache = BasisCache::basisCacheForCell(mesh, 0);
-//    ElementTypePtr elemType = mesh->getElementType(0);
-//    Intrepid::FieldContainer<double> stiffness(1,elemType->testOrderPtr->totalDofs(),elemType->trialOrderPtr->totalDofs());
-//    Intrepid::FieldContainer<double> cellSideParities(1,2);
-//    bool rowMajor = false;
-//    bool checkForZeroCols = false;
-//    debugBF->stiffnessMatrix(stiffness, elemType, cellSideParities, cell0Cache, rowMajor, checkForZeroCols);
-//    cout << "stiffness matrix: \n"<< stiffness << endl;
-//  }
   
   printConservationReport();
   double t = 0;
@@ -599,14 +702,55 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
   
   adjustTimeStep();
   
-  for (timeStepNumber = 0; timeStepNumber < numTimeSteps; timeStepNumber++)
+  form->setMaxLineSearchSteps(0); // don't do line search.
+//  form->setMaxLineSearchSteps(10);
+  
+  bool adaptTimeStepToMaintainConservation = true;
+  double maxAllowedConservationFailure = 1e-10;
+  
+  double timeTol = 1e-12;
+  while (t <= finalTime - timeTol)
   {
     double l2NormOfIncrement = 1.0;
     int stepNumber = 0;
     int maxNonlinearSteps = 100;
     double alpha = 1.0;
-    while (((l2NormOfIncrement > nonlinearTolerance) || (alpha < 1.0)) && (stepNumber < maxNonlinearSteps))
+    double storedDt = dt;
+//    double smallestDtAllowed = dt; // dt * 1e-8; // for now, avoid adaptive time stepping -- just fail if inadmissible
+    double smallestDtAllowed = dt * 1e-8;
+    while (((l2NormOfIncrement > nonlinearTolerance) || (alpha < 1.0)) && (stepNumber < maxNonlinearSteps) && (dt >= smallestDtAllowed))
     {
+      if (adaptTimeStepToMaintainConservation)
+      {
+        // for now, we only try this strategy without line search enabled.
+        // start by doing a solve (no accumulation):
+        solnIncrement->solve();
+        double maxFailure = maxLocalConservationFailureInPutativeSolution();
+        double minTemp = minTemperaturePutativeSolution();
+        double minPressure = minPressurePutativeSolution();
+        while ((maxFailure > maxAllowedConservationFailure) || (minTemp < 0.0) || (minPressure < 0.0))
+        {
+          dt /= 10.0;
+          if (dt < smallestDtAllowed)
+          {
+            cout << "Minimum dt of " << smallestDtAllowed << " reached, without finding a dt that satisfies conservation requirement.  Exiting...\n";
+            return -1;
+          }
+          form->setTimeStep(dt);
+          if (rank == 0)
+          {
+            cout << "Reducing time step to " << dt << " due to:\n";
+            if (minTemp < 0.0)     cout << " - min temp     = " << minTemp << endl;
+            if (minPressure < 0.0) cout << " - min pressure = " << minPressure << endl;
+            if (maxFailure > maxAllowedConservationFailure) cout << " - max conservation failure of " << maxFailure << endl;
+          }
+          solnIncrement->solve();
+          // update:
+          maxFailure = maxLocalConservationFailureInPutativeSolution();
+          minTemp = minTemperaturePutativeSolution();
+          minPressure = minPressurePutativeSolution();
+        }
+      }
       alpha = form->solveAndAccumulate();
       int solveCode = form->getSolveCode();
       if (solveCode != 0)
@@ -617,22 +761,33 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
       l2NormOfIncrement = form->L2NormSolutionIncrement();
       if (rank == 0)
       {
-        std::cout << "In Newton step " << stepNumber << ", L^2 norm of increment = " << l2NormOfIncrement;
-        if (alpha != 1.0)
-        {
-          std::cout << " (alpha = " << alpha << ")" << std::endl;
-        }
-        else
-        {
-          std::cout << std::endl;
-        }
+        if (alpha == 1.0)
+          std::cout << "In Newton step " << stepNumber << ", L^2 norm of increment = " << l2NormOfIncrement << std::endl;
+//        if (alpha != 1.0)
+//        {
+//          std::cout << " (alpha = " << alpha << ")" << std::endl;
+//        }
+//        else
+//        {
+//          std::cout << std::endl;
+//        }
       }
-      
       stepNumber++;
-      solutionHistoryExporter.exportSolution(form->solution(), double(stepNumber));  // use stepNumber as the "time" value for export...
-      solutionIncrementHistoryExporter.exportSolution(form->solutionIncrement(), double(stepNumber));
+      if (alpha == -1.0)
+      {
+        dt /= 10.0;
+        form->setTimeStep(dt);
+        if (rank == 0)
+        {
+          cout << "Admissible solution not found; resetting time step with dt = " << dt << endl;
+        }
+        soln->setSolution(solnPreviousTime);
+        stepNumber = 0;
+      }
+//      solutionHistoryExporter.exportSolution(form->solution(), double(stepNumber));  // use stepNumber as the "time" value for export...
+//      solutionIncrementHistoryExporter.exportSolution(form->solutionIncrement(), double(stepNumber));
     }
-    if (l2NormOfIncrement > nonlinearTolerance)
+    if ((l2NormOfIncrement > nonlinearTolerance) || (alpha == -1.0))
     {
       if (rank == 0)
       {
@@ -643,14 +798,31 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
     t += dt;
     
     printLocalConservationReport(); // since this depends on the difference between current/previous solution, we need to call before we set prev to current.
+    
+    if (dt != storedDt)
+    {
+      dt = storedDt;
+      form->setTimeStep(dt);
+      if (rank == 0)
+      {
+        cout << "Restoring previous time step size of dt = " << dt << endl;
+      }
+    }
     solutionExporter.exportSolution(form->solution(),functionsToPlot,functionNames,t); // similarly, since the entropy compares current and previous, need this to happen before setSolution()
     printConservationReport();
     
     if (rank == 0) std::cout << "========== t = " << t << ", time step number " << timeStepNumber+1 << " ==========\n";
-    if (timeStepNumber != numTimeSteps - 1)
+    if (t <= finalTime - timeTol) // not final step
     {
       form->solutionPreviousTimeStep()->setSolution(form->solution());
     }
+    else if (t + dt >= finalTime) // next time step should be the last
+    {
+      dt = finalTime - t;
+      form->setTimeStep(dt);
+    }
+    
+    timeStepNumber++;
   }
   
   // now that we're at final time, let's output pressure, velocity, density in a format suitable for plotting
@@ -664,6 +836,12 @@ int runSolver(Teuchos::RCP<Form> form, double dt, int meshWidth, double x_a, dou
 
 int main(int argc, char *argv[])
 {
+#ifdef CHECK_FPE
+  //  _mm_setcsr(_MM_MASK_MASK &~
+  //    (_MM_MASK_OVERFLOW | _MM_MASK_INVALID | _MM_MASK_DIV_ZERO) );
+  _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~_MM_MASK_INVALID);
+#endif
+  
   Teuchos::GlobalMPISession mpiSession(&argc, &argv); // initialize MPI
   
   int meshWidth = 200;
@@ -676,6 +854,8 @@ int main(int argc, char *argv[])
   bool useSpaceTime = false;
   int temporalPolyOrder =  1;
   int temporalMeshWidth = -1;  // if useSpaceTime gets set to true and temporalMeshWidth is left unset, we'll use meshWidth = (finalTime / dt / temporalPolyOrder)
+  std::string linearization = "Newton";
+  bool useConservationVariables = true;
   
   double x_a   = -0.5;
   double x_b   = 0.5;
@@ -703,14 +883,15 @@ int main(int argc, char *argv[])
   cmdp.setOption("meshWidth", &meshWidth);
   cmdp.setOption("dt", &dt);
   cmdp.setOption("deltaP", &delta_k);
+  cmdp.setOption("linearization", &linearization);
   cmdp.setOption("nonlinearTol", &nonlinearTolerance);
   cmdp.setOption("enforceConservation", "dontEnforceConservation", &enforceConservationUsingLagrangeMultipliers);
   cmdp.setOption("runSodInstead", "runBrioWu", &runSodInstead);
   cmdp.setOption("spaceTime","backwardEuler", &useSpaceTime);
   cmdp.setOption("temporalPolyOrder", &temporalPolyOrder);
   cmdp.setOption("temporalMeshWidth", &temporalMeshWidth);
-  
   cmdp.setOption("norm", &normChoiceString);
+  cmdp.setOption("useConservationVariables", "usePrimitiveVariables", &useConservationVariables);
   
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -729,6 +910,8 @@ int main(int argc, char *argv[])
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported norm choice");
   }
+  
+  bool usePicard = (linearization == "Picard");
   
   MeshTopologyPtr meshTopo = MeshFactory::intervalMeshTopology(x_a, x_b, meshWidth);
   
@@ -750,9 +933,17 @@ int main(int argc, char *argv[])
     auto spaceTimeMeshTopo = MeshFactory::spaceTimeMeshTopology(meshTopo, t0, t1, temporalMeshWidth);
     form = IdealMHDFormulation::spaceTimeFormulation(spaceDim, spaceTimeMeshTopo, polyOrder, temporalPolyOrder, delta_k, gamma);
   }
-  else
+  else if (!usePicard && useConservationVariables)
   {
     form = IdealMHDFormulation::timeSteppingFormulation(spaceDim, meshTopo, polyOrder, delta_k, gamma);
+  }
+  else if (!useConservationVariables)
+  {
+    form = IdealMHDFormulation::timeSteppingPrimitiveVariableFormulation(spaceDim, meshTopo, polyOrder, delta_k, gamma);
+  }
+  else
+  {
+    form = IdealMHDFormulation::timeSteppingPicardFormulation(spaceDim, meshTopo, polyOrder, delta_k, gamma);
   }
 
   return runSolver(form, dt, meshWidth, x_a, x_b, polyOrder, cubatureEnrichment, useCondensedSolve,

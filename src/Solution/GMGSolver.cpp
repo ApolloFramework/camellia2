@@ -18,6 +18,7 @@
 #include "AztecOO.h"
 #include <BelosEpetraAdapter.hpp>
 #include <BelosPseudoBlockCGSolMgr.hpp>
+#include <BelosPseudoBlockGmresSolMgr.hpp>
 #include <BelosSolverFactory.hpp>
 
 // EpetraExt includes

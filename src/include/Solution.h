@@ -180,6 +180,9 @@ public:
   void addSolution(TSolutionPtr<Scalar> soln, double weight, set<int> varsToAdd, bool allowEmptyCells = false); // thisSoln += weight * soln
   // will add terms in varsToAdd, but will replace all other variables
   void addReplaceSolution(TSolutionPtr<Scalar> soln, double weight, set<int> varsToAdd, set<int> varsToReplace, bool allowEmptyCells = false); // thisSoln += weight * soln
+  
+  // adds terms in varsToAdd using newValue = myWeight * oldValue + addedVarWeight * solnValue; replaces varsToReplace as newValue = solnValue
+  void addReplaceSolution(TSolutionPtr<Scalar> soln, double addedVarWeight, double myWeight, set<int> varsToAdd, set<int> varsToReplace, bool allowEmptyCells = false); // thisSoln += weight * soln
 
   // static method interprets a set of trial ordering coefficients in terms of a specified DofOrdering
   // and returns a set of weights for the appropriate basis
