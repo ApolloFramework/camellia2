@@ -47,7 +47,8 @@ _overrideMeshCheck(false), _soln(soln), _solnExpression(1.0 * var), _solnOrdinal
 template <typename Scalar>
 bool PreviousSolutionFunction<Scalar>::boundaryValueOnly()   // fluxes and traces are only defined on element boundaries
 {
-  return (_solnExpression->termType() == FLUX) || (_solnExpression->termType() == TRACE);
+  return _solnExpression->isPureBoundaryTerm();
+//  return (_solnExpression->termType() == FLUX) || (_solnExpression->termType() == TRACE);
 }
 
 template <typename Scalar>
