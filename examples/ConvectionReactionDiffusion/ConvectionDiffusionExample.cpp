@@ -666,12 +666,16 @@ int main(int argc, char *argv[])
   {
     formulation = ConvectionDiffusionReactionFormulation::PRIMAL;
   }
+  else if (formulationChoice == "CDPG")
+  {
+    formulation = ConvectionDiffusionReactionFormulation::CDPG;
+  }
   else
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported formulation choice!");
   }
   
-  bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL);
+  bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL || (formulation == ConvectionDiffusionReactionFormulation::CDPG));
   
   bool useDLS = formulationIsDPG && useDLSForDPG;
   
@@ -740,6 +744,11 @@ int main(int argc, char *argv[])
   {
     H1Order = polyOrder;
     ip = bf->naiveNorm(spaceDim);
+  }
+  if (formulation == ConvectionDiffusionReactionFormulation::CDPG)
+  {
+    H1Order = polyOrder;
+    ip = bf->graphNorm(weightForL2TermsGraphNorm);
   }
   if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
   {
