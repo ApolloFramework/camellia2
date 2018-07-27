@@ -213,6 +213,38 @@ void ConvectionDiffusionReactionFormulation::init(FormulationChoice formulation,
         _bf->addTerm( - sigma->div() + _beta * u->grad() + _alpha * u,
                      - tau->div()   + _beta * v->grad() + _alpha * v);
       }
+      break;
+    case CDPG:
+      sigmaSpace = tauSpace;         // enforce continuity for CDPG; locally same space as test
+      u = _vf->fieldVar(S_U, HGRAD); // enforce continuity for CDPG; locally same space as test
+      sigma = _vf->fieldVar(S_SIGMA, sigmaSpace);
+      
+      v = _vf->testVar(S_V, HGRAD);
+      tau = _vf->testVar(S_TAU, tauSpace);
+      
+      _bf = Teuchos::rcp( new BF(_vf) );
+      
+      if (spaceDim==1)
+      {
+        // for spaceDim==1, the "normal" component is in the flux-ness of uhat (it's a plus or minus 1)
+        _bf->addTerm(sigma, tau);
+        _bf->addTerm(sqrt_epsilon * u, tau->dx());
+        _bf->addTerm(-sqrt_epsilon * u, tau * n->spatialComponent(1));
+
+        _bf->addTerm(sqrt_epsilon * sigma - _beta * u, v->dx());
+        _bf->addTerm(_alpha * u, v);
+        _bf->addTerm((-sqrt_epsilon * sigma + _beta * u) * n->spatialComponent(1), v);
+      }
+      else
+      {
+        _bf->addTerm(sigma, tau);
+        _bf->addTerm(sqrt_epsilon * u, tau->div());
+        _bf->addTerm(-sqrt_epsilon * u, tau * n);
+
+        _bf->addTerm(sqrt_epsilon * sigma -_beta * u, v->grad());
+        _bf->addTerm(_alpha * u, v);
+        _bf->addTerm((-sqrt_epsilon * sigma + _beta * u) * n, v);
+      }
   }
 }
 

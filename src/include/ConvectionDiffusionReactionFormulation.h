@@ -29,7 +29,8 @@ namespace Camellia
       PRIMAL,
       SUPG,
       ULTRAWEAK,
-      LEAST_SQUARES
+      LEAST_SQUARES,
+      CDPG
     };
   private:
     FormulationChoice _formulationChoice;
