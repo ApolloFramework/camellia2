@@ -1048,11 +1048,39 @@ namespace Camellia
     {
       TBilinearTerm<Scalar> bt = *btIt;
       TLinearTermPtr<Scalar> trialTerm = btIt->first;
-      TLinearTermPtr<Scalar> testTerm = btIt->second;
+      TLinearTermPtr<Scalar> testTerm;
+      // filter out any boundary-only parts:
+      auto testSummands = btIt->second->summands();
+      for (auto testSummand : testSummands)
+      {
+        if (testSummand.first->boundaryValueOnly())
+        {
+          continue;
+        }
+        else
+        {
+          testTerm = testTerm + testSummand.first * testSummand.second;
+        }
+      }
+      if (testTerm == Teuchos::null) continue; // test is boundary-value only: skip
+        
       vector< TLinearSummand<Scalar> > summands = trialTerm->summands();
       for (typename vector< TLinearSummand<Scalar> >::iterator lsIt = summands.begin(); lsIt != summands.end(); lsIt++)
       {
         VarPtr trialVar = lsIt->second;
+        if ((trialVar->varType() == FIELD) && (lsIt->first->boundaryValueOnly()))
+        {
+          // for now anyway, we neglect field terms on the boundary.  (These are arising with CDPG.)
+          // for now, we print a warning.
+          static bool HAVE_WARNED = false;
+          if (!HAVE_WARNED)
+          {
+            std::cout << "NOTE: in automatic determination of the graph norm, skipping field terms that have function weights defined only on the mesh skeleton (e.g. normals).  The usual thing is to rely on the L^2 terms that are always added to handle these, so this choice is probably fine.\n";
+            HAVE_WARNED = true;
+          }
+          continue; // skip this term
+        }
+            
         if (trialVar->varType() == FIELD)
         {
           TFunctionPtr<Scalar> f = lsIt->first;
