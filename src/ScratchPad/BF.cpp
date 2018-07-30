@@ -104,6 +104,10 @@ namespace Camellia
     {
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "testTerm may not be empty!");
     }
+    if (trialTerm->rank() != testTerm->rank())
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "trialTerm->rank() != testTerm->rank()");
+    }
   }
   
   template <typename Scalar>
