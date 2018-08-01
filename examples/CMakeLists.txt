@@ -2,6 +2,7 @@ project(examples)
 
 add_subdirectory(BrioWuShockTube)
 add_subdirectory(CircularlyPolarizedAlfvenWave)
+add_subdirectory(ConvectingCone)
 add_subdirectory(ConvectionReactionDiffusion)
 #add_subdirectory(DGAdvection)
 #add_subdirectory(DPGAdvection)
