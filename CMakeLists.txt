@@ -278,7 +278,8 @@ IF(ENABLE_DOCS)
 
   add_custom_target(apidocs
           command ${DOXYGEN_EXECUTABLE} ${CMAKE_BINARY_DIR}/camellia.dox)
-  add_custom_target(install-apidocs COMMAND $(CMAKE_COMMAND) -P ${BLDDIR}/cmake_install.cmake)
+  add_custom_target(install-apidocs 
+        COMMAND $(CMAKE_COMMAND) -P ${CMAKE_BINARY_DIR}/cmake_install.cmake)
   add_dependencies(install-apidocs apidocs)
 ENDIF()
 
