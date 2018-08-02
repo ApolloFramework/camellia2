@@ -1,5 +1,7 @@
-Camellia: A Rapid Development Framework for Finite Element Solvers
--------------------------------------------------------------------
+Camellia: A Software Toolbox for Discontinuous Petrov-Galerkin (DPG) Methods
+-----------------------------------------------------------------------------
+(with support for other formulations)
+
 by Nathan V. Roberts
 
 We have recently added support for building Camellia using Spack, a cross-platform package manager designed for HPC libraries.  This is likely the easiest way to build Camellia.  We provide instructions for building using Spack below.  We also include some instructions for manual builds, which provide more control.

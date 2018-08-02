@@ -139,7 +139,6 @@ else ()
 endif ()
 find_package(SciMoab REQUIRED)
 ADD_DEFINITIONS(-DHAVE_MOAB)
->>>>>>> Adding cmake config-file functionality for downstream convenience
 
 #Clean up the Trilinos Libraries by removing duplicates
 #This is need to avoid CMAKE linking errors
