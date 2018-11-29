@@ -14,6 +14,7 @@
 #include "Epetra_DataAccess.h"
 
 #include <set>
+#include <functional>
 
 namespace Camellia
 {
