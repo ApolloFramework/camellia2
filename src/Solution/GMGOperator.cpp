@@ -2529,6 +2529,7 @@ std::string GMGOperator::smootherString(SmootherChoice choice)
     case POINT_SYMMETRIC_GAUSS_SEIDEL:
       return "Point Symmetric Gauss-Seidel";
   }
+  return "Problem control statement";
 }
 
 Teuchos::RCP<Epetra_CrsMatrix> GMGOperator::getMatrixRepresentation()
