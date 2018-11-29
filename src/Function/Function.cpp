@@ -1512,6 +1512,7 @@ std::map<GlobalIndexType, double> TFunction<Scalar>::squaredL2NormOfJumps(MeshPt
       case SUM:
         return v1+v2;
     }
+    return 1.;  // Avoid strict compilation errors
   };
   
   map<GlobalIndexType, vector<double> > sidel2norms; // key is cellID; values are the (squared) side contributions for that cell
